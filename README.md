@@ -99,9 +99,23 @@ git config --unset core.hooksPath
 
 ## Development Status
 
-- [x] US-001: Global Hotkey Activation & Window Management
-- [ ] US-002: Application Indexing Service
-- [ ] US-003: Fuzzy Application Search UI
-- [ ] US-004: Launch Application Logic
-- [ ] US-005: Clipboard Monitoring Service
-- [ ] US-006: Clipboard History UI & Paste
+- [x] US-001: Add Test Target to Package.swift
+- [x] US-002: Define Protocols for External Dependencies
+- [x] US-003: Create Production Implementations of Protocols
+- [x] US-004: Refactor ApplicationIndexer for Dependency Injection
+- [x] US-005: Refactor ClipboardManager for Dependency Injection
+- [x] US-006: Refactor WindowManager for Dependency Injection
+- [x] US-007: Create Mock Implementations for Testing
+- [x] US-008: Unit Tests for SearchService Fuzzy Matching
+- [x] US-009: Unit Tests for ApplicationIndexer
+- [x] US-010: Unit Tests for ClipboardManager
+- [x] US-011: Integration Tests for Search Flow
+- [x] US-012: Integration Tests for Clipboard Flow
+- [x] US-013: UI Tests for Window Behavior
+- [x] US-014: UI Tests for Search Mode Switching
+- [x] US-015: Snapshot Tests for UI Components
+- [x] US-016: Accessibility Tests
+- [x] US-017: Set Up Pre-Commit Hook for Tests
+- [x] US-018: Set Up GitHub Actions CI Pipeline
+- [x] US-019: Add Test Coverage Reporting
+- [x] US-020: Create Testing Documentation
