@@ -113,7 +113,7 @@ class WindowManager: NSObject {
 
         // Handle key events
         window.escapeHandler = { [weak self] in
-            self?.quit()
+            self?.hide()
         }
 
         window.arrowUpHandler = { [weak self] in
