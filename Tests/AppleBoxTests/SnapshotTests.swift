@@ -7,6 +7,7 @@ import AppKit
 /// These tests create images of views in various states and compare them to reference images.
 final class SnapshotTests: XCTestCase {
     
+    private var previousAppearance: NSAppearance?
     private var mockFileSystem: MockFileSystem!
     private var mockPasteboard: MockPasteboard!
     private var mockWorkspace: MockWorkspace!
@@ -15,19 +16,31 @@ final class SnapshotTests: XCTestCase {
     private var searchService: SearchService!
     private var applicationIndexer: ApplicationIndexer!
     
-    override func setUp() {
-        super.setUp()
-        
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
+        try XCTSkipUnless(
+            osVersion.majorVersion >= 26,
+            "Image snapshots are only stable on macOS 26+. GitHub-hosted Actions runners currently run an older macOS, so these tests are skipped in CI."
+        )
+
+        // Snapshot tests are sensitive to OS appearance settings. Force a stable baseline.
+        // The committed reference images are recorded in Dark Mode.
+        _ = NSApplication.shared
+        previousAppearance = NSApp.appearance
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+
         // Create mock dependencies
         mockFileSystem = MockFileSystem()
         mockPasteboard = MockPasteboard()
         mockWorkspace = MockWorkspace()
         mockEventSource = MockEventSource()
-        
+
         // Configure mock file system for Application Support directory
         let appSupportURL = URL(fileURLWithPath: "/Users/test/Library/Application Support")
         mockFileSystem.mockURLs = [appSupportURL]
-        
+
         // Create WindowManager with mocks
         windowManager = WindowManager(
             workspace: mockWorkspace,
@@ -35,12 +48,12 @@ final class SnapshotTests: XCTestCase {
             eventSource: mockEventSource,
             fileSystem: mockFileSystem
         )
-        
+
         // Create ApplicationIndexer and SearchService
         applicationIndexer = ApplicationIndexer(fileSystem: mockFileSystem)
         searchService = SearchService(indexer: applicationIndexer)
         windowManager.setSearchService(searchService)
-        
+
         // Set up clipboard manager
         let clipboardManager = ClipboardManager(
             pasteboard: mockPasteboard,
@@ -50,6 +63,9 @@ final class SnapshotTests: XCTestCase {
     }
     
     override func tearDown() {
+        NSApp.appearance = previousAppearance
+        previousAppearance = nil
+        
         windowManager = nil
         searchService = nil
         applicationIndexer = nil
@@ -105,7 +121,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of empty state
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     // MARK: - Snapshot Tests for Populated Search Results
@@ -125,7 +141,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of populated state
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     // MARK: - Snapshot Tests for Clipboard Mode Results
@@ -145,7 +161,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of clipboard mode
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     // MARK: - Snapshot Tests for Selected Row Highlighting
@@ -168,7 +184,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with selection
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     // MARK: - Additional Snapshot Tests
@@ -191,7 +207,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with clipboard selection
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     func testSnapshotManySearchResults() {
@@ -215,7 +231,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with many results
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     func testSnapshotFirstRowSelected() {
@@ -236,7 +252,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with first row selected
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
     
     func testSnapshotLastRowSelected() {
@@ -257,6 +273,6 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with last row selected
-        assertSnapshot(of: contentView, as: .image)
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
     }
 }

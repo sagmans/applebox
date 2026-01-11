@@ -398,6 +398,8 @@ AppleBox uses [swift-snapshot-testing](https://github.com/pointfreeco/swift-snap
 2. Subsequent runs: Current output is compared against references
 3. Test fails if the visual output differs
 
+> Note: Image snapshots can differ across macOS/Xcode versions due to font/color rendering. CI uses GitHub-hosted `macos-26` (currently Arm64 `beta`), and `SnapshotTests` are only executed on macOS 26+ to keep results consistent.
+
 ### Writing Snapshot Tests
 
 ```swift
