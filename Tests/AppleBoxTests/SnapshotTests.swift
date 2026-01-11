@@ -19,10 +19,10 @@ final class SnapshotTests: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
 
-        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
-        try XCTSkipUnless(
-            osVersion.majorVersion >= 26,
-            "Image snapshots are only stable on macOS 26+. GitHub-hosted Actions runners currently run an older macOS, so these tests are skipped in CI."
+        // Skip in CI - snapshot rendering differs between environments (fonts, antialiasing, etc.)
+        try XCTSkipIf(
+            ProcessInfo.processInfo.environment["CI"] == "true",
+            "Snapshot tests are skipped in CI due to environment-specific rendering differences."
         )
 
         // Snapshot tests are sensitive to OS appearance settings. Force a stable baseline.
@@ -63,7 +63,10 @@ final class SnapshotTests: XCTestCase {
     }
     
     override func tearDown() {
-        NSApp.appearance = previousAppearance
+        // Only restore appearance if setup completed (test wasn't skipped)
+        if windowManager != nil {
+            NSApp.appearance = previousAppearance
+        }
         previousAppearance = nil
         
         windowManager = nil
