@@ -549,10 +549,20 @@ extension WindowManager: NSTableViewDataSource {
 // MARK: - NSTableViewDelegate
 extension WindowManager: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        // Create or reuse a text view
-        let cellId = NSUserInterfaceItemIdentifier("AppCell")
+        // Display based on search mode
+        if searchMode == .clipboard {
+            return makeClipboardCell(tableView: tableView, row: row)
+        } else {
+            return makeApplicationCell(tableView: tableView, row: row)
+        }
+    }
+    
+    private func makeClipboardCell(tableView: NSTableView, row: Int) -> NSView? {
+        guard row >= 0 && row < clipboardResults.count else { return nil }
+        
+        let cellId = NSUserInterfaceItemIdentifier("ClipboardCell")
         var cell = tableView.makeView(withIdentifier: cellId, owner: nil) as? NSTextField
-
+        
         if cell == nil {
             cell = NSTextField()
             cell?.identifier = cellId
@@ -563,40 +573,84 @@ extension WindowManager: NSTableViewDelegate {
             cell?.font = NSFont.systemFont(ofSize: 14)
             cell?.lineBreakMode = .byTruncatingTail
         }
-
-        // Display based on search mode
-        if searchMode == .clipboard {
-            guard row >= 0 && row < clipboardResults.count else {
-                return nil
-            }
-
-            let item = clipboardResults[row].item
-            // Truncate the content for display (max 100 chars)
-            let displayContent = item.content.count > 100
-                ? String(item.content.prefix(100)) + "..."
-                : item.content
-            cell?.stringValue = displayContent
-            
-            // Accessibility for clipboard row
-            cell?.setAccessibilityIdentifier("ClipboardRow_\(row)")
-            cell?.setAccessibilityLabel("Clipboard item: \(displayContent)")
-            cell?.setAccessibilityHelp("Press Enter to copy this item to clipboard")
-        } else {
-            guard row >= 0 && row < searchResults.count else {
-                return nil
-            }
-
-            let result = searchResults[row]
-            let appInfo = result.application
-            cell?.stringValue = appInfo.name
-            
-            // Accessibility for application row
-            cell?.setAccessibilityIdentifier("ApplicationRow_\(row)")
-            cell?.setAccessibilityLabel("Application: \(appInfo.name)")
-            cell?.setAccessibilityHelp("Press Enter to launch this application")
-        }
-
+        
+        let item = clipboardResults[row].item
+        let displayContent = item.content.count > 100
+            ? String(item.content.prefix(100)) + "..."
+            : item.content
+        cell?.stringValue = displayContent
+        
+        // Accessibility
+        cell?.setAccessibilityIdentifier("ClipboardRow_\(row)")
+        cell?.setAccessibilityLabel("Clipboard item: \(displayContent)")
+        cell?.setAccessibilityHelp("Press Enter to copy this item to clipboard")
+        
         return cell
+    }
+    
+    private func makeApplicationCell(tableView: NSTableView, row: Int) -> NSView? {
+        guard row >= 0 && row < searchResults.count else { return nil }
+        
+        let cellId = NSUserInterfaceItemIdentifier("AppCell")
+        var containerView = tableView.makeView(withIdentifier: cellId, owner: nil)
+        
+        let iconSize: CGFloat = 24
+        let padding: CGFloat = 8
+        
+        if containerView == nil {
+            containerView = NSView()
+            containerView?.identifier = cellId
+            
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.tag = 100
+            containerView?.addSubview(imageView)
+            
+            let textField = NSTextField()
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            textField.isBordered = false
+            textField.isEditable = false
+            textField.isSelectable = false
+            textField.backgroundColor = .clear
+            textField.font = NSFont.systemFont(ofSize: 14)
+            textField.lineBreakMode = .byTruncatingTail
+            textField.tag = 101
+            containerView?.addSubview(textField)
+            
+            NSLayoutConstraint.activate([
+                imageView.leadingAnchor.constraint(equalTo: containerView!.leadingAnchor, constant: padding),
+                imageView.centerYAnchor.constraint(equalTo: containerView!.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: iconSize),
+                imageView.heightAnchor.constraint(equalToConstant: iconSize),
+                
+                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: padding),
+                textField.trailingAnchor.constraint(equalTo: containerView!.trailingAnchor, constant: -padding),
+                textField.centerYAnchor.constraint(equalTo: containerView!.centerYAnchor)
+            ])
+        }
+        
+        let result = searchResults[row]
+        let appInfo = result.application
+        
+        // Get app icon
+        if let imageView = containerView?.viewWithTag(100) as? NSImageView {
+            let icon = NSWorkspace.shared.icon(forFile: appInfo.bundlePath)
+            icon.size = NSSize(width: iconSize, height: iconSize)
+            imageView.image = icon
+        }
+        
+        // Set app name
+        if let textField = containerView?.viewWithTag(101) as? NSTextField {
+            textField.stringValue = appInfo.name
+        }
+        
+        // Accessibility
+        containerView?.setAccessibilityIdentifier("ApplicationRow_\(row)")
+        containerView?.setAccessibilityLabel("Application: \(appInfo.name)")
+        containerView?.setAccessibilityHelp("Press Enter to launch this application")
+        
+        return containerView
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
