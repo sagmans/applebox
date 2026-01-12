@@ -24,8 +24,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager?.setClipboardManager(clipboardManager!)
 
         // Initialize hotkey manager
-        hotkeyManager = HotkeyManager { [weak self] in
-            self?.toggleWindow()
+        hotkeyManager = HotkeyManager { [weak self] mode in
+            let searchMode: SearchMode = mode == .clipboard ? .clipboard : .applications
+            self?.toggleWindow(mode: searchMode)
         }
 
         // Start monitoring hotkey
@@ -36,7 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("AppleBox terminating")
     }
 
-    private func toggleWindow() {
-        windowManager?.toggle()
+    private func toggleWindow(mode: SearchMode? = nil) {
+        windowManager?.toggle(mode: mode)
     }
 }

@@ -85,7 +85,7 @@ git config --unset core.hooksPath
 
 ## Features
 
-- **Global Hotkey**: Press `Cmd+Space` to toggle the app window
+- **Global Hotkeys**: `Cmd+Space` opens app search, `Opt+Space` opens clipboard history
 - **Escape Key**: Press `Esc` to quit the app
 - **Centered Window**: Window appears centered on the active screen
 - **No Dock Icon**: Runs as a background application (LSUIElement style)
@@ -94,7 +94,7 @@ git config --unset core.hooksPath
 
 - `main.swift` - App entry point
 - `AppDelegate.swift` - Application lifecycle management
-- `HotkeyManager.swift` - Global hotkey monitoring (Cmd+Space)
+- `HotkeyManager.swift` - Global hotkey monitoring (Cmd+Space / Opt+Space)
 - `WindowManager.swift` - Window display and key handling (Esc/arrows/Enter)
 
 ## Development Status

@@ -1,10 +1,15 @@
 import AppKit
 
+enum HotkeyMode {
+    case application
+    case clipboard
+}
+
 class HotkeyManager {
     private var eventMonitor: EventMonitor?
-    private let callback: () -> Void
+    private let callback: (HotkeyMode) -> Void
 
-    init(callback: @escaping () -> Void) {
+    init(callback: @escaping (HotkeyMode) -> Void) {
         self.callback = callback
     }
 
@@ -21,12 +26,16 @@ class HotkeyManager {
     }
 
     private func handleKeyEvent(_ event: NSEvent) {
-        // Check for Cmd+Space
-        // Cmd key is .command (0x100000), Space is character code 32
+        // Cmd+Space for app mode, Opt+Space for clipboard mode
         let cmdPressed = event.modifierFlags.contains(.command)
+        let optPressed = event.modifierFlags.contains(.option)
 
-        if cmdPressed && event.keyCode == 49 { // 49 is space key
-            callback()
+        if event.keyCode == 49 { // 49 is space key
+            if cmdPressed {
+                callback(.application)
+            } else if optPressed {
+                callback(.clipboard)
+            }
         }
     }
 }
