@@ -29,7 +29,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Prefer respecting Reduce Motion if feasible."
     },
     {

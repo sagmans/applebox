@@ -4,6 +4,7 @@ Started: Mon Jan 12 17:43:12 +03 2026
 
 ## Codebase Patterns
 - UI window layout/styling is in `Sources/AppleBox/WindowManager.swift` (borderless `AppleBoxWindow` + AppKit views).
+- Respect Reduce Motion via `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` before running AppKit animations.
 - Snapshot tests: run `RECORD_SNAPSHOTS=1 swift test --filter SnapshotTests` to update PNGs, then re-run without `RECORD_SNAPSHOTS` to assert.
 
 ## 2026-01-12 18:14:12 +0300 - US-001
@@ -18,5 +19,16 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
 - **Learnings for future iterations:**
   - Record-mode snapshot runs fail by design; re-run with record off to validate.
   - `NSVisualEffectView` corners need layer clipping (`masksToBounds`) for visibly rounded glass.
+---
+
+## 2026-01-12 18:26:39 +0300 - US-002
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented subtle slide+fade animation for results updates (throttled, ~130ms) and respected Reduce Motion.
+- Files changed
+  - `Sources/AppleBox/WindowManager.swift`
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Prefer animating the scroll container (alpha + small Y offset) and throttle updates to avoid per-keystroke jitter.
 ---
 

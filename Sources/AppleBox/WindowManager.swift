@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import QuartzCore
 
 // MARK: - Search Mode
 enum SearchMode {
@@ -74,6 +75,8 @@ class WindowManager: NSObject {
     private var lastSearchQuery: String = ""
     private var userHasOverriddenPinnedScrollSinceLastQueryChange = false
     private var isPerformingProgrammaticScroll = false
+
+    private var lastResultsAnimationUptime: TimeInterval = 0
 
     // Injected dependencies
     private let workspace: WorkspaceProtocol
@@ -287,6 +290,37 @@ class WindowManager: NSObject {
         }
     }
 
+    private func reloadResults(animate: Bool) {
+        tableView?.reloadData()
+        if animate {
+            animateResultsUpdateIfAppropriate()
+        }
+    }
+
+    private func animateResultsUpdateIfAppropriate() {
+        guard isWindowVisible, let scrollView = scrollView else { return }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let minimumInterval: TimeInterval = 0.10
+        if now - lastResultsAnimationUptime < minimumInterval { return }
+        lastResultsAnimationUptime = now
+
+        let baseFrame = scrollView.frame
+        let offset: CGFloat = 6
+
+        scrollView.wantsLayer = true
+        scrollView.alphaValue = 0.92
+        scrollView.setFrameOrigin(NSPoint(x: baseFrame.origin.x, y: baseFrame.origin.y - offset))
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.13
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            scrollView.animator().alphaValue = 1.0
+            scrollView.animator().setFrameOrigin(baseFrame.origin)
+        }
+    }
+
     private func switchToMode(_ mode: SearchMode) {
         searchMode = mode
 
@@ -402,7 +436,7 @@ class WindowManager: NSObject {
             guard let manager = clipboardManager else {
                 clipboardResults = []
                 selectedRowIndex = -1
-                tableView?.reloadData()
+                reloadResults(animate: true)
                 if !userHasOverriddenPinnedScrollSinceLastQueryChange {
                     scrollResultsToTop(selectFirstRow: true)
                 }
@@ -430,7 +464,7 @@ class WindowManager: NSObject {
             }
         }
 
-        tableView?.reloadData()
+        reloadResults(animate: true)
 
         if !userHasOverriddenPinnedScrollSinceLastQueryChange {
             scrollResultsToTop(selectFirstRow: true)
