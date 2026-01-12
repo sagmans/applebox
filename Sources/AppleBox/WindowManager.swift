@@ -82,6 +82,8 @@ class WindowManager: NSObject {
     private var isPerformingProgrammaticScroll = false
 
     private var lastResultsAnimationUptime: TimeInterval = 0
+    private var searchDebounceWorkItem: DispatchWorkItem?
+    private let searchDebounceInterval: TimeInterval = 0.05  // 50ms debounce
 
     // Injected dependencies
     private let workspace: WorkspaceProtocol
@@ -653,13 +655,25 @@ class WindowManager: NSObject {
 
     @objc private func handleSearch(_ sender: NSSearchField) {
         let query = sender.stringValue
-        print("Search: \(query)")
 
         if query != lastSearchQuery {
             userHasOverriddenPinnedScrollSinceLastQueryChange = false
             lastSearchQuery = query
         }
 
+        // Cancel any pending debounced search
+        searchDebounceWorkItem?.cancel()
+
+        // Debounce search to avoid per-keystroke overhead
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performSearch(query: query)
+        }
+        searchDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
+    }
+
+    /// Performs the actual search (called after debounce).
+    private func performSearch(query: String) {
         if searchMode == .clipboard {
             searchResults = []
 
@@ -673,12 +687,10 @@ class WindowManager: NSObject {
                 return
             }
 
-            let filtered = manager.searchHistory(query: query)
-            clipboardResults = filtered.map { item in
-                let match = query.isEmpty
-                    ? FuzzyMatchResult(score: 0, matchedIndices: [])
-                    : FuzzyMatcher.matchWithIndices(query: query, candidate: item.content)
-                return ClipboardSearchResult(item: item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
+            // Use searchHistoryWithMatches to avoid duplicate fuzzy matching
+            let matches = manager.searchHistoryWithMatches(query: query)
+            clipboardResults = matches.map { match in
+                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
             }
 
             selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
@@ -865,10 +877,20 @@ class WindowManager: NSObject {
         return searchField?.stringValue
     }
     
-    /// Simulates typing in the search field (for testing)
+    /// Simulates typing in the search field (for testing).
+    /// Executes search synchronously (bypassing debounce) for test reliability.
     func simulateSearch(query: String) {
         searchField?.stringValue = query
-        handleSearch(searchField!)
+        // Cancel any pending debounced search
+        searchDebounceWorkItem?.cancel()
+        searchDebounceWorkItem = nil
+        // Update query tracking
+        if query != lastSearchQuery {
+            userHasOverriddenPinnedScrollSinceLastQueryChange = false
+            lastSearchQuery = query
+        }
+        // Execute search synchronously for tests
+        performSearch(query: query)
     }
     
     /// Returns the content view for snapshot testing

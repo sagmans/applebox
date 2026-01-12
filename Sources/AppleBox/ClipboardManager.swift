@@ -79,25 +79,39 @@ class ClipboardManager {
         return history
     }
 
-    func searchHistory(query: String) -> [ClipboardItem] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return history }
+    /// Result of a clipboard search with score and matched indices.
+    struct ClipboardSearchMatch {
+        let item: ClipboardItem
+        let score: Int
+        let matchedIndices: [Int]
+    }
 
-        let scored = history.enumerated().compactMap { index, item -> (index: Int, item: ClipboardItem, score: Int)? in
-            let score = FuzzyMatcher.score(query: trimmedQuery, candidate: item.content)
-            guard score > 0 else { return nil }
-            return (index: index, item: item, score: score)
+    func searchHistory(query: String) -> [ClipboardItem] {
+        return searchHistoryWithMatches(query: query).map { $0.item }
+    }
+
+    /// Search history returning full match results (score + indices) to avoid duplicate fuzzy matching.
+    func searchHistoryWithMatches(query: String) -> [ClipboardSearchMatch] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            return history.map { ClipboardSearchMatch(item: $0, score: 0, matchedIndices: []) }
+        }
+
+        let scored = history.enumerated().compactMap { index, item -> (index: Int, match: ClipboardSearchMatch)? in
+            let result = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: item.content)
+            guard result.score > 0 else { return nil }
+            return (index: index, match: ClipboardSearchMatch(item: item, score: result.score, matchedIndices: result.matchedIndices))
         }
 
         return scored
             .sorted {
-                if $0.score != $1.score {
-                    return $0.score > $1.score
+                if $0.match.score != $1.match.score {
+                    return $0.match.score > $1.match.score
                 }
                 // Preserve recency (history is already most-recent-first)
                 return $0.index < $1.index
             }
-            .map { $0.item }
+            .map { $0.match }
     }
 
     // MARK: - Private Methods
