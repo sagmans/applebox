@@ -44,7 +44,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Use fuzzy match positions if available; otherwise implement minimal match-index support."
     },
     {
@@ -57,7 +57,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Only implement if current matcher cannot provide positions."
     },
     {

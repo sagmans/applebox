@@ -6,6 +6,8 @@ Started: Mon Jan 12 17:43:12 +03 2026
 - UI window layout/styling is in `Sources/AppleBox/WindowManager.swift` (borderless `AppleBoxWindow` + AppKit views).
 - Respect Reduce Motion via `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` before running AppKit animations.
 - Snapshot tests: run `RECORD_SNAPSHOTS=1 swift test --filter SnapshotTests` to update PNGs, then re-run without `RECORD_SNAPSHOTS` to assert.
+- Fuzzy matching returns `FuzzyMatchResult` with `score` and `matchedIndices` via `FuzzyMatcher.matchWithIndices()`.
+- Use `attributedStringValue` with `NSColor.controlAccentColor` for match highlighting in table cells.
 
 ## 2026-01-12 18:14:12 +0300 - US-001
 Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
@@ -30,5 +32,22 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - `.ralph/progress.txt`
 - **Learnings for future iterations:**
   - Prefer animating the scroll container (alpha + small Y offset) and throttle updates to avoid per-keystroke jitter.
+---
+
+## 2026-01-12 19:47:00 +0300 - US-003 & US-004
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented matched-character highlighting using `NSColor.controlAccentColor` in both application and clipboard result rows.
+- Extended `FuzzyMatcher` to return `FuzzyMatchResult` with `score` and `matchedIndices` (US-004 prerequisite).
+- Added `attributedString(for:highlightingIndices:font:)` helper for building highlighted attributed strings.
+- Files changed
+  - `Sources/AppleBox/SearchService.swift` - added `FuzzyMatchResult`, `matchWithIndices()`, `matchedIndices` to `SearchResult`
+  - `Sources/AppleBox/WindowManager.swift` - added highlighting logic to `makeClipboardCell` and `makeApplicationCell`
+  - `Tests/AppleBoxTests/SnapshotTests.swift` - updated test helpers for new `matchedIndices` field
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/*.png` - updated snapshots
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - When truncating displayed text (e.g., `prefix(100)`), filter `matchedIndices` to exclude out-of-bounds indices.
+  - Use UTF-16 offsets for NSRange when applying attributes to NSAttributedString.
 ---
 
