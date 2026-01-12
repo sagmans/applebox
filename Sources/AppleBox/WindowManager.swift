@@ -60,7 +60,10 @@ class AppleBoxWindow: NSWindow {
 
 class WindowManager: NSObject {
     private var window: AppleBoxWindow?
+    private var sidecarWindow: AppleBoxWindow?
+    private var sidecarContentView: NSView?
     private var isWindowVisible = false
+    private var isSidecarVisible = false
     private var searchField: NSSearchField?
     private var tableView: NSTableView?
     private var scrollView: NSScrollView?
@@ -250,6 +253,102 @@ class WindowManager: NSObject {
         window.initialFirstResponder = searchField
 
         self.window = window
+        setupSidecarWindow()
+    }
+
+    private func setupSidecarWindow() {
+        let sidecarWidth: CGFloat = 320
+        let sidecarHeight: CGFloat = 400  // Match main window height
+
+        let sidecarWindow = AppleBoxWindow(
+            contentRect: NSRect(x: 0, y: 0, width: sidecarWidth, height: sidecarHeight),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        // Glass styling matching main window
+        sidecarWindow.backgroundColor = .clear
+        sidecarWindow.isOpaque = false
+        sidecarWindow.hasShadow = true
+        sidecarWindow.level = .floating
+        sidecarWindow.isMovableByWindowBackground = false
+
+        // Accessibility
+        sidecarWindow.setAccessibilityIdentifier("AppleBoxSidecarWindow")
+        sidecarWindow.setAccessibilityLabel("Clipboard Preview Panel")
+        sidecarWindow.setAccessibilityHelp("Preview panel for clipboard items")
+
+        // Sidecar escape also hides main window
+        sidecarWindow.escapeHandler = { [weak self] in
+            self?.hide()
+        }
+
+        // Glass background container
+        let glassView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: sidecarWidth, height: sidecarHeight))
+        glassView.autoresizingMask = [.width, .height]
+        glassView.material = .hudWindow
+        glassView.blendingMode = .behindWindow
+        glassView.state = .active
+        glassView.wantsLayer = true
+        glassView.layer?.cornerRadius = 16
+        glassView.layer?.masksToBounds = true
+        if #available(macOS 11.0, *) {
+            glassView.layer?.cornerCurve = .continuous
+        }
+
+        // Subtle readability overlay
+        let overlayView = NSView(frame: glassView.bounds)
+        overlayView.autoresizingMask = [.width, .height]
+        overlayView.wantsLayer = true
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.18).cgColor
+
+        // Content view (preview content lives here)
+        let contentView = NSView(frame: glassView.bounds)
+        contentView.autoresizingMask = [.width, .height]
+
+        glassView.addSubview(overlayView)
+        glassView.addSubview(contentView)
+        sidecarWindow.contentView = glassView
+
+        self.sidecarWindow = sidecarWindow
+        self.sidecarContentView = contentView
+    }
+
+    // MARK: - Sidecar Panel Methods
+
+    /// Shows the sidecar panel positioned to the right of the main window.
+    func showSidecar() {
+        guard let mainWindow = window, let sidecar = sidecarWindow else { return }
+        guard searchMode == .clipboard else { return }  // Only show in clipboard mode
+
+        let gap: CGFloat = 8
+        let mainFrame = mainWindow.frame
+        let sidecarOrigin = NSPoint(
+            x: mainFrame.maxX + gap,
+            y: mainFrame.origin.y
+        )
+
+        sidecar.setFrameOrigin(sidecarOrigin)
+        sidecar.makeKeyAndOrderFront(nil)
+
+        // Ensure main window stays key
+        mainWindow.makeKeyAndOrderFront(nil)
+
+        isSidecarVisible = true
+        print("Sidecar shown")
+    }
+
+    /// Hides the sidecar panel.
+    func hideSidecar() {
+        sidecarWindow?.orderOut(nil)
+        isSidecarVisible = false
+        print("Sidecar hidden")
+    }
+
+    /// Returns whether the sidecar is currently visible.
+    func isSidecarShowing() -> Bool {
+        return isSidecarVisible
     }
 
     func toggle(mode: SearchMode? = nil) {
@@ -411,6 +510,7 @@ class WindowManager: NSObject {
     }
 
     func hide() {
+        hideSidecar()
         window?.orderOut(nil)
         NSApp.hide(nil)
         isWindowVisible = false
@@ -704,6 +804,18 @@ class WindowManager: NSObject {
     /// Returns the selected row index for testing
     func getSelectedRowIndex() -> Int {
         return selectedRowIndex
+    }
+    
+    // MARK: - Sidecar Test Helpers
+    
+    /// Returns the sidecar window for testing
+    func getSidecarWindow() -> NSWindow? {
+        return sidecarWindow
+    }
+    
+    /// Returns the sidecar content view for testing
+    func getSidecarContentView() -> NSView? {
+        return sidecarContentView
     }
 }
 

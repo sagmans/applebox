@@ -404,4 +404,91 @@ final class WindowManagerTests: XCTestCase {
         // The enter handler is configured in setupWindow()
         XCTAssertNotNil(windowManager)
     }
+
+    // MARK: - Sidecar Panel Tests
+
+    func testSidecarWindowExists() {
+        // The sidecar window is created during setupWindow()
+        XCTAssertNotNil(windowManager.getSidecarWindow())
+    }
+
+    func testSidecarContentViewExists() {
+        // The sidecar content view is created during setupWindow()
+        XCTAssertNotNil(windowManager.getSidecarContentView())
+    }
+
+    func testSidecarInitiallyHidden() {
+        // Sidecar should not be visible by default
+        XCTAssertFalse(windowManager.isSidecarShowing())
+    }
+
+    func testSidecarShowsInClipboardMode() {
+        // Show main window in clipboard mode
+        windowManager.show(mode: .clipboard)
+
+        // Show sidecar
+        windowManager.showSidecar()
+
+        XCTAssertTrue(windowManager.isSidecarShowing())
+    }
+
+    func testSidecarDoesNotShowInApplicationMode() {
+        // Show main window in application mode
+        windowManager.show(mode: .applications)
+
+        // Attempt to show sidecar (should be ignored in application mode)
+        windowManager.showSidecar()
+
+        XCTAssertFalse(windowManager.isSidecarShowing())
+    }
+
+    func testSidecarHides() {
+        // Show main window in clipboard mode and sidecar
+        windowManager.show(mode: .clipboard)
+        windowManager.showSidecar()
+        XCTAssertTrue(windowManager.isSidecarShowing())
+
+        // Hide sidecar
+        windowManager.hideSidecar()
+        XCTAssertFalse(windowManager.isSidecarShowing())
+    }
+
+    func testSidecarHiddenWhenMainWindowHides() {
+        // Show main window in clipboard mode and sidecar
+        windowManager.show(mode: .clipboard)
+        windowManager.showSidecar()
+        XCTAssertTrue(windowManager.isSidecarShowing())
+
+        // Hide main window
+        windowManager.hide()
+        XCTAssertFalse(windowManager.isSidecarShowing())
+    }
+
+    func testSidecarWindowDimensions() {
+        guard let sidecarWindow = windowManager.getSidecarWindow() else {
+            XCTFail("Sidecar window should exist")
+            return
+        }
+
+        // Verify sidecar dimensions (~320px width, 400px height)
+        let frame = sidecarWindow.frame
+        XCTAssertEqual(frame.width, 320, accuracy: 1)
+        XCTAssertEqual(frame.height, 400, accuracy: 1)
+    }
+
+    func testSidecarWindowHasGlassStyling() {
+        guard let sidecarWindow = windowManager.getSidecarWindow() else {
+            XCTFail("Sidecar window should exist")
+            return
+        }
+
+        // Verify glass styling properties
+        XCTAssertEqual(sidecarWindow.backgroundColor, .clear)
+        XCTAssertFalse(sidecarWindow.isOpaque)
+        XCTAssertTrue(sidecarWindow.hasShadow)
+        XCTAssertEqual(sidecarWindow.level, .floating)
+
+        // Verify content view is NSVisualEffectView
+        XCTAssertTrue(sidecarWindow.contentView is NSVisualEffectView)
+    }
 }

@@ -298,4 +298,31 @@ final class SnapshotTests: XCTestCase {
         // Take snapshot with last row selected
         assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
+    
+    // MARK: - Sidecar Panel Snapshot Tests
+    
+    func testSnapshotSidecarPanel() {
+        // Set up clipboard mode (sidecar only shows in clipboard mode)
+        let items = createSampleClipboardItems()
+        windowManager.setClipboardResultsForTesting(items)
+        
+        // Get the sidecar content view
+        guard let sidecarContentView = windowManager.getSidecarContentView() else {
+            XCTFail("Sidecar content view should exist")
+            return
+        }
+        
+        // Get the sidecar window for snapshot
+        guard let sidecarWindow = windowManager.getSidecarWindow(),
+              let sidecarGlassView = sidecarWindow.contentView else {
+            XCTFail("Sidecar window content view should exist")
+            return
+        }
+        
+        // Ensure the view has proper layout
+        sidecarGlassView.layoutSubtreeIfNeeded()
+        
+        // Take snapshot of sidecar panel
+        assertSnapshot(of: sidecarGlassView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
+    }
 }
