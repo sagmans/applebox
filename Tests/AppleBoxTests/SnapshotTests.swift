@@ -116,7 +116,7 @@ final class SnapshotTests: XCTestCase {
     private func createSampleSearchResults() -> [SearchResult] {
         let apps = createSampleApps()
         return apps.enumerated().map { index, app in
-            SearchResult(application: app, score: 100 - index * 10)
+            SearchResult(application: app, score: 100 - index * 10, matchedIndices: [])
         }
     }
     
@@ -240,7 +240,7 @@ final class SnapshotTests: XCTestCase {
             apps.append(ApplicationInfo(name: "Application \(i)", bundlePath: "/Applications/App\(i).app"))
         }
         let results = apps.enumerated().map { index, app in
-            SearchResult(application: app, score: 200 - index * 10)
+            SearchResult(application: app, score: 200 - index * 10, matchedIndices: [])
         }
         windowManager.setSearchResultsForTesting(results)
         

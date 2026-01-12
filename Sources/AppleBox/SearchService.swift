@@ -1,25 +1,42 @@
 import AppKit
 
+/// Result containing both score and matched character indices.
+struct FuzzyMatchResult {
+    let score: Int
+    /// Character indices (0-based) in the candidate string that matched.
+    let matchedIndices: [Int]
+}
+
 enum FuzzyMatcher {
     /// fzf-style fuzzy matching score.
     /// Returns `0` if `query` is not a subsequence of `candidate`.
     static func score(query: String, candidate: String) -> Int {
+        return matchWithIndices(query: query, candidate: candidate).score
+    }
+
+    /// fzf-style fuzzy matching with score and match indices.
+    /// Returns score `0` and empty indices if `query` is not a subsequence of `candidate`.
+    static func matchWithIndices(query: String, candidate: String) -> FuzzyMatchResult {
         let normalizedQuery = query.lowercased()
         let normalizedCandidate = candidate.lowercased()
 
-        guard !normalizedQuery.isEmpty else { return 0 }
+        guard !normalizedQuery.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
 
         var queryIndex = normalizedQuery.startIndex
         var candidateIndex = normalizedCandidate.startIndex
         var score = 0
         var consecutiveMatches = 0
         var previousCharWasMatch = false
+        var matchedIndices: [Int] = []
 
         while queryIndex < normalizedQuery.endIndex && candidateIndex < normalizedCandidate.endIndex {
             let queryChar = normalizedQuery[queryIndex]
             let candidateChar = normalizedCandidate[candidateIndex]
 
             if queryChar == candidateChar {
+                let candidateOffset = normalizedCandidate.distance(from: normalizedCandidate.startIndex, to: candidateIndex)
+                matchedIndices.append(candidateOffset)
+
                 score += 10
 
                 if previousCharWasMatch {
@@ -50,14 +67,19 @@ enum FuzzyMatcher {
             candidateIndex = normalizedCandidate.index(after: candidateIndex)
         }
 
-        return queryIndex < normalizedQuery.endIndex ? 0 : score
+        if queryIndex < normalizedQuery.endIndex {
+            return FuzzyMatchResult(score: 0, matchedIndices: [])
+        }
+        return FuzzyMatchResult(score: score, matchedIndices: matchedIndices)
     }
 }
 
-// Represents a search result with a relevance score
+// Represents a search result with a relevance score and match indices
 struct SearchResult {
     let application: ApplicationInfo
     let score: Int
+    /// Character indices in application.name that matched the query.
+    let matchedIndices: [Int]
 }
 
 class SearchService {
@@ -78,10 +100,10 @@ class SearchService {
         var results: [SearchResult] = []
 
         for app in indexer.allApplications {
-            let score = FuzzyMatcher.score(query: query, candidate: app.name)
+            let match = FuzzyMatcher.matchWithIndices(query: query, candidate: app.name)
 
-            if score > 0 {
-                results.append(SearchResult(application: app, score: score))
+            if match.score > 0 {
+                results.append(SearchResult(application: app, score: match.score, matchedIndices: match.matchedIndices))
             }
         }
 

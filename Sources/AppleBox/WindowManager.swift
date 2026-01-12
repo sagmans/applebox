@@ -12,6 +12,8 @@ enum SearchMode {
 struct ClipboardSearchResult {
     let item: ClipboardItem
     let relevanceScore: Int
+    /// Character indices in item.content that matched the query.
+    let matchedIndices: [Int]
 }
 
 protocol AppIconProviding {
@@ -331,7 +333,7 @@ class WindowManager: NSObject {
                 // Load clipboard history
                 if let manager = clipboardManager {
                     let history = manager.getHistory()
-                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
                 }
                 selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
             } else {
@@ -385,7 +387,7 @@ class WindowManager: NSObject {
                 // Load clipboard history
                 if let manager = clipboardManager {
                     let history = manager.getHistory()
-                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
                 }
                 selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
             } else {
@@ -445,8 +447,10 @@ class WindowManager: NSObject {
 
             let filtered = manager.searchHistory(query: query)
             clipboardResults = filtered.map { item in
-                let score = query.isEmpty ? 0 : FuzzyMatcher.score(query: query, candidate: item.content)
-                return ClipboardSearchResult(item: item, relevanceScore: score)
+                let match = query.isEmpty
+                    ? FuzzyMatchResult(score: 0, matchedIndices: [])
+                    : FuzzyMatcher.matchWithIndices(query: query, candidate: item.content)
+                return ClipboardSearchResult(item: item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
             }
 
             selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
@@ -661,7 +665,7 @@ class WindowManager: NSObject {
     /// Sets clipboard results directly for snapshot testing
     func setClipboardResultsForTesting(_ items: [ClipboardItem]) {
         self.searchMode = .clipboard
-        self.clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+        self.clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
         self.selectedRowIndex = items.isEmpty ? -1 : 0
         searchField?.placeholderString = "Search clipboard history..."
         self.tableView?.reloadData()
@@ -738,11 +742,19 @@ extension WindowManager: NSTableViewDelegate {
             cell?.lineBreakMode = .byTruncatingTail
         }
         
-        let item = clipboardResults[row].item
+        let result = clipboardResults[row]
+        let item = result.item
         let displayContent = item.content.count > 100
             ? String(item.content.prefix(100)) + "..."
             : item.content
-        cell?.stringValue = displayContent
+        
+        // Apply highlighting to matched indices (adjust for truncation)
+        let truncatedIndices = result.matchedIndices.filter { $0 < displayContent.count }
+        cell?.attributedStringValue = attributedString(
+            for: displayContent,
+            highlightingIndices: truncatedIndices,
+            font: cell?.font ?? NSFont.systemFont(ofSize: 14)
+        )
         
         // Accessibility
         cell?.setAccessibilityIdentifier("ClipboardRow_\(row)")
@@ -804,9 +816,13 @@ extension WindowManager: NSTableViewDelegate {
             imageView.image = icon
         }
         
-        // Set app name
+        // Set app name with highlighted matches
         if let textField = containerView?.viewWithTag(101) as? NSTextField {
-            textField.stringValue = appInfo.name
+            textField.attributedStringValue = attributedString(
+                for: appInfo.name,
+                highlightingIndices: result.matchedIndices,
+                font: textField.font ?? NSFont.systemFont(ofSize: 14)
+            )
         }
         
         // Accessibility
@@ -824,6 +840,37 @@ extension WindowManager: NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         return 36
+    }
+    
+    // MARK: - Attributed String Highlighting
+    
+    /// Creates an attributed string with matched characters highlighted using the system accent color.
+    private func attributedString(for text: String, highlightingIndices indices: [Int], font: NSFont) -> NSAttributedString {
+        let attributedString = NSMutableAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: NSColor.labelColor
+        ])
+        
+        guard !indices.isEmpty else { return attributedString }
+        
+        // Use controlAccentColor for highlighted matches
+        let highlightColor = NSColor.controlAccentColor
+        
+        // Convert character indices to UTF-16 ranges for NSAttributedString
+        for charIndex in indices {
+            guard charIndex < text.count else { continue }
+            
+            let stringIndex = text.index(text.startIndex, offsetBy: charIndex)
+            let utf16Offset = text.utf16.distance(from: text.utf16.startIndex, to: stringIndex)
+            
+            // Highlight a single character
+            let range = NSRange(location: utf16Offset, length: 1)
+            guard range.location + range.length <= attributedString.length else { continue }
+            
+            attributedString.addAttribute(.foregroundColor, value: highlightColor, range: range)
+        }
+        
+        return attributedString
     }
 }
 
