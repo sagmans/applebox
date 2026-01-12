@@ -13,7 +13,15 @@ struct ClipboardSearchResult {
     let relevanceScore: Int
 }
 
+protocol AppIconProviding {
+    func icon(forBundlePath: String) -> NSImage
+}
 
+struct SystemAppIconProvider: AppIconProviding {
+    func icon(forBundlePath: String) -> NSImage {
+        NSWorkspace.shared.icon(forFile: forBundlePath)
+    }
+}
 
 // Custom NSWindow that handles key events
 class AppleBoxWindow: NSWindow {
@@ -62,26 +70,36 @@ class WindowManager: NSObject {
     private var clipboardManager: ClipboardManager?
     private var clipboardResults: [ClipboardSearchResult] = []
     private var searchMode: SearchMode = .applications
-    private let clipboardTrigger = ">" // Trigger to switch to clipboard mode
+
+    private var lastSearchQuery: String = ""
+    private var userHasOverriddenPinnedScrollSinceLastQueryChange = false
+    private var isPerformingProgrammaticScroll = false
 
     // Injected dependencies
     private let workspace: WorkspaceProtocol
     private let pasteboard: PasteboardProtocol
     private let eventSource: EventSourceProtocol
     private let fileSystem: FileSystemProtocol
+    private let iconProvider: AppIconProviding
 
     init(
         workspace: WorkspaceProtocol = SystemWorkspace(),
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         eventSource: EventSourceProtocol = SystemEventSource(),
-        fileSystem: FileSystemProtocol = SystemFileManager()
+        fileSystem: FileSystemProtocol = SystemFileManager(),
+        iconProvider: AppIconProviding = SystemAppIconProvider()
     ) {
         self.workspace = workspace
         self.pasteboard = pasteboard
         self.eventSource = eventSource
         self.fileSystem = fileSystem
+        self.iconProvider = iconProvider
         super.init()
         setupWindow()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func setSearchService(_ service: SearchService) {
@@ -138,12 +156,12 @@ class WindowManager: NSObject {
         searchField.font = NSFont.systemFont(ofSize: 16)
         searchField.target = self
         searchField.action = #selector(handleSearch(_:))
-        searchField.delegate = self  // For arrow key handling
-        
+        searchField.delegate = self  // For arrow key handling and text control
+
         // Accessibility for search field
         searchField.setAccessibilityIdentifier("AppleBoxSearchField")
         searchField.setAccessibilityLabel("Search Field")
-        searchField.setAccessibilityHelp("Type to search for applications. Type > to search clipboard history.")
+        searchField.setAccessibilityHelp("Type to search for applications (Cmd+Space). Search clipboard history with Opt+Space.")
 
         contentView.addSubview(searchField)
         self.searchField = searchField
@@ -154,6 +172,15 @@ class WindowManager: NSObject {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = .clear
+
+        // Track user scrolling so we don't fight it
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(resultsDidScroll(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         // Create table view
         let tableView = NSTableView(frame: scrollView.bounds)
@@ -195,15 +222,79 @@ class WindowManager: NSObject {
         self.window = window
     }
 
-    func toggle() {
+    func toggle(mode: SearchMode? = nil) {
         if isWindowVisible {
-            hide()
+            // If window is visible, switch to the requested mode or hide
+            if let mode = mode, mode != searchMode {
+                switchToMode(mode)
+            } else {
+                hide()
+            }
         } else {
-            show()
+            show(mode: mode)
         }
     }
 
-    func show() {
+    @objc private func resultsDidScroll(_ notification: Notification) {
+        guard !isPerformingProgrammaticScroll else { return }
+        userHasOverriddenPinnedScrollSinceLastQueryChange = true
+    }
+
+    private func scrollResultsToTop(selectFirstRow: Bool) {
+        guard let scrollView = scrollView else { return }
+
+        isPerformingProgrammaticScroll = true
+        defer { isPerformingProgrammaticScroll = false }
+
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        guard selectFirstRow, let tableView = tableView else { return }
+
+        let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
+        if count > 0 {
+            selectedRowIndex = 0
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView.scrollRowToVisible(0)
+        } else {
+            selectedRowIndex = -1
+            tableView.deselectAll(nil)
+        }
+    }
+
+    private func switchToMode(_ mode: SearchMode) {
+        searchMode = mode
+
+        if let searchField = searchField {
+            if mode == .clipboard {
+                searchField.stringValue = ""  // Don't show ">" in clipboard mode
+                searchField.placeholderString = "Search clipboard history..."
+                // Load clipboard history
+                if let manager = clipboardManager {
+                    let history = manager.getHistory()
+                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+                }
+                selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
+            } else {
+                searchField.stringValue = ""
+                searchField.placeholderString = "Search applications..."
+                searchResults = []
+                clipboardResults = []
+                selectedRowIndex = -1
+            }
+            window?.makeFirstResponder(searchField)
+        }
+
+        tableView?.reloadData()
+
+        lastSearchQuery = searchField?.stringValue ?? ""
+        userHasOverriddenPinnedScrollSinceLastQueryChange = false
+        scrollResultsToTop(selectFirstRow: true)
+
+        print("Switched to \(mode) mode")
+    }
+
+    func show(mode: SearchMode? = nil) {
         guard let window = window else { return }
 
         // Center on the active screen
@@ -220,24 +311,42 @@ class WindowManager: NSObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Reset to application mode
-        searchMode = .applications
+        // Set search mode
+        if let mode = mode {
+            searchMode = mode
+        } else {
+            searchMode = .applications
+        }
 
-        // Focus the search field and clear it
+        // Configure based on mode
         if let searchField = searchField {
-            searchField.stringValue = ""
-            searchField.placeholderString = "Search applications..."
+            if searchMode == .clipboard {
+                searchField.stringValue = ""  // Don't show ">" in clipboard mode
+                searchField.placeholderString = "Search clipboard history..."
+                // Load clipboard history
+                if let manager = clipboardManager {
+                    let history = manager.getHistory()
+                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+                }
+                selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
+            } else {
+                searchField.stringValue = ""
+                searchField.placeholderString = "Search applications..."
+                searchResults = []
+                clipboardResults = []
+                selectedRowIndex = -1
+            }
             window.makeFirstResponder(searchField)
         }
 
-        // Reset search state
-        searchResults = []
-        clipboardResults = []
-        selectedRowIndex = -1
         tableView?.reloadData()
 
+        lastSearchQuery = searchField?.stringValue ?? ""
+        userHasOverriddenPinnedScrollSinceLastQueryChange = false
+        scrollResultsToTop(selectFirstRow: true)
+
         isWindowVisible = true
-        print("Window shown")
+        print("Window shown in \(searchMode) mode")
     }
 
     func hide() {
@@ -257,38 +366,34 @@ class WindowManager: NSObject {
         let query = sender.stringValue
         print("Search: \(query)")
 
-        // Check for clipboard mode trigger
-        if query == clipboardTrigger {
-            searchMode = .clipboard
-            sender.placeholderString = "Search clipboard history..."
-            clipboardResults = []
-            // Show all clipboard history
-            if let manager = clipboardManager {
-                let history = manager.getHistory()
-                clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
-            }
-            selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
-        } else if searchMode == .clipboard && query.hasPrefix(clipboardTrigger) {
-            // Filter clipboard history
-            let searchQuery = String(query.dropFirst())
-            if searchQuery.isEmpty {
-                // Show all history when just the trigger is typed
-                if let manager = clipboardManager {
-                    let history = manager.getHistory()
-                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
+        if query != lastSearchQuery {
+            userHasOverriddenPinnedScrollSinceLastQueryChange = false
+            lastSearchQuery = query
+        }
+
+        if searchMode == .clipboard {
+            searchResults = []
+
+            guard let manager = clipboardManager else {
+                clipboardResults = []
+                selectedRowIndex = -1
+                tableView?.reloadData()
+                if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+                    scrollResultsToTop(selectFirstRow: true)
                 }
-            } else {
-                // Filter clipboard history
-                if let manager = clipboardManager {
-                    let filtered = manager.searchHistory(query: searchQuery)
-                    clipboardResults = filtered.map { ClipboardSearchResult(item: $0, relevanceScore: 0) }
-                }
+                return
             }
+
+            let filtered = manager.searchHistory(query: query)
+            clipboardResults = filtered.map { item in
+                let score = query.isEmpty ? 0 : FuzzyMatcher.score(query: query, candidate: item.content)
+                return ClipboardSearchResult(item: item, relevanceScore: score)
+            }
+
             selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
         } else {
-            // Application search mode
-            searchMode = .applications
-            sender.placeholderString = "Search applications..."
+            clipboardResults = []
+
             guard let searchService = searchService else { return }
 
             if query.isEmpty {
@@ -302,13 +407,13 @@ class WindowManager: NSObject {
 
         tableView?.reloadData()
 
-        // Scroll to top
-        if let scrollView = scrollView, let documentView = scrollView.documentView {
-            documentView.scroll(NSPoint(x: 0, y: documentView.bounds.height))
+        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+            scrollResultsToTop(selectFirstRow: true)
         }
     }
 
     private func navigateResults(direction: Int) {
+        userHasOverriddenPinnedScrollSinceLastQueryChange = true
         // Determine which result set to use based on mode
         let resultCount = searchMode == .clipboard ? clipboardResults.count : searchResults.count
         guard resultCount > 0 else { return }
@@ -635,7 +740,7 @@ extension WindowManager: NSTableViewDelegate {
         
         // Get app icon
         if let imageView = containerView?.viewWithTag(100) as? NSImageView {
-            let icon = NSWorkspace.shared.icon(forFile: appInfo.bundlePath)
+            let icon = iconProvider.icon(forBundlePath: appInfo.bundlePath)
             icon.size = NSSize(width: iconSize, height: iconSize)
             imageView.image = icon
         }

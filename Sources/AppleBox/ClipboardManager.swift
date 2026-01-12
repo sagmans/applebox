@@ -55,11 +55,24 @@ class ClipboardManager {
     }
 
     func searchHistory(query: String) -> [ClipboardItem] {
-        guard !query.isEmpty else { return history }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return history }
 
-        return history.filter { item in
-            item.content.localizedCaseInsensitiveContains(query)
+        let scored = history.enumerated().compactMap { index, item -> (index: Int, item: ClipboardItem, score: Int)? in
+            let score = FuzzyMatcher.score(query: trimmedQuery, candidate: item.content)
+            guard score > 0 else { return nil }
+            return (index: index, item: item, score: score)
         }
+
+        return scored
+            .sorted {
+                if $0.score != $1.score {
+                    return $0.score > $1.score
+                }
+                // Preserve recency (history is already most-recent-first)
+                return $0.index < $1.index
+            }
+            .map { $0.item }
     }
 
     // MARK: - Private Methods
