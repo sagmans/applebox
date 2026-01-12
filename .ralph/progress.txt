@@ -51,3 +51,21 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Use UTF-16 offsets for NSRange when applying attributes to NSAttributedString.
 ---
 
+## 2026-01-12 19:55:00 +0300 - US-005
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented sidecar preview panel scaffold (320x400px) with glass styling matching main window.
+- Sidecar panel positioned to the right of main window with 8px gap.
+- Added `showSidecar()`, `hideSidecar()`, `isSidecarShowing()` methods.
+- Sidecar only shows in clipboard mode; hidden automatically when main window hides.
+- Files changed
+  - `Sources/AppleBox/WindowManager.swift` - added sidecar window creation, show/hide logic, test helpers
+  - `Tests/AppleBoxTests/WindowManagerTests.swift` - added 9 sidecar unit tests
+  - `Tests/AppleBoxTests/SnapshotTests.swift` - added sidecar snapshot test
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/testSnapshotSidecarPanel.1.png` - new snapshot
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Sidecar escape handler should also trigger main window hide for consistent UX.
+  - For multi-window glass UIs, each window needs its own `NSVisualEffectView` container with matching styling.
+---
+
