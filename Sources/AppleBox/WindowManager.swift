@@ -158,14 +158,14 @@ class WindowManager: NSObject {
             self?.handleEnterKey()
         }
 
-        // Glass background container
+        // Glass background container with premium panel styling
         let glassView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         glassView.autoresizingMask = [.width, .height]
         glassView.material = .hudWindow
         glassView.blendingMode = .behindWindow
         glassView.state = .active
         glassView.wantsLayer = true
-        glassView.layer?.cornerRadius = 16
+        glassView.layer?.cornerRadius = 20  // Premium corner radius
         glassView.layer?.masksToBounds = true
         if #available(macOS 11.0, *) {
             glassView.layer?.cornerCurve = .continuous
@@ -175,7 +175,13 @@ class WindowManager: NSObject {
         let overlayView = NSView(frame: glassView.bounds)
         overlayView.autoresizingMask = [.width, .height]
         overlayView.wantsLayer = true
-        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.18).cgColor
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.22).cgColor
+        
+        // Subtle premium stroke
+        overlayView.layer?.borderWidth = 0.5
+        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
+        overlayView.layer?.cornerRadius = 20
+        overlayView.layer?.masksToBounds = true
 
         // Content view (controls live here)
         let contentView = NSView(frame: glassView.bounds)
@@ -185,24 +191,52 @@ class WindowManager: NSObject {
         glassView.addSubview(contentView)
         window.contentView = glassView
 
-        // Create search field
-        let searchField = NSSearchField(frame: NSRect(x: 20, y: 350, width: 560, height: 30))
+        // Premium header panel for search field
+        let headerPanel = NSView(frame: NSRect(x: 16, y: 340, width: 568, height: 48))
+        headerPanel.wantsLayer = true
+        headerPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.15).cgColor
+        headerPanel.layer?.cornerRadius = 18
+        headerPanel.layer?.borderWidth = 0.5
+        headerPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+        if #available(macOS 11.0, *) {
+            headerPanel.layer?.cornerCurve = .continuous
+        }
+        contentView.addSubview(headerPanel)
+        
+        // Create search field inside header panel
+        let searchField = NSSearchField(frame: NSRect(x: 16, y: 9, width: 536, height: 30))
         searchField.placeholderString = "Search applications..."
-        searchField.font = NSFont.systemFont(ofSize: 16)
+        searchField.font = NSFont.systemFont(ofSize: 17)  // Slightly larger for premium feel
         searchField.target = self
         searchField.action = #selector(handleSearch(_:))
         searchField.delegate = self  // For arrow key handling and text control
+        searchField.isBordered = false
+        searchField.focusRingType = .none  // We'll add custom focus styling
+        searchField.backgroundColor = .clear
+        searchField.textColor = .labelColor
 
         // Accessibility for search field
         searchField.setAccessibilityIdentifier("AppleBoxSearchField")
         searchField.setAccessibilityLabel("Search Field")
         searchField.setAccessibilityHelp("Type to search for applications (Cmd+Space). Search clipboard history with Opt+Space.")
 
-        contentView.addSubview(searchField)
+        headerPanel.addSubview(searchField)
         self.searchField = searchField
 
-        // Create scroll view for results
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: 560, height: 320))
+        // Premium results panel
+        let resultsPanel = NSView(frame: NSRect(x: 16, y: 16, width: 568, height: 316))
+        resultsPanel.wantsLayer = true
+        resultsPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        resultsPanel.layer?.cornerRadius = 18
+        resultsPanel.layer?.borderWidth = 0.5
+        resultsPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+        if #available(macOS 11.0, *) {
+            resultsPanel.layer?.cornerCurve = .continuous
+        }
+        contentView.addSubview(resultsPanel)
+        
+        // Create scroll view for results inside panel
+        let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 544, height: 292))
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
@@ -245,7 +279,7 @@ class WindowManager: NSObject {
         tableView.doubleAction = #selector(handleDoubleClick(_:))
 
         scrollView.documentView = tableView
-        contentView.addSubview(scrollView)
+        resultsPanel.addSubview(scrollView)
 
         self.tableView = tableView
         self.scrollView = scrollView
@@ -286,35 +320,52 @@ class WindowManager: NSObject {
             self?.hide()
         }
 
-        // Glass background container
+        // Glass background container with premium panel styling
         let glassView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: sidecarWidth, height: sidecarHeight))
         glassView.autoresizingMask = [.width, .height]
         glassView.material = .hudWindow
         glassView.blendingMode = .behindWindow
         glassView.state = .active
         glassView.wantsLayer = true
-        glassView.layer?.cornerRadius = 16
+        glassView.layer?.cornerRadius = 20  // Premium corner radius
         glassView.layer?.masksToBounds = true
         if #available(macOS 11.0, *) {
             glassView.layer?.cornerCurve = .continuous
         }
 
-        // Subtle readability overlay
+        // Subtle readability overlay with premium stroke
         let overlayView = NSView(frame: glassView.bounds)
         overlayView.autoresizingMask = [.width, .height]
         overlayView.wantsLayer = true
-        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.18).cgColor
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.22).cgColor
+        overlayView.layer?.borderWidth = 0.5
+        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
+        overlayView.layer?.cornerRadius = 20
+        overlayView.layer?.masksToBounds = true
 
-        // Content view (preview content lives here)
-        let contentView = NSView(frame: glassView.bounds)
-        contentView.autoresizingMask = [.width, .height]
+        // Container for sidecar content
+        let containerView = NSView(frame: glassView.bounds)
+        containerView.autoresizingMask = [.width, .height]
+        
+        // Premium content panel
+        let contentPanel = NSView(frame: NSRect(x: 16, y: 16, width: sidecarWidth - 32, height: sidecarHeight - 32))
+        contentPanel.autoresizingMask = [.width, .height]
+        contentPanel.wantsLayer = true
+        contentPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        contentPanel.layer?.cornerRadius = 18
+        contentPanel.layer?.borderWidth = 0.5
+        contentPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+        if #available(macOS 11.0, *) {
+            contentPanel.layer?.cornerCurve = .continuous
+        }
 
+        containerView.addSubview(contentPanel)
         glassView.addSubview(overlayView)
-        glassView.addSubview(contentView)
+        glassView.addSubview(containerView)
         sidecarWindow.contentView = glassView
 
         self.sidecarWindow = sidecarWindow
-        self.sidecarContentView = contentView
+        self.sidecarContentView = contentPanel
     }
 
     // MARK: - Sidecar Panel Methods

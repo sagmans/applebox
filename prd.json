@@ -1,108 +1,96 @@
 {
   "project": "AppleBox",
-  "description": "Elegant, fancy, smooth macOS UI: liquid-glass window with subtle translucency + blur, rounded corners, smooth typing and subtle animations, matched-character highlighting, and a clipboard sidecar preview panel shown only for images or overflowing text.",
+  "description": "Style upgrade: make search field, results list, and sidecar match the existing liquid-glass window with a premium dark, calm, highly readable panel system (subtle strokes, refined selection, low-cost glow), respecting macOS accessibility settings.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Liquid-glass window background and rounded corners",
-      "description": "As a user, I want the launcher window to look like liquid glass (subtle blur, low transparency) with rounded corners so it feels elegant while keeping text clearly readable.",
+      "title": "Introduce premium panel system for header/results/sidecar",
+      "description": "As a user, I want the search header, results list, and sidecar to share a cohesive premium dark panel style so the UI feels unified and elegant.",
       "acceptanceCriteria": [
-        "Window uses NSVisualEffectView material .hudWindow",
-        "Low transparency maintains clear readable text",
-        "Rounded corners are visibly applied (~16px)",
+        "Search header, results area, and sidecar use a shared panel background + subtle stroke",
+        "Corner radius is consistent (~18–20) and padding increased for a premium feel",
+        "Text remains highly readable on the new surfaces",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Scope: window + search + results; follow system appearance (light/dark)."
+      "notes": "Implemented premium panel system with corner radius 18-20, subtle strokes (0.5px), increased padding, and cohesive styling across header/results/sidecar. All snapshot tests updated and passing."
     },
     {
       "id": "US-002",
-      "title": "Subtle slide+fade animations for results updates",
-      "description": "As a user, I want results updates to feel smooth and fancy (subtle motion) without jitter while typing.",
+      "title": "Upgrade search header bar styling and focus treatment",
+      "description": "As a user, I want the search area to feel premium and readable (not a raw default field) so typing feels calm and delightful.",
       "acceptanceCriteria": [
-        "Result list updates animate with subtle slide+fade",
-        "Animation timing is very subtle (100–150ms)",
-        "No visible jitter while typing",
+        "Search area is presented as a unified header bar consistent with the panel system",
+        "Focus state uses a subtle inner glow and thin accent stroke (no harsh focus ring)",
+        "Typography is slightly larger and improves readability",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Prefer respecting Reduce Motion if feasible."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Matched-character highlighting in app and clipboard results",
-      "description": "As a user, I want matched characters highlighted in the results so scanning is faster.",
+      "title": "Polish results list with card rows and refined selection",
+      "description": "As a user, I want results rows to look like premium cards and selection to feel calm and refined so scanning and keyboard navigation is enjoyable.",
       "acceptanceCriteria": [
-        "Matched characters are accent-colored (NSColor.controlAccentColor)",
-        "Highlight works in both application and clipboard modes",
-        "Highlight remains readable on glass background",
+        "Results rows render as subtle card-like rows while staying well-blended with the glass window",
+        "Selection style is outline + slight fill (premium/quiet) and remains clearly visible",
+        "Selection includes a very subtle, low-CPU animated stroke/opacity effect when allowed",
+        "No hover-specific styling is introduced",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Use fuzzy match positions if available; otherwise implement minimal match-index support."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Expose match indices from fuzzy matcher (if required)",
-      "description": "As a developer, I need match indices from the fuzzy matcher so UI can highlight matched characters accurately.",
+      "title": "Align sidecar preview styling (slightly lower contrast)",
+      "description": "As a user, I want the clipboard sidecar to match the premium style but slightly recede so previews are readable without stealing focus.",
       "acceptanceCriteria": [
-        "Fuzzy matching can return score plus matched character indices",
-        "Existing ranking behavior remains unchanged",
-        "Typecheck passes"
+        "Sidecar uses the same panel system but with slightly lower contrast than the main window",
+        "Sidecar content remains clearly readable for both text and image previews",
+        "Sidecar separation from main window is minimal and feels blended",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Only implement if current matcher cannot provide positions."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Clipboard sidecar preview panel scaffold",
-      "description": "As a user, I want a right-side preview extension (sidecar panel) that matches the glass UI so I can preview clipboard items without changing the main list layout.",
+      "title": "Respect macOS accessibility settings in styling",
+      "description": "As a user, I want the UI to adapt to Reduce Transparency, Increase Contrast, and Reduce Motion so it stays comfortable and usable.",
       "acceptanceCriteria": [
-        "A separate sidecar panel can be shown/hidden programmatically",
-        "Sidecar panel matches main window height and uses medium width (~320px)",
-        "Sidecar matches glass styling and system theme",
+        "Reduce Transparency increases surface opacity / reduces reliance on translucency",
+        "Increase Contrast strengthens strokes and selection contrast",
+        "Reduce Motion disables selection glow/pulse animations",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Presentation: sidecar panel with small gap; clipboard mode only."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Clipboard preview visibility rules + rendering",
-      "description": "As a user, I want the preview sidecar to appear only when needed (images or overflowing text) and show the content clearly.",
+      "title": "Update and extend snapshot coverage for new styling",
+      "description": "As a developer, I want snapshot tests updated/added for the new styling so visual regressions are caught automatically.",
       "acceptanceCriteria": [
-        "Sidecar appears only when selected clipboard item is an image",
-        "Sidecar appears when clipboard text does not fit in the main window single-line row",
-        "Sidecar stays hidden otherwise",
-        "Text preview uses smart formatting (wrap normal text; monospace for code-like)",
+        "Snapshot tests updated to match the new premium styling",
+        "New/updated snapshots cover: empty state, app results, clipboard results, selection, sidecar",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Main window rows remain single-line; preview is a separate panel."
-    },
-    {
-      "id": "US-007",
-      "title": "Smooth typing performance pass",
-      "description": "As a user, I want per-keystroke search updates to stay instant and smooth even with animations and a large clipboard history.",
-      "acceptanceCriteria": [
-        "Typing remains responsive under large clipboard history",
-        "No stutters or lag during per-keystroke updates",
-        "Typecheck passes"
-      ],
-      "priority": 7,
-      "passes": true,
-      "notes": "Optimize UI updates and avoid unnecessary heavy work per keystroke."
+      "passes": false,
+      "notes": ""
     }
   ]
 }
