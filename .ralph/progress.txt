@@ -8,6 +8,8 @@ Started: Mon Jan 12 17:43:12 +03 2026
 - Snapshot tests: run `RECORD_SNAPSHOTS=1 swift test --filter SnapshotTests` to update PNGs, then re-run without `RECORD_SNAPSHOTS` to assert.
 - Fuzzy matching returns `FuzzyMatchResult` with `score` and `matchedIndices` via `FuzzyMatcher.matchWithIndices()`.
 - Use `attributedStringValue` with `NSColor.controlAccentColor` for match highlighting in table cells.
+- Search is debounced at 50ms via `DispatchWorkItem` to avoid per-keystroke overhead; `simulateSearch()` bypasses debounce for tests.
+- Use `ClipboardManager.searchHistoryWithMatches()` to get score+indices in one pass (avoids duplicate fuzzy matching).
 
 ## 2026-01-12 18:14:12 +0300 - US-001
 Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
@@ -88,5 +90,22 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Single-line row character limit (~50) determines overflow threshold for sidecar visibility.
   - Code detection heuristic: check for language keywords, brackets, indentation patterns.
   - Image data stored as base64 in ClipboardItem for JSON serialization compatibility.
+---
+
+## 2026-01-12 20:15:00 +0300 - US-007
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented smooth typing performance optimizations.
+- Added 50ms debounce to search using `DispatchWorkItem` to coalesce rapid keystrokes.
+- Eliminated duplicate fuzzy matching: `ClipboardManager.searchHistoryWithMatches()` returns score+indices in one pass.
+- `simulateSearch()` bypasses debounce for test reliability.
+- Files changed
+  - `Sources/AppleBox/ClipboardManager.swift` - added `ClipboardSearchMatch`, `searchHistoryWithMatches()`
+  - `Sources/AppleBox/WindowManager.swift` - added debounce logic, `performSearch()`, updated `simulateSearch()`
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Debounce search with `DispatchWorkItem.cancel()` pattern; 50ms is a good balance.
+  - Test helpers should bypass async behavior (debounce) for deterministic tests.
+  - Avoid duplicate work: return all needed data (score, indices) from a single fuzzy match call.
 ---
 

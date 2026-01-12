@@ -101,7 +101,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Optimize UI updates and avoid unnecessary heavy work per keystroke."
     }
   ]
