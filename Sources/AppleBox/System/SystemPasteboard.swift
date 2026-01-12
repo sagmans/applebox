@@ -16,6 +16,10 @@ public final class SystemPasteboard: PasteboardProtocol {
         pasteboard.string(forType: dataType)
     }
 
+    public func data(forType dataType: NSPasteboard.PasteboardType) -> Data? {
+        pasteboard.data(forType: dataType)
+    }
+
     @discardableResult
     public func clearContents() -> Int {
         pasteboard.clearContents()

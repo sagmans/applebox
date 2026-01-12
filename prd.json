@@ -88,7 +88,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Main window rows remain single-line; preview is a separate panel."
     },
     {

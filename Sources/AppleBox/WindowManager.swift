@@ -342,6 +342,7 @@ class WindowManager: NSObject {
     /// Hides the sidecar panel.
     func hideSidecar() {
         sidecarWindow?.orderOut(nil)
+        clearSidecarContent()
         isSidecarVisible = false
         print("Sidecar hidden")
     }
@@ -349,6 +350,131 @@ class WindowManager: NSObject {
     /// Returns whether the sidecar is currently visible.
     func isSidecarShowing() -> Bool {
         return isSidecarVisible
+    }
+
+    // MARK: - Sidecar Visibility Rules (US-006)
+
+    /// Estimates the visible character count for a single-line row.
+    /// Row width ~560px with 14pt system font ≈ ~50 characters visible.
+    private let singleLineCharacterLimit = 50
+
+    /// Updates sidecar visibility based on the selected clipboard item.
+    /// - Shows sidecar for images
+    /// - Shows sidecar when text overflows single-line row
+    /// - Hides sidecar otherwise
+    private func updateSidecarVisibility() {
+        guard searchMode == .clipboard else {
+            hideSidecar()
+            return
+        }
+
+        guard selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else {
+            hideSidecar()
+            return
+        }
+
+        let item = clipboardResults[selectedRowIndex].item
+
+        // Rule 1: Show for images
+        if item.contentType == .image {
+            updateSidecarContent(for: item)
+            showSidecar()
+            return
+        }
+
+        // Rule 2: Show for overflowing text
+        if item.content.count > singleLineCharacterLimit || item.content.contains("\n") {
+            updateSidecarContent(for: item)
+            showSidecar()
+            return
+        }
+
+        // Rule 3: Hide otherwise
+        hideSidecar()
+    }
+
+    /// Updates the sidecar content view with the appropriate preview.
+    private func updateSidecarContent(for item: ClipboardItem) {
+        clearSidecarContent()
+
+        guard let contentView = sidecarContentView else { return }
+
+        if item.contentType == .image, let image = item.getImage() {
+            // Image preview
+            let imageView = NSImageView(frame: contentView.bounds.insetBy(dx: 16, dy: 16))
+            imageView.autoresizingMask = [.width, .height]
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.image = image
+            imageView.setAccessibilityIdentifier("SidecarImagePreview")
+            imageView.setAccessibilityLabel("Clipboard image preview")
+            contentView.addSubview(imageView)
+        } else {
+            // Text preview with smart formatting
+            let scrollView = NSScrollView(frame: contentView.bounds.insetBy(dx: 16, dy: 16))
+            scrollView.autoresizingMask = [.width, .height]
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.borderType = .noBorder
+            scrollView.backgroundColor = .clear
+            scrollView.drawsBackground = false
+
+            let textView = NSTextView(frame: scrollView.bounds)
+            textView.autoresizingMask = [.width]
+            textView.isEditable = false
+            textView.isSelectable = true
+            textView.backgroundColor = .clear
+            textView.drawsBackground = false
+            textView.textContainerInset = NSSize(width: 4, height: 4)
+
+            // Smart formatting: monospace for code-like content
+            let font = isCodeLike(item.content)
+                ? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+                : NSFont.systemFont(ofSize: 13)
+
+            textView.font = font
+            textView.textColor = .labelColor
+            textView.string = item.content
+
+            scrollView.documentView = textView
+            scrollView.setAccessibilityIdentifier("SidecarTextPreview")
+            scrollView.setAccessibilityLabel("Clipboard text preview")
+            contentView.addSubview(scrollView)
+        }
+    }
+
+    /// Clears all subviews from the sidecar content view.
+    private func clearSidecarContent() {
+        sidecarContentView?.subviews.forEach { $0.removeFromSuperview() }
+    }
+
+    /// Heuristic to detect code-like content for monospace formatting.
+    /// Detects: common code patterns, indentation, brackets, semicolons, etc.
+    private func isCodeLike(_ text: String) -> Bool {
+        // Code indicators
+        let codePatterns = [
+            "func ", "class ", "struct ", "enum ", "let ", "var ", "import ",  // Swift
+            "function ", "const ", "=>", "===", "!==",  // JavaScript
+            "def ", "if __name__", "import ", "from ",  // Python
+            "{", "}", "[", "]", "();", "();", "->", "::",  // Common syntax
+        ]
+
+        let lowercased = text.lowercased()
+
+        // Check for code patterns
+        for pattern in codePatterns {
+            if lowercased.contains(pattern.lowercased()) {
+                return true
+            }
+        }
+
+        // Check for indentation (multiple leading spaces/tabs on lines)
+        let lines = text.components(separatedBy: "\n")
+        let indentedLines = lines.filter { $0.hasPrefix("  ") || $0.hasPrefix("\t") }
+        if indentedLines.count > 2 {
+            return true
+        }
+
+        return false
     }
 
     func toggle(mode: SearchMode? = nil) {
@@ -450,6 +576,7 @@ class WindowManager: NSObject {
         lastSearchQuery = searchField?.stringValue ?? ""
         userHasOverriddenPinnedScrollSinceLastQueryChange = false
         scrollResultsToTop(selectFirstRow: true)
+        updateSidecarVisibility()
 
         print("Switched to \(mode) mode")
     }
@@ -504,6 +631,7 @@ class WindowManager: NSObject {
         lastSearchQuery = searchField?.stringValue ?? ""
         userHasOverriddenPinnedScrollSinceLastQueryChange = false
         scrollResultsToTop(selectFirstRow: true)
+        updateSidecarVisibility()
 
         isWindowVisible = true
         print("Window shown in \(searchMode) mode")
@@ -573,6 +701,7 @@ class WindowManager: NSObject {
         if !userHasOverriddenPinnedScrollSinceLastQueryChange {
             scrollResultsToTop(selectFirstRow: true)
         }
+        updateSidecarVisibility()
     }
 
     private func navigateResults(direction: Int) {
@@ -599,6 +728,7 @@ class WindowManager: NSObject {
         selectedRowIndex = newIndex
         tableView?.selectRowIndexes(IndexSet(integer: selectedRowIndex), byExtendingSelection: false)
         tableView?.scrollRowToVisible(selectedRowIndex)
+        updateSidecarVisibility()
 
         if searchMode == .clipboard {
             print("Selected: \(selectedRowIndex) - \(clipboardResults[selectedRowIndex].item.content)")
@@ -948,6 +1078,7 @@ extension WindowManager: NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard let tableView = tableView else { return }
         selectedRowIndex = tableView.selectedRow
+        updateSidecarVisibility()
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {

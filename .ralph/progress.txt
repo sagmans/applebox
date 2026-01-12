@@ -69,3 +69,24 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - For multi-window glass UIs, each window needs its own `NSVisualEffectView` container with matching styling.
 ---
 
+## 2026-01-12 20:05:00 +0300 - US-006
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented sidecar visibility rules: shows for images or overflowing text (>50 chars or contains newlines).
+- Extended ClipboardItem to support images with `ClipboardContentType` enum and base64-encoded `imageData`.
+- Added `updateSidecarContent()` with image preview (NSImageView) and scrollable text preview (NSTextView).
+- Smart text formatting: uses monospace font for code-like content (detects code patterns, indentation).
+- Added `data(forType:)` to PasteboardProtocol for image capture support.
+- Files changed
+  - `Sources/AppleBox/ClipboardManager.swift` - added ClipboardContentType, image support, getImage()
+  - `Sources/AppleBox/Protocols/PasteboardProtocol.swift` - added data(forType:) method
+  - `Sources/AppleBox/System/SystemPasteboard.swift` - implemented data(forType:)
+  - `Sources/AppleBox/WindowManager.swift` - sidecar visibility rules, content rendering, isCodeLike()
+  - `Tests/AppleBoxTests/Mocks/MockPasteboard.swift` - added image data support
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Single-line row character limit (~50) determines overflow threshold for sidecar visibility.
+  - Code detection heuristic: check for language keywords, brackets, indentation patterns.
+  - Image data stored as base64 in ClipboardItem for JSON serialization compatibility.
+---
+

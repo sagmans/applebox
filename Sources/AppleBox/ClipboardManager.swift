@@ -1,12 +1,37 @@
 import AppKit
 
+/// Content type for clipboard items
+enum ClipboardContentType: String, Codable {
+    case text
+    case image
+}
+
 struct ClipboardItem: Codable {
     let content: String
     let timestamp: Date
+    let contentType: ClipboardContentType
+    /// Base64-encoded image data (PNG format) when contentType is .image
+    let imageData: String?
 
     init(content: String) {
         self.content = content
         self.timestamp = Date()
+        self.contentType = .text
+        self.imageData = nil
+    }
+
+    init(imageData: Data) {
+        self.content = "[Image]"
+        self.timestamp = Date()
+        self.contentType = .image
+        self.imageData = imageData.base64EncodedString()
+    }
+
+    /// Returns the decoded NSImage for image content types
+    func getImage() -> NSImage? {
+        guard contentType == .image, let base64 = imageData,
+              let data = Data(base64Encoded: base64) else { return nil }
+        return NSImage(data: data)
     }
 }
 
@@ -97,11 +122,31 @@ class ClipboardManager {
 
         lastChangeCount = pasteboard.changeCount
 
-        // Only capture plain text
+        // Try to capture image first (PNG or TIFF)
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            // Ignore duplicate consecutive images (compare base64)
+            let newBase64 = imageData.base64EncodedString()
+            if let lastItem = history.first, lastItem.contentType == .image, lastItem.imageData == newBase64 {
+                return
+            }
+
+            let newItem = ClipboardItem(imageData: imageData)
+            history.insert(newItem, at: 0)
+
+            if history.count > maxHistoryCount {
+                history = Array(history.prefix(maxHistoryCount))
+            }
+
+            saveHistory()
+            print("ClipboardManager: Captured new image (\(imageData.count) bytes)")
+            return
+        }
+
+        // Capture plain text
         guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
 
         // Ignore duplicate consecutive copies
-        if let lastItem = history.first, lastItem.content == text {
+        if let lastItem = history.first, lastItem.contentType == .text, lastItem.content == text {
             return
         }
 

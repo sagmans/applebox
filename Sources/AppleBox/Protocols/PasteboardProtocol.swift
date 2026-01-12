@@ -8,6 +8,9 @@ public protocol PasteboardProtocol {
     /// Returns a string for the specified type from the first item in the pasteboard
     func string(forType dataType: NSPasteboard.PasteboardType) -> String?
 
+    /// Returns data for the specified type from the first item in the pasteboard
+    func data(forType dataType: NSPasteboard.PasteboardType) -> Data?
+
     /// Clears the contents of the pasteboard
     @discardableResult
     func clearContents() -> Int
