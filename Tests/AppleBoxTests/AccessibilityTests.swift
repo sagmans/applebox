@@ -129,7 +129,7 @@ final class AccessibilityTests: XCTestCase {
         let helpText = searchField?.accessibilityHelp()
         XCTAssertNotNil(helpText, "Search field should have accessibility help")
         XCTAssertTrue(helpText?.contains("search") ?? false, "Help text should mention search functionality")
-        XCTAssertTrue(helpText?.contains(">") ?? false || helpText?.contains("clipboard") ?? false, "Help text should mention clipboard trigger")
+        XCTAssertTrue(helpText?.localizedCaseInsensitiveContains("clipboard") ?? false, "Help text should mention clipboard")
     }
 
     func testSearchFieldHasAccessibleChildren() {
@@ -251,7 +251,7 @@ final class AccessibilityTests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
 
         // Switch to clipboard mode
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
         // When: We get a cell view
         let cellView = windowManager.getCellViewForTesting(at: 0)
@@ -272,7 +272,7 @@ final class AccessibilityTests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
 
         // Switch to clipboard mode
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
         // When: We get a cell view
         let cellView = windowManager.getCellViewForTesting(at: 0)
@@ -293,7 +293,7 @@ final class AccessibilityTests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
 
         // Switch to clipboard mode
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
         // When: We get a cell view
         let cellView = windowManager.getCellViewForTesting(at: 0)
@@ -436,7 +436,7 @@ final class AccessibilityTests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
 
         // Switch to clipboard mode
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
         // When: We get a cell view's accessibility label
         let cellView = windowManager.getCellViewForTesting(at: 0)
@@ -518,7 +518,7 @@ final class AccessibilityTests: XCTestCase {
         windowManager.show()
 
         // When: Switch to clipboard mode
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
         // Then: Placeholder should reflect clipboard mode
         let placeholder = windowManager.getPlaceholderText()
@@ -528,10 +528,10 @@ final class AccessibilityTests: XCTestCase {
     func testSearchFieldPlaceholderChangesBackToApplicationMode() {
         // Given: WindowManager was in clipboard mode
         windowManager.show()
-        windowManager.simulateSearch(query: ">")
+        windowManager.toggle(mode: .clipboard)
 
-        // When: Clear search to return to application mode
-        windowManager.simulateSearch(query: "")
+        // When: Switch back to application mode
+        windowManager.toggle(mode: .applications)
 
         // Then: Placeholder should reflect application mode
         let placeholder = windowManager.getPlaceholderText()

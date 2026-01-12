@@ -15,6 +15,25 @@ final class SnapshotTests: XCTestCase {
     private var windowManager: WindowManager!
     private var searchService: SearchService!
     private var applicationIndexer: ApplicationIndexer!
+
+    private var shouldRecordSnapshots: Bool {
+        let value = ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"]
+        return value == "1" || value == "true"
+    }
+
+    private struct SnapshotIconProvider: AppIconProviding {
+        func icon(forBundlePath: String) -> NSImage {
+            let size = NSSize(width: 32, height: 32)
+            let image = NSImage(size: size)
+
+            image.lockFocus()
+            NSColor(calibratedRed: 0.25, green: 0.55, blue: 0.95, alpha: 1.0).setFill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+            image.unlockFocus()
+
+            return image
+        }
+    }
     
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -46,7 +65,8 @@ final class SnapshotTests: XCTestCase {
             workspace: mockWorkspace,
             pasteboard: mockPasteboard,
             eventSource: mockEventSource,
-            fileSystem: mockFileSystem
+            fileSystem: mockFileSystem,
+            iconProvider: SnapshotIconProvider()
         )
 
         // Create ApplicationIndexer and SearchService
@@ -124,7 +144,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of empty state
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     // MARK: - Snapshot Tests for Populated Search Results
@@ -144,7 +164,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of populated state
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     // MARK: - Snapshot Tests for Clipboard Mode Results
@@ -164,7 +184,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot of clipboard mode
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     // MARK: - Snapshot Tests for Selected Row Highlighting
@@ -187,7 +207,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with selection
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     // MARK: - Additional Snapshot Tests
@@ -210,7 +230,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with clipboard selection
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     func testSnapshotManySearchResults() {
@@ -234,7 +254,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with many results
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     func testSnapshotFirstRowSelected() {
@@ -255,7 +275,7 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with first row selected
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
     
     func testSnapshotLastRowSelected() {
@@ -276,6 +296,6 @@ final class SnapshotTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         
         // Take snapshot with last row selected
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98))
+        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
 }
