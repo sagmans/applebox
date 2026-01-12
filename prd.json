@@ -1,331 +1,108 @@
 {
   "project": "AppleBox",
-  "branchName": "ralph/testing-harness",
-  "description": "Comprehensive Testing Harness - Establish robust testing infrastructure with unit tests, integration tests, UI tests, mocking, dependency injection, pre-commit hooks, and CI/CD pipeline",
+  "description": "Elegant, fancy, smooth macOS UI: liquid-glass window with subtle translucency + blur, rounded corners, smooth typing and subtle animations, matched-character highlighting, and a clipboard sidecar preview panel shown only for images or overflowing text.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Add Test Target to Package.swift",
-      "description": "As a developer, I need a test target configured in the Swift package so that I can run tests with `swift test`.",
+      "title": "Liquid-glass window background and rounded corners",
+      "description": "As a user, I want the launcher window to look like liquid glass (subtle blur, low transparency) with rounded corners so it feels elegant while keeping text clearly readable.",
       "acceptanceCriteria": [
-        "Add `AppleBoxTests` test target to Package.swift",
-        "Test target depends on `AppleBox` module",
-        "Create `Tests/AppleBoxTests` directory structure",
-        "Verify `swift test` runs successfully (even with no tests yet)",
-        "Typecheck passes (`swift build`)"
+        "Window uses NSVisualEffectView material .hudWindow",
+        "Low transparency maintains clear readable text",
+        "Rounded corners are visibly applied (~16px)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 1,
       "passes": true,
-      "notes": ""
+      "notes": "Scope: window + search + results; follow system appearance (light/dark)."
     },
     {
       "id": "US-002",
-      "title": "Define Protocols for External Dependencies",
-      "description": "As a developer, I need protocols defining external system interactions so that I can inject mock implementations during testing.",
+      "title": "Subtle slide+fade animations for results updates",
+      "description": "As a user, I want results updates to feel smooth and fancy (subtle motion) without jitter while typing.",
       "acceptanceCriteria": [
-        "Create `FileSystemProtocol` abstracting FileManager operations (fileExists, contentsOfDirectory, homeDirectory)",
-        "Create `PasteboardProtocol` abstracting NSPasteboard operations (changeCount, string, setString, clearContents)",
-        "Create `WorkspaceProtocol` abstracting NSWorkspace operations (openApplication)",
-        "Create `EventSourceProtocol` abstracting CGEventSource and event posting",
-        "Place protocols in `Sources/AppleBox/Protocols/` directory",
-        "Typecheck passes"
+        "Result list updates animate with subtle slide+fade",
+        "Animation timing is very subtle (100–150ms)",
+        "No visible jitter while typing",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Prefer respecting Reduce Motion if feasible."
     },
     {
       "id": "US-003",
-      "title": "Create Production Implementations of Protocols",
-      "description": "As a developer, I need production implementations of the dependency protocols so that the app continues to work with real system APIs.",
+      "title": "Matched-character highlighting in app and clipboard results",
+      "description": "As a user, I want matched characters highlighted in the results so scanning is faster.",
       "acceptanceCriteria": [
-        "Create `SystemFileManager: FileSystemProtocol` wrapping FileManager.default",
-        "Create `SystemPasteboard: PasteboardProtocol` wrapping NSPasteboard.general",
-        "Create `SystemWorkspace: WorkspaceProtocol` wrapping NSWorkspace.shared",
-        "Create `SystemEventSource: EventSourceProtocol` wrapping CGEventSource",
-        "Place implementations in `Sources/AppleBox/System/` directory",
-        "Typecheck passes"
+        "Matched characters are accent-colored (NSColor.controlAccentColor)",
+        "Highlight works in both application and clipboard modes",
+        "Highlight remains readable on glass background",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Use fuzzy match positions if available; otherwise implement minimal match-index support."
     },
     {
       "id": "US-004",
-      "title": "Refactor ApplicationIndexer for Dependency Injection",
-      "description": "As a developer, I need ApplicationIndexer to accept dependencies via initializer so that I can inject mocks during testing.",
+      "title": "Expose match indices from fuzzy matcher (if required)",
+      "description": "As a developer, I need match indices from the fuzzy matcher so UI can highlight matched characters accurately.",
       "acceptanceCriteria": [
-        "ApplicationIndexer accepts `FileSystemProtocol` in initializer",
-        "Default parameter uses `SystemFileManager()` for production use",
-        "All FileManager calls go through the injected protocol",
-        "Existing functionality unchanged (app still indexes correctly)",
+        "Fuzzy matching can return score plus matched character indices",
+        "Existing ranking behavior remains unchanged",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Only implement if current matcher cannot provide positions."
     },
     {
       "id": "US-005",
-      "title": "Refactor ClipboardManager for Dependency Injection",
-      "description": "As a developer, I need ClipboardManager to accept dependencies via initializer so that I can inject mocks during testing.",
+      "title": "Clipboard sidecar preview panel scaffold",
+      "description": "As a user, I want a right-side preview extension (sidecar panel) that matches the glass UI so I can preview clipboard items without changing the main list layout.",
       "acceptanceCriteria": [
-        "ClipboardManager accepts `PasteboardProtocol` in initializer",
-        "ClipboardManager accepts `FileSystemProtocol` in initializer",
-        "Default parameters use system implementations for production",
-        "All pasteboard/file operations go through injected protocols",
-        "Existing functionality unchanged (clipboard monitoring still works)",
-        "Typecheck passes"
+        "A separate sidecar panel can be shown/hidden programmatically",
+        "Sidecar panel matches main window height and uses medium width (~320px)",
+        "Sidecar matches glass styling and system theme",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Presentation: sidecar panel with small gap; clipboard mode only."
     },
     {
       "id": "US-006",
-      "title": "Refactor WindowManager for Dependency Injection",
-      "description": "As a developer, I need WindowManager to accept dependencies via initializer so that I can test launch and paste functionality.",
+      "title": "Clipboard preview visibility rules + rendering",
+      "description": "As a user, I want the preview sidecar to appear only when needed (images or overflowing text) and show the content clearly.",
       "acceptanceCriteria": [
-        "WindowManager accepts `WorkspaceProtocol` in initializer",
-        "WindowManager accepts `PasteboardProtocol` in initializer",
-        "WindowManager accepts `EventSourceProtocol` in initializer",
-        "Default parameters use system implementations for production",
-        "Existing functionality unchanged (app launch and paste still work)",
-        "Typecheck passes"
+        "Sidecar appears only when selected clipboard item is an image",
+        "Sidecar appears when clipboard text does not fit in the main window single-line row",
+        "Sidecar stays hidden otherwise",
+        "Text preview uses smart formatting (wrap normal text; monospace for code-like)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Main window rows remain single-line; preview is a separate panel."
     },
     {
       "id": "US-007",
-      "title": "Create Mock Implementations for Testing",
-      "description": "As a developer, I need mock implementations of all protocols so that I can control and verify behavior in tests.",
+      "title": "Smooth typing performance pass",
+      "description": "As a user, I want per-keystroke search updates to stay instant and smooth even with animations and a large clipboard history.",
       "acceptanceCriteria": [
-        "Create `MockFileSystem` with configurable file existence and directory contents",
-        "Create `MockPasteboard` with controllable changeCount and string values",
-        "Create `MockWorkspace` that records openApplication calls without launching",
-        "Create `MockEventSource` that records posted events without system interaction",
-        "All mocks track method invocations for verification",
-        "Place mocks in `Tests/AppleBoxTests/Mocks/` directory",
+        "Typing remains responsive under large clipboard history",
+        "No stutters or lag during per-keystroke updates",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-008",
-      "title": "Unit Tests for SearchService Fuzzy Matching",
-      "description": "As a developer, I need unit tests for the fuzzy search algorithm so that I can refactor it with confidence.",
-      "acceptanceCriteria": [
-        "Test exact match scores highest (e.g., 'Safari' matches 'Safari')",
-        "Test prefix match scores higher than substring (e.g., 'Saf' vs 'ari' for 'Safari')",
-        "Test consecutive character bonus (e.g., 'saf' scores higher than 's a f')",
-        "Test word boundary bonus (e.g., 'PS' matches 'Photo Shop' well)",
-        "Test case insensitivity (e.g., 'SAFARI' matches 'Safari')",
-        "Test no match returns empty results (e.g., 'xyz' for 'Safari')",
-        "Test empty query returns empty results",
-        "Test result ordering (highest score first, alphabetical tiebreaker)",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 8,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-009",
-      "title": "Unit Tests for ApplicationIndexer",
-      "description": "As a developer, I need unit tests for application indexing so that directory scanning logic is verified.",
-      "acceptanceCriteria": [
-        "Test scanning finds .app bundles in mock directory",
-        "Test scanning skips non-.app items",
-        "Test scanning skips hidden files",
-        "Test scanning handles missing directories gracefully",
-        "Test duplicate detection (same path not added twice)",
-        "Test app name extraction from bundle path",
-        "Test multiple search paths are all scanned",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-010",
-      "title": "Unit Tests for ClipboardManager",
-      "description": "As a developer, I need unit tests for clipboard history management so that monitoring and storage logic is verified.",
-      "acceptanceCriteria": [
-        "Test new clipboard content is captured when changeCount changes",
-        "Test duplicate consecutive content is ignored",
-        "Test history limited to maxHistoryCount (50) items",
-        "Test searchHistory filters correctly (case-insensitive)",
-        "Test empty search returns all history",
-        "Test history persistence (save and load from JSON)",
-        "Test empty/non-text clipboard content is ignored",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-011",
-      "title": "Integration Tests for Search Flow",
-      "description": "As a developer, I need integration tests verifying SearchService works correctly with ApplicationIndexer.",
-      "acceptanceCriteria": [
-        "Test end-to-end: mock file system -> ApplicationIndexer -> SearchService -> results",
-        "Test search returns correct applications from indexed set",
-        "Test search ranking matches expected order",
-        "Test rescan updates search results",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-012",
-      "title": "Integration Tests for Clipboard Flow",
-      "description": "As a developer, I need integration tests verifying clipboard capture and retrieval works end-to-end.",
-      "acceptanceCriteria": [
-        "Test end-to-end: mock pasteboard change -> ClipboardManager -> history retrieval",
-        "Test clipboard history persists across manager instances (via mock file system)",
-        "Test search filters history correctly",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-013",
-      "title": "UI Tests for Window Behavior",
-      "description": "As a developer, I need UI-level tests for window display and keyboard handling.",
-      "acceptanceCriteria": [
-        "Test window shows centered on screen when toggle called",
-        "Test window hides when toggle called while visible",
-        "Test escape key triggers quit handler",
-        "Test arrow keys navigate selection up/down",
-        "Test enter key triggers action handler",
-        "Test search field receives focus when window shows",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 13,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-014",
-      "title": "UI Tests for Search Mode Switching",
-      "description": "As a developer, I need UI tests verifying the '>' trigger switches to clipboard mode.",
-      "acceptanceCriteria": [
-        "Test typing '>' switches to clipboard search mode",
-        "Test placeholder text changes to 'Search clipboard history...'",
-        "Test typing '>query' filters clipboard results",
-        "Test clearing search field returns to application mode",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 14,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-015",
-      "title": "Snapshot Tests for UI Components",
-      "description": "As a developer, I want snapshot tests to catch unintended visual regressions.",
-      "acceptanceCriteria": [
-        "Add swift-snapshot-testing dependency to Package.swift",
-        "Snapshot test for empty search state",
-        "Snapshot test for populated search results",
-        "Snapshot test for clipboard mode results",
-        "Snapshot test for selected row highlighting",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 15,
-      "passes": true,
-      "notes": "Optional - can be skipped if snapshot testing proves difficult with AppKit"
-    },
-    {
-      "id": "US-016",
-      "title": "Accessibility Tests",
-      "description": "As a developer, I need tests verifying the UI is accessible.",
-      "acceptanceCriteria": [
-        "Test search field has accessibility label",
-        "Test table view rows have accessibility identifiers",
-        "Test keyboard navigation works without mouse",
-        "Test VoiceOver compatibility (labels readable)",
-        "All tests pass with `swift test`"
-      ],
-      "priority": 16,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-017",
-      "title": "Set Up Pre-Commit Hook for Tests",
-      "description": "As a developer, I want tests to run automatically before each commit so that broken code isn't committed.",
-      "acceptanceCriteria": [
-        "Create `.githooks/pre-commit` script that runs `swift test`",
-        "Script exits with non-zero code if tests fail (blocking commit)",
-        "Script provides clear output showing test results",
-        "Add setup instructions to README for enabling git hooks",
-        "Create `scripts/setup-hooks.sh` to configure git hooks path",
-        "Typecheck passes"
-      ],
-      "priority": 17,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-018",
-      "title": "Set Up GitHub Actions CI Pipeline",
-      "description": "As a developer, I want automated CI running tests on every push and PR so that the main branch stays green.",
-      "acceptanceCriteria": [
-        "Create `.github/workflows/test.yml` workflow file",
-        "Workflow triggers on push to main and all pull requests",
-        "Workflow runs on macOS runner (macos-latest)",
-        "Workflow executes `swift build` and `swift test`",
-        "Workflow reports test results clearly",
-        "Workflow fails if any test fails",
-        "Add CI status badge to README.md"
-      ],
-      "priority": 18,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-019",
-      "title": "Add Test Coverage Reporting",
-      "description": "As a developer, I want to see test coverage metrics so that I can identify untested code.",
-      "acceptanceCriteria": [
-        "Enable code coverage in test configuration (swift test --enable-code-coverage)",
-        "CI workflow generates coverage report",
-        "Coverage report shows per-file and overall percentages",
-        "Add coverage badge to README.md",
-        "Document how to view coverage locally in README"
-      ],
-      "priority": 19,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-020",
-      "title": "Create Testing Documentation",
-      "description": "As a developer, I need documentation explaining the testing architecture so that contributors can write good tests.",
-      "acceptanceCriteria": [
-        "Create `docs/TESTING.md` with testing guide",
-        "Document directory structure (Tests/, Mocks/, etc.)",
-        "Document how to run tests locally",
-        "Document how to add new unit tests",
-        "Document how to add new mocks",
-        "Document dependency injection patterns used",
-        "Document CI workflow and pre-commit hooks",
-        "Link testing guide from main README.md"
-      ],
-      "priority": 20,
-      "passes": true,
-      "notes": ""
+      "passes": false,
+      "notes": "Optimize UI updates and avoid unnecessary heavy work per keystroke."
     }
   ]
 }

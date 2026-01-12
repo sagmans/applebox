@@ -119,11 +119,13 @@ class WindowManager: NSObject {
             defer: false
         )
 
-        window.backgroundColor = .windowBackgroundColor
-        window.isOpaque = true
+        // Liquid-glass window
+        window.backgroundColor = .clear
+        window.isOpaque = false
         window.hasShadow = true
         window.level = .floating
-        
+        window.isMovableByWindowBackground = true
+
         // Accessibility for window
         window.setAccessibilityIdentifier("AppleBoxWindow")
         window.setAccessibilityLabel("AppleBox Launcher")
@@ -146,9 +148,32 @@ class WindowManager: NSObject {
             self?.handleEnterKey()
         }
 
-        // Create content view
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        window.contentView = contentView
+        // Glass background container
+        let glassView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        glassView.autoresizingMask = [.width, .height]
+        glassView.material = .hudWindow
+        glassView.blendingMode = .behindWindow
+        glassView.state = .active
+        glassView.wantsLayer = true
+        glassView.layer?.cornerRadius = 16
+        glassView.layer?.masksToBounds = true
+        if #available(macOS 11.0, *) {
+            glassView.layer?.cornerCurve = .continuous
+        }
+
+        // Subtle readability overlay (keeps text crisp on blur)
+        let overlayView = NSView(frame: glassView.bounds)
+        overlayView.autoresizingMask = [.width, .height]
+        overlayView.wantsLayer = true
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.18).cgColor
+
+        // Content view (controls live here)
+        let contentView = NSView(frame: glassView.bounds)
+        contentView.autoresizingMask = [.width, .height]
+
+        glassView.addSubview(overlayView)
+        glassView.addSubview(contentView)
+        window.contentView = glassView
 
         // Create search field
         let searchField = NSSearchField(frame: NSRect(x: 20, y: 350, width: 560, height: 30))
@@ -191,7 +216,7 @@ class WindowManager: NSObject {
         tableView.selectionHighlightStyle = .regular
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
-        
+
         // Accessibility for table view
         tableView.setAccessibilityIdentifier("AppleBoxResultsTable")
         tableView.setAccessibilityLabel("Search Results")

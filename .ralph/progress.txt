@@ -1,0 +1,22 @@
+# Ralph Progress Log
+Started: Mon Jan 12 17:43:12 +03 2026
+---
+
+## Codebase Patterns
+- UI window layout/styling is in `Sources/AppleBox/WindowManager.swift` (borderless `AppleBoxWindow` + AppKit views).
+- Snapshot tests: run `RECORD_SNAPSHOTS=1 swift test --filter SnapshotTests` to update PNGs, then re-run without `RECORD_SNAPSHOTS` to assert.
+
+## 2026-01-12 18:14:12 +0300 - US-001
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented liquid-glass window container using `NSVisualEffectView` (`.hudWindow`) with ~16px rounded corners and a subtle readability overlay.
+- Updated SnapshotTesting reference PNGs for the new look.
+- Files changed
+  - `Sources/AppleBox/WindowManager.swift`
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/*.png`
+  - `prd.json`
+  - `.ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Record-mode snapshot runs fail by design; re-run with record off to validate.
+  - `NSVisualEffectView` corners need layer clipping (`masksToBounds`) for visibly rounded glass.
+---
+
