@@ -1636,7 +1636,33 @@ extension WindowManager: NSSearchFieldDelegate {
         } else if commandSelector == #selector(NSResponder.insertNewline(_:)) {
             handleEnterKey()
             return true
+        } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            handleEscapeFromSearchField()
+            return true
         }
         return false
+    }
+
+    private func handleEscapeFromSearchField() {
+        // Ensure pending debounced searches don't run after hiding.
+        searchDebounceWorkItem?.cancel()
+        searchDebounceWorkItem = nil
+
+        // When text exists, Esc should clear + hide.
+        if let searchField = searchField, !searchField.stringValue.isEmpty {
+            searchField.stringValue = ""
+            lastSearchQuery = ""
+
+            let previousSelection = selectedRowIndex
+            selectedRowIndex = -1
+            tableView?.deselectAll(nil)
+
+            if let tableView = tableView {
+                updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: -1)
+            }
+        }
+
+        // Always hide on Esc.
+        hide()
     }
 }

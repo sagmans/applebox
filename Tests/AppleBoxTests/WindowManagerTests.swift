@@ -162,23 +162,81 @@ final class WindowManagerTests: XCTestCase {
     }
 
     // MARK: - Escape Key Tests
+ 
+     func testEscapeKeyTriggersQuit() {
+         // Given: Window is visible
+         windowManager.show()
+         XCTAssertTrue(windowManager.isVisible())
+ 
+         // Note: We cannot directly test NSApp.terminate() behavior in unit tests,
+         // but we can verify the escape key handler exists and window behavior.
+         // The quit() method calls window?.orderOut() and sets isWindowVisible = false
+         // before calling NSApp.terminate(nil)
+ 
+         // When: Window is ordered out (simulating pre-terminate behavior)
+         windowManager.hide()
+ 
+         // Then: Window should be hidden (quit's first action before terminate)
+         XCTAssertFalse(windowManager.isVisible())
+     }
+ 
+     func testEscapeInSearchFieldWithTextClearsSelectionAndHidesWindows() throws {
+         // Seed clipboard history so clipboard mode starts with a selection.
+         let appSupportURL = try XCTUnwrap(mockFileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+         let storageURL = appSupportURL
+             .appendingPathComponent("AppleBox", isDirectory: true)
+             .appendingPathComponent("clipboard_history.json")
+ 
+         let encoder = JSONEncoder()
+         encoder.dateEncodingStrategy = .iso8601
+         let historyData = try encoder.encode([ClipboardItem(content: "hello")])
+         _ = mockFileSystem.createFile(atPath: storageURL.path, contents: historyData, attributes: nil)
+ 
+         // Re-create ClipboardManager so it loads the seeded history.
+         clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
+         windowManager.setClipboardManager(clipboardManager)
+ 
+         // Show clipboard UI + sidecar.
+         windowManager.show(mode: .clipboard)
+         windowManager.showSidecar()
+         XCTAssertTrue(windowManager.isVisible())
+         XCTAssertTrue(windowManager.isSidecarShowing())
+         XCTAssertEqual(windowManager.getSelectedRowIndex(), 0)
+ 
+         let searchField = try XCTUnwrap(windowManager.getSearchField())
+         searchField.stringValue = "abc"
+ 
+         // Simulate Esc in field editor (maps to cancelOperation).
+         let handled = windowManager.control(
+             searchField,
+             textView: NSTextView(),
+             doCommandBy: #selector(NSResponder.cancelOperation(_:))
+         )
+ 
+         XCTAssertTrue(handled)
+         XCTAssertEqual(searchField.stringValue, "")
+         XCTAssertEqual(windowManager.getSelectedRowIndex(), -1)
+         XCTAssertFalse(windowManager.isSidecarShowing())
+         XCTAssertFalse(windowManager.isVisible())
+     }
+ 
+     func testEscapeInSearchFieldWithEmptyTextHidesWindow() throws {
+         windowManager.show()
+         XCTAssertTrue(windowManager.isVisible())
+ 
+         let searchField = try XCTUnwrap(windowManager.getSearchField())
+         XCTAssertEqual(searchField.stringValue, "")
+ 
+         let handled = windowManager.control(
+             searchField,
+             textView: NSTextView(),
+             doCommandBy: #selector(NSResponder.cancelOperation(_:))
+         )
+ 
+         XCTAssertTrue(handled)
+         XCTAssertFalse(windowManager.isVisible())
+     }
 
-    func testEscapeKeyTriggersQuit() {
-        // Given: Window is visible
-        windowManager.show()
-        XCTAssertTrue(windowManager.isVisible())
-
-        // Note: We cannot directly test NSApp.terminate() behavior in unit tests,
-        // but we can verify the escape key handler exists and window behavior.
-        // The quit() method calls window?.orderOut() and sets isWindowVisible = false
-        // before calling NSApp.terminate(nil)
-
-        // When: Window is ordered out (simulating pre-terminate behavior)
-        windowManager.hide()
-
-        // Then: Window should be hidden (quit's first action before terminate)
-        XCTAssertFalse(windowManager.isVisible())
-    }
 
     // MARK: - Navigation Tests
 
