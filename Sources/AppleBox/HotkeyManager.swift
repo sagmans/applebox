@@ -1,39 +1,181 @@
 import AppKit
+import Carbon.HIToolbox
+import OSLog
 
 enum HotkeyMode {
     case application
     case clipboard
 }
 
-class HotkeyManager {
-    private var eventMonitor: EventMonitor?
+final class HotkeyManager {
+    private enum HotkeyId: UInt32 {
+        case application = 1
+        case clipboard = 2
+    }
+
     private let callback: (HotkeyMode) -> Void
+
+    // Carbon hotkey registration (preferred).
+    private static let hotKeySignature: OSType = 0x41424F58 // 'ABOX'
+    private var eventHandler: EventHandlerRef?
+    private var registeredHotKeys: [HotkeyId: EventHotKeyRef?] = [:]
+
+    // NSEvent fallback (requires Input Monitoring for keyDown).
+    private var eventMonitor: EventMonitor?
+
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        category: "hotkey"
+    )
 
     init(callback: @escaping (HotkeyMode) -> Void) {
         self.callback = callback
     }
 
     func start() {
-        // Monitor for global key down events
+        let carbonOk = installHotkeyHandlerIfNeeded() && registerCarbonHotkeys()
+
+        if !carbonOk {
+            logger.warning("Falling back to NSEvent global monitor")
+            startEventMonitorFallback()
+        }
+    }
+
+    func stop() {
+        unregisterCarbonHotkeys()
+        removeHotkeyHandlerIfNeeded()
+        eventMonitor?.stop()
+        eventMonitor = nil
+    }
+
+    // MARK: - Carbon HotKeys
+
+    private func installHotkeyHandlerIfNeeded() -> Bool {
+        if eventHandler != nil { return true }
+
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+
+        let selfPtr = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, eventRef, userData in
+                guard let eventRef, let userData else { return OSStatus(eventNotHandledErr) }
+
+                let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+
+                var hotKeyId = EventHotKeyID()
+                let getStatus = GetEventParameter(
+                    eventRef,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyId
+                )
+
+                guard getStatus == noErr else {
+                    manager.logger.error("GetEventParameter failed: \(getStatus)")
+                    return getStatus
+                }
+
+                guard hotKeyId.signature == HotkeyManager.hotKeySignature else { return noErr }
+
+                switch hotKeyId.id {
+                case HotkeyId.application.rawValue:
+                    manager.logger.debug("Hotkey pressed: cmd+space")
+                    manager.callback(.application)
+                case HotkeyId.clipboard.rawValue:
+                    manager.logger.debug("Hotkey pressed: opt+space")
+                    manager.callback(.clipboard)
+                default:
+                    break
+                }
+
+                return noErr
+            },
+            1,
+            &eventType,
+            selfPtr,
+            &eventHandler
+        )
+
+        if status != noErr {
+            logger.error("InstallEventHandler failed: \(status)")
+            return false
+        }
+
+        return true
+    }
+
+    private func removeHotkeyHandlerIfNeeded() {
+        if let handler = eventHandler {
+            RemoveEventHandler(handler)
+            eventHandler = nil
+        }
+    }
+
+    private func registerCarbonHotkeys() -> Bool {
+        let cmdOk = registerCarbonHotkey(id: .application, modifiers: UInt32(cmdKey))
+        let optOk = registerCarbonHotkey(id: .clipboard, modifiers: UInt32(optionKey))
+        return cmdOk || optOk
+    }
+
+    private func registerCarbonHotkey(id: HotkeyId, modifiers: UInt32) -> Bool {
+        if registeredHotKeys[id] != nil { return true }
+
+        var ref: EventHotKeyRef?
+        let hotKeyID = EventHotKeyID(signature: HotkeyManager.hotKeySignature, id: id.rawValue)
+
+        let status = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            modifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &ref
+        )
+
+        if status != noErr {
+            logger.error("RegisterEventHotKey failed for \(id.rawValue): \(status)")
+            return false
+        }
+
+        registeredHotKeys[id] = ref
+        logger.info("Registered hotkey id=\(id.rawValue)")
+        return true
+    }
+
+    private func unregisterCarbonHotkeys() {
+        for (_, ref) in registeredHotKeys {
+            if let ref {
+                UnregisterEventHotKey(ref)
+            }
+        }
+        registeredHotKeys.removeAll()
+    }
+
+    // MARK: - NSEvent Fallback
+
+    private func startEventMonitorFallback() {
         eventMonitor = EventMonitor(mask: .keyDown) { [weak self] event in
-            self?.handleKeyEvent(event)
+            self?.handleKeyEventFallback(event)
         }
         eventMonitor?.start()
     }
 
-    func stop() {
-        eventMonitor?.stop()
-    }
-
-    private func handleKeyEvent(_ event: NSEvent) {
+    private func handleKeyEventFallback(_ event: NSEvent) {
         // Cmd+Space for app mode, Opt+Space for clipboard mode
         let cmdPressed = event.modifierFlags.contains(.command)
         let optPressed = event.modifierFlags.contains(.option)
 
         if event.keyCode == 49 { // 49 is space key
             if cmdPressed {
+                logger.debug("Fallback key event: cmd+space")
                 callback(.application)
             } else if optPressed {
+                logger.debug("Fallback key event: opt+space")
                 callback(.clipboard)
             }
         }
@@ -41,7 +183,7 @@ class HotkeyManager {
 }
 
 // EventMonitor class for global event monitoring
-class EventMonitor {
+final class EventMonitor {
     private var monitor: Any?
     private let mask: NSEvent.EventTypeMask
     private let handler: (NSEvent) -> Void
@@ -56,7 +198,7 @@ class EventMonitor {
     }
 
     func stop() {
-        if let monitor = monitor {
+        if let monitor {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
