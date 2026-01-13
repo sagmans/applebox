@@ -109,3 +109,24 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Avoid duplicate work: return all needed data (score, indices) from a single fuzzy match call.
 ---
 
+## 2026-01-13 02:59:59 +0300 - US-001
+Thread: https://ampcode.com/threads/unknown
+- Implemented premium panel system for header, results, and sidecar with cohesive dark styling
+- Updated corner radius from 16 to 20 (premium feel)
+- Added subtle 0.5px strokes with 0.25-0.3 alpha for refined panel separation
+- Created header panel (48px height) with nested search field - increased font size to 17pt
+- Created results panel with inset scroll view for proper spacing
+- Updated sidecar window styling to match with same corner radius and strokes
+- Removed focus ring and borders from search field for cleaner premium appearance
+- Files changed:
+  - `Sources/AppleBox/WindowManager.swift` - added premium panel system with header/results panels
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/*.png` - updated all 9 snapshots for new styling
+  - `prd.json` - marked US-001 as passing
+- **Learnings for future iterations:**
+  - Premium panel system uses nested views: glass container → content view → panel views → controls
+  - Corner radius 18-20 with continuous curve gives premium macOS feel
+  - Use `NSColor.separatorColor` with low alpha (0.25-0.3) for subtle strokes
+  - `controlBackgroundColor` with alpha 0.12-0.15 for panel backgrounds blends well with glass
+  - Search field needs `focusRingType = .none` and `isBordered = false` for custom styling
+---
+
