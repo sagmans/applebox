@@ -45,8 +45,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented premium card styling with 12px rounded corners, subtle background (controlBackgroundColor @ 0.08 alpha), and 0.5px strokes (separator @ 0.2 alpha). Selection uses thin accent outline (1.5px @ 0.6 alpha) + subtle fill (accent @ 0.12 alpha) with optional pulse animation (0.25s opacity fade). Increased row height to 44px and spacing to 6px for premium feel. Respects Reduce Motion accessibility setting."
     },
     {
       "id": "US-004",

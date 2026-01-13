@@ -147,3 +147,24 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Store UI component references (like headerPanel) for dynamic styling updates
 ---
 
+## 2026-01-13 03:14:00 +0300 - US-003
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented premium card-based styling for results list rows
+- Cards have 12px rounded corners, subtle background (controlBackgroundColor @ 0.08 alpha), and 0.5px strokes
+- Premium selection: thin accent outline (1.5px @ 0.6 alpha) + subtle fill (controlAccentColor @ 0.12 alpha)
+- Added very subtle pulse animation on selection (0.25s opacity fade from 0.92 to 1.0) - respects Reduce Motion
+- Increased row height from 36px to 44px for premium feel
+- Added 6px spacing between cards (intercellSpacing)
+- Custom selection drawing replaces default NSTableView selection
+- Files changed:
+  - `Sources/AppleBox/WindowManager.swift` - added card containers, applyCardSelectionStyle(), updateCardSelectionVisuals()
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/*.png` - updated all 8 snapshots for card styling
+  - `prd.json` - marked US-003 as passing
+- **Learnings for future iterations:**
+  - Card-based rows: use container NSView with layer styling (background, cornerRadius, borderWidth/Color)
+  - For custom table selection: set selectionHighlightStyle = .none and manually apply styling in cell creation and selection change handler
+  - Track previous selection index to animate deselection when selection changes
+  - Use CABasicAnimation for subtle effects (pulse, glow) - lower CPU cost than NSAnimationContext for one-off effects
+  - Always check NSWorkspace.shared.accessibilityDisplayShouldReduceMotion before animating
+---
+
