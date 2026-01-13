@@ -1,6 +1,8 @@
 import AppKit
 import CoreGraphics
 import QuartzCore
+import OSLog
+import CryptoKit
 
 // MARK: - Search Mode
 enum SearchMode {
@@ -23,6 +25,205 @@ protocol AppIconProviding {
 struct SystemAppIconProvider: AppIconProviding {
     func icon(forBundlePath: String) -> NSImage {
         NSWorkspace.shared.icon(forFile: forBundlePath)
+    }
+}
+
+final class AppIconCache {
+    private let loader: AppIconProviding
+    private let cache = NSCache<NSString, NSImage>()
+    private let loadQueue = DispatchQueue(label: "applebox.icons.load", qos: .utility)
+
+    private let inFlightQueue = DispatchQueue(label: "applebox.icons.inflight")
+    private var inFlight: Set<String> = []
+
+    private let placeholder: NSImage
+
+    init(loader: AppIconProviding) {
+        self.loader = loader
+        self.placeholder = NSImage(size: NSSize(width: 24, height: 24))
+    }
+
+    func icon(forBundlePath bundlePath: String) -> NSImage {
+        if let cached = cache.object(forKey: bundlePath as NSString) {
+            return cached
+        }
+
+        // Tests and previews inject a lightweight icon provider; keep it synchronous for deterministic snapshots.
+        if !(loader is SystemAppIconProvider) {
+            let icon = loader.icon(forBundlePath: bundlePath)
+            cache.setObject(icon, forKey: bundlePath as NSString)
+            return icon
+        }
+
+        scheduleLoadIfNeeded(bundlePath: bundlePath, notify: true)
+        return placeholder
+    }
+
+    func prewarm(bundlePaths: [String]) {
+        for path in bundlePaths {
+            if cache.object(forKey: path as NSString) == nil {
+                scheduleLoadIfNeeded(bundlePath: path, notify: false)
+            }
+        }
+    }
+
+    private func scheduleLoadIfNeeded(bundlePath: String, notify: Bool) {
+        let shouldStart = inFlightQueue.sync { () -> Bool in
+            if inFlight.contains(bundlePath) { return false }
+            inFlight.insert(bundlePath)
+            return true
+        }
+
+        guard shouldStart else { return }
+
+        loadQueue.async { [weak self] in
+            guard let self else { return }
+            let icon = self.loader.icon(forBundlePath: bundlePath)
+            self.cache.setObject(icon, forKey: bundlePath as NSString)
+
+            self.inFlightQueue.sync {
+                _ = self.inFlight.remove(bundlePath)
+            }
+
+            if notify {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: Notification.Name("applebox.appIconCache.didLoad"),
+                        object: nil,
+                        userInfo: ["bundlePath": bundlePath]
+                    )
+                }
+            }
+        }
+    }
+}
+
+final class ClipboardImageCache {
+    private let cache = NSCache<NSString, NSImage>()
+
+    func image(for item: ClipboardItem) -> NSImage? {
+        guard item.contentType == .image, let base64 = item.imageData else { return nil }
+
+        let key = Self.key(forBase64: base64)
+        if let cached = cache.object(forKey: key as NSString) {
+            return cached
+        }
+
+        guard let data = Data(base64Encoded: base64), let image = NSImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    private static func key(forBase64 base64: String) -> String {
+        // Keep keys small even for huge images.
+        let digest = SHA256.hash(data: Data(base64.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+final class RecentApplicationsStore {
+    private let fileSystem: FileSystemProtocol
+    private let storageURL: URL
+
+    private let queue = DispatchQueue(label: "applebox.recentApps", qos: .userInitiated)
+    private let persistenceQueue = DispatchQueue(label: "applebox.recentApps.persistence", qos: .utility)
+
+    private let fileName = "recent_applications.json"
+    private let maxCount = 50
+
+    private var recentBundlePaths: [String] = []
+
+    init(fileSystem: FileSystemProtocol) {
+        self.fileSystem = fileSystem
+
+        let appSupportURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileSystem.homeDirectoryForCurrentUser
+        let appDirectory = appSupportURL.appendingPathComponent("AppleBox", isDirectory: true)
+        if !fileSystem.fileExists(atPath: appDirectory.path) {
+            try? fileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+        }
+        self.storageURL = appDirectory.appendingPathComponent(fileName)
+
+        recentBundlePaths = loadRecentsFromDisk()
+    }
+
+    func orderedApplications(from applications: [ApplicationInfo]) -> [ApplicationInfo] {
+        let snapshot = queue.sync { recentBundlePaths }
+        var remaining = Dictionary(uniqueKeysWithValues: applications.map { ($0.bundlePath, $0) })
+        var ordered: [ApplicationInfo] = []
+        ordered.reserveCapacity(applications.count)
+
+        for bundlePath in snapshot {
+            if let app = remaining.removeValue(forKey: bundlePath) {
+                ordered.append(app)
+            }
+        }
+
+        let tail = remaining.values.sorted { $0.name < $1.name }
+        ordered.append(contentsOf: tail)
+        return ordered
+    }
+
+    func recordLaunch(bundlePath: String) {
+        let snapshot = queue.sync { () -> [String] in
+            var updated = recentBundlePaths.filter { $0 != bundlePath }
+            updated.insert(bundlePath, at: 0)
+            if updated.count > maxCount {
+                updated = Array(updated.prefix(maxCount))
+            }
+            recentBundlePaths = updated
+            return updated
+        }
+
+        persistRecentsAsync(snapshot)
+    }
+
+    func seedIfEmpty(with bundlePaths: [String]) {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        ordered.reserveCapacity(bundlePaths.count)
+
+        for path in bundlePaths {
+            if seen.insert(path).inserted {
+                ordered.append(path)
+            }
+        }
+
+        guard !ordered.isEmpty else { return }
+
+        let snapshot = queue.sync { () -> [String]? in
+            guard recentBundlePaths.isEmpty else { return nil }
+            let limited = Array(ordered.prefix(maxCount))
+            recentBundlePaths = limited
+            return limited
+        }
+
+        guard let snapshot else { return }
+        persistRecentsAsync(snapshot)
+    }
+
+    private func persistRecentsAsync(_ snapshot: [String]) {
+        persistenceQueue.async { [snapshot, storageURL, fileSystem] in
+            do {
+                let encoder = JSONEncoder()
+                let data = try encoder.encode(snapshot)
+                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
+            } catch {
+                // Best-effort persistence.
+            }
+        }
+    }
+
+    private func loadRecentsFromDisk() -> [String] {
+        guard fileSystem.fileExists(atPath: storageURL.path) else { return [] }
+        guard let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
+
+        do {
+            let decoder = JSONDecoder()
+            return try decoder.decode([String].self, from: data)
+        } catch {
+            return []
+        }
     }
 }
 
@@ -85,7 +286,18 @@ class WindowManager: NSObject {
 
     private var lastResultsAnimationUptime: TimeInterval = 0
     private var searchDebounceWorkItem: DispatchWorkItem?
-    private let searchDebounceInterval: TimeInterval = 0.05  // 50ms debounce
+    private let searchDebounceInterval: TimeInterval = 0.0
+
+    private let searchQueue = DispatchQueue(label: "applebox.window.search", qos: .userInteractive)
+    private var searchComputeWorkItem: DispatchWorkItem?
+    private var workspaceObservers: [NSObjectProtocol] = []
+
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        category: "window"
+    )
+
+    private let clipboardImageCache = ClipboardImageCache()
 
     // Injected dependencies
     private let workspace: WorkspaceProtocol
@@ -93,6 +305,8 @@ class WindowManager: NSObject {
     private let eventSource: EventSourceProtocol
     private let fileSystem: FileSystemProtocol
     private let iconProvider: AppIconProviding
+    private let iconCache: AppIconCache
+    private let recentApplicationsStore: RecentApplicationsStore
 
     init(
         workspace: WorkspaceProtocol = SystemWorkspace(),
@@ -106,13 +320,21 @@ class WindowManager: NSObject {
         self.eventSource = eventSource
         self.fileSystem = fileSystem
         self.iconProvider = iconProvider
+        self.iconCache = AppIconCache(loader: iconProvider)
+        self.recentApplicationsStore = RecentApplicationsStore(fileSystem: fileSystem)
         super.init()
         setupWindow()
         observeAccessibilityChanges()
+        observeAsyncUpdates()
+        observeWorkspaceActivity()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for observer in workspaceObservers {
+            workspaceCenter.removeObserver(observer)
+        }
     }
     
     // MARK: - Accessibility Settings (US-005)
@@ -136,6 +358,97 @@ class WindowManager: NSObject {
         ) { [weak self] _ in
             self?.applyAccessibilitySettings()
         }
+    }
+
+    private func observeAsyncUpdates() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("applebox.appIconCache.didLoad"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard self.isWindowVisible else { return }
+            guard self.searchMode == .applications else { return }
+            guard let bundlePath = notification.userInfo?["bundlePath"] as? String else { return }
+
+            if let row = self.searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
+                self.tableView?.reloadData(
+                    forRowIndexes: IndexSet(integer: row),
+                    columnIndexes: IndexSet(integer: 0)
+                )
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("applebox.clipboardHistory.didUpdate"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            guard self.isWindowVisible else { return }
+            guard self.searchMode == .clipboard else { return }
+
+            self.scheduleSearch(query: self.searchField?.stringValue ?? "")
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("applebox.applicationIndex.didUpdate"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            guard self.isWindowVisible else { return }
+            guard self.searchMode == .applications else { return }
+
+            self.searchService?.resetCache()
+            self.scheduleSearch(query: self.searchField?.stringValue ?? "")
+        }
+    }
+
+    private func observeWorkspaceActivity() {
+        guard workspace is SystemWorkspace else { return }
+
+        let center = NSWorkspace.shared.notificationCenter
+
+        let runningBundles = NSWorkspace.shared.runningApplications
+            .sorted { ($0.launchDate ?? .distantPast) > ($1.launchDate ?? .distantPast) }
+            .compactMap { app -> String? in
+                guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+                return app.bundleURL?.path
+            }
+        recentApplicationsStore.seedIfEmpty(with: runningBundles)
+
+        let handler: (Notification) -> Void = { [weak self] notification in
+            guard let self else { return }
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleURL = app.bundleURL else { return }
+            guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+
+            self.recentApplicationsStore.recordLaunch(bundlePath: bundleURL.path)
+
+            guard self.isWindowVisible else { return }
+            guard self.searchMode == .applications else { return }
+            let query = self.searchField?.stringValue ?? ""
+            guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+            self.updateApplicationResultsForEmptyQuery(animate: false)
+        }
+
+        let launchObserver = center.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main,
+            using: handler
+        )
+
+        let activateObserver = center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main,
+            using: handler
+        )
+
+        workspaceObservers = [launchObserver, activateObserver]
     }
     
     /// Applies current accessibility settings to all UI elements
@@ -260,10 +573,18 @@ class WindowManager: NSObject {
 
     func setSearchService(_ service: SearchService) {
         self.searchService = service
+        self.searchService?.resetCache()
     }
 
     func setClipboardManager(_ manager: ClipboardManager) {
         self.clipboardManager = manager
+    }
+
+    func prewarmAppIcons(applications: [ApplicationInfo]) {
+        let bundlePaths = applications.map { $0.bundlePath }
+        DispatchQueue.global(qos: .utility).async { [iconCache] in
+            iconCache.prewarm(bundlePaths: bundlePaths)
+        }
     }
 
     private func setupWindow() {
@@ -628,7 +949,7 @@ class WindowManager: NSObject {
 
         guard let contentView = sidecarContentView else { return }
 
-        if item.contentType == .image, let image = item.getImage() {
+        if item.contentType == .image, let image = clipboardImageCache.image(for: item) ?? item.getImage() {
             // Image preview
             let imageView = NSImageView(frame: contentView.bounds.insetBy(dx: 16, dy: 16))
             imageView.autoresizingMask = [.width, .height]
@@ -737,8 +1058,10 @@ class WindowManager: NSObject {
 
         let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
         if count > 0 {
-            selectedRowIndex = 0
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            if selectedRowIndex != 0 || tableView.selectedRow != 0 {
+                selectedRowIndex = 0
+                tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            }
             tableView.scrollRowToVisible(0)
         } else {
             selectedRowIndex = -1
@@ -751,6 +1074,24 @@ class WindowManager: NSObject {
         if animate {
             animateResultsUpdateIfAppropriate()
         }
+    }
+
+    private func updateApplicationResultsForEmptyQuery(animate: Bool) {
+        guard searchMode == .applications else { return }
+        guard let searchService else { return }
+
+        let orderedApplications = recentApplicationsStore.orderedApplications(from: searchService.allApplications())
+        searchResults = orderedApplications.map {
+            SearchResult(application: $0, score: 0, matchedIndices: [])
+        }
+        clipboardResults = []
+        selectedRowIndex = searchResults.isEmpty ? -1 : 0
+
+        reloadResults(animate: animate)
+        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+            scrollResultsToTop(selectFirstRow: true)
+        }
+        updateSidecarVisibility()
     }
 
     private func animateResultsUpdateIfAppropriate() {
@@ -801,12 +1142,16 @@ class WindowManager: NSObject {
             window?.makeFirstResponder(searchField)
         }
 
-        tableView?.reloadData()
-
         lastSearchQuery = searchField?.stringValue ?? ""
         userHasOverriddenPinnedScrollSinceLastQueryChange = false
-        scrollResultsToTop(selectFirstRow: true)
-        updateSidecarVisibility()
+
+        if mode == .applications {
+            updateApplicationResultsForEmptyQuery(animate: false)
+        } else {
+            reloadResults(animate: false)
+            scrollResultsToTop(selectFirstRow: true)
+            updateSidecarVisibility()
+        }
 
         print("Switched to \(mode) mode")
     }
@@ -856,12 +1201,16 @@ class WindowManager: NSObject {
             window.makeFirstResponder(searchField)
         }
 
-        tableView?.reloadData()
-
         lastSearchQuery = searchField?.stringValue ?? ""
         userHasOverriddenPinnedScrollSinceLastQueryChange = false
-        scrollResultsToTop(selectFirstRow: true)
-        updateSidecarVisibility()
+
+        if searchMode == .applications {
+            updateApplicationResultsForEmptyQuery(animate: false)
+        } else {
+            reloadResults(animate: false)
+            scrollResultsToTop(selectFirstRow: true)
+            updateSidecarVisibility()
+        }
 
         isWindowVisible = true
         print("Window shown in \(searchMode) mode")
@@ -892,9 +1241,15 @@ class WindowManager: NSObject {
         // Cancel any pending debounced search
         searchDebounceWorkItem?.cancel()
 
+        if searchDebounceInterval <= 0 {
+            searchDebounceWorkItem = nil
+            scheduleSearch(query: query)
+            return
+        }
+
         // Debounce search to avoid per-keystroke overhead
         let workItem = DispatchWorkItem { [weak self] in
-            self?.performSearch(query: query)
+            self?.scheduleSearch(query: query)
         }
         searchDebounceWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
@@ -973,48 +1328,94 @@ class WindowManager: NSObject {
         }
     }
 
-    /// Performs the actual search (called after debounce).
-    private func performSearch(query: String) {
-        if searchMode == .clipboard {
-            searchResults = []
+    private func scheduleSearch(query: String) {
+        searchComputeWorkItem?.cancel()
 
-            guard let manager = clipboardManager else {
-                clipboardResults = []
-                selectedRowIndex = -1
-                reloadResults(animate: true)
-                if !userHasOverriddenPinnedScrollSinceLastQueryChange {
-                    scrollResultsToTop(selectFirstRow: true)
+        let mode = searchMode
+        let searchService = self.searchService
+        let clipboardManager = self.clipboardManager
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .applications, trimmedQuery.isEmpty {
+            searchComputeWorkItem = nil
+            searchService?.resetCache()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.searchMode == mode else { return }
+                guard self.searchField?.stringValue == query else { return }
+
+                self.updateApplicationResultsForEmptyQuery(animate: false)
+            }
+            return
+        }
+
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if workItem.isCancelled { return }
+
+            #if DEBUG
+            let start = ProcessInfo.processInfo.systemUptime
+            #endif
+
+            switch mode {
+            case .clipboard:
+                let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
+                let results = matches.map { match in
+                    ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
                 }
-                return
-            }
 
-            // Use searchHistoryWithMatches to avoid duplicate fuzzy matching
-            let matches = manager.searchHistoryWithMatches(query: query)
-            clipboardResults = matches.map { match in
-                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
-            }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if workItem.isCancelled { return }
+                    guard self.searchMode == mode else { return }
+                    guard self.searchField?.stringValue == query else { return }
 
-            selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
-        } else {
-            clipboardResults = []
+                    self.searchResults = []
+                    self.clipboardResults = results
+                    self.selectedRowIndex = results.isEmpty ? -1 : 0
 
-            guard let searchService = searchService else { return }
+                    self.reloadResults(animate: false)
+                    if !self.userHasOverriddenPinnedScrollSinceLastQueryChange {
+                        self.scrollResultsToTop(selectFirstRow: true)
+                    }
 
-            if query.isEmpty {
-                searchResults = []
-                selectedRowIndex = -1
-            } else {
-                searchResults = searchService.search(query)
-                selectedRowIndex = searchResults.isEmpty ? -1 : 0
+                    #if DEBUG
+                    let end = ProcessInfo.processInfo.systemUptime
+                    self.logger.debug("search(clipboard) took \((end - start) * 1000, privacy: .public)ms")
+                    #endif
+                }
+
+            case .applications:
+                let results = searchService?.search(trimmedQuery) {
+                    workItem.isCancelled
+                } ?? []
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if workItem.isCancelled { return }
+                    guard self.searchMode == mode else { return }
+                    guard self.searchField?.stringValue == query else { return }
+
+                    self.clipboardResults = []
+                    self.searchResults = results
+                    self.selectedRowIndex = results.isEmpty ? -1 : 0
+
+                    self.reloadResults(animate: false)
+                    if !self.userHasOverriddenPinnedScrollSinceLastQueryChange {
+                        self.scrollResultsToTop(selectFirstRow: true)
+                    }
+
+                    #if DEBUG
+                    let end = ProcessInfo.processInfo.systemUptime
+                    self.logger.debug("search(apps) took \((end - start) * 1000, privacy: .public)ms")
+                    #endif
+                }
             }
         }
 
-        reloadResults(animate: true)
-
-        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
-            scrollResultsToTop(selectFirstRow: true)
-        }
-        updateSidecarVisibility()
+        searchComputeWorkItem = workItem
+        searchQueue.async(execute: workItem)
     }
 
     private func navigateResults(direction: Int) {
@@ -1130,6 +1531,8 @@ class WindowManager: NSObject {
                 print("Successfully launched: \(app.localizedName ?? appInfo.name)")
             }
 
+            self?.recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
+
             // Close the window after launching (on main thread)
             DispatchQueue.main.async {
                 self?.hide()
@@ -1207,7 +1610,30 @@ class WindowManager: NSObject {
             lastSearchQuery = query
         }
         // Execute search synchronously for tests
-        performSearch(query: query)
+        switch searchMode {
+        case .clipboard:
+            let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
+            clipboardResults = matches.map { match in
+                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
+            }
+            searchResults = []
+            selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
+
+        case .applications:
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                updateApplicationResultsForEmptyQuery(animate: false)
+                return
+            }
+            searchResults = searchService?.search(trimmed) ?? []
+            clipboardResults = []
+            selectedRowIndex = searchResults.isEmpty ? -1 : 0
+        }
+
+        reloadResults(animate: false)
+        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+            scrollResultsToTop(selectFirstRow: true)
+        }
     }
     
     /// Returns the content view for snapshot testing
@@ -1445,7 +1871,7 @@ extension WindowManager: NSTableViewDelegate {
         
         // Get app icon
         if let imageView = cardContainer?.viewWithTag(100) as? NSImageView {
-            let icon = iconProvider.icon(forBundlePath: appInfo.bundlePath)
+            let icon = iconCache.icon(forBundlePath: appInfo.bundlePath)
             icon.size = NSSize(width: iconSize, height: iconSize)
             imageView.image = icon
         }

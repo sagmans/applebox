@@ -15,27 +15,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("AppleBox launched")
 
-        // Initialize application indexer (runs scan on init)
-        appIndexer = ApplicationIndexer()
+        // UI first: show/typing must never wait on indexing/persistence.
+        let windowManager = WindowManager()
+        self.windowManager = windowManager
 
-        // Initialize search service
-        let searchService = SearchService(indexer: appIndexer!)
+        // Start indexing asynchronously.
+        let appIndexer = ApplicationIndexer(scanSynchronously: false)
+        self.appIndexer = appIndexer
+        let searchService = SearchService(indexer: appIndexer)
+        windowManager.setSearchService(searchService)
 
-        // Initialize clipboard manager (starts monitoring on init)
-        clipboardManager = ClipboardManager()
+        // Load clipboard history asynchronously and start monitoring.
+        let clipboardManager = ClipboardManager(loadSynchronously: false)
+        self.clipboardManager = clipboardManager
+        windowManager.setClipboardManager(clipboardManager)
 
-        // Initialize window manager
-        windowManager = WindowManager()
-        windowManager?.setSearchService(searchService)
-        windowManager?.setClipboardManager(clipboardManager!)
+        // Warm icons as soon as the index is ready.
+        appIndexer.scanForApplicationsAsync { [weak windowManager] apps in
+            windowManager?.prewarmAppIcons(applications: apps)
+        }
 
-        // Initialize hotkey manager
+        // Initialize hotkey manager.
         hotkeyManager = HotkeyManager { [weak self] mode in
             let searchMode: SearchMode = mode == .clipboard ? .clipboard : .applications
             self?.toggleWindow(mode: searchMode)
         }
 
-        // Start monitoring hotkey
         hotkeyManager?.start()
     }
 
