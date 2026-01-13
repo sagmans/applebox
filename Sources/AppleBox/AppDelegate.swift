@@ -1,13 +1,19 @@
 import AppKit
+import OSLog
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager: HotkeyManager?
     private var windowManager: WindowManager?
     private var appIndexer: ApplicationIndexer?
     private var clipboardManager: ClipboardManager?
 
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        category: "app"
+    )
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("AppleBox launched")
+        logger.info("AppleBox launched")
 
         // Initialize application indexer (runs scan on init)
         appIndexer = ApplicationIndexer()
@@ -34,7 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        print("AppleBox terminating")
+        logger.info("AppleBox terminating")
     }
 
     private func toggleWindow(mode: SearchMode? = nil) {

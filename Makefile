@@ -29,7 +29,7 @@ status:
 	@pgrep -x $(APP_NAME) >/dev/null && echo "$(APP_NAME) running (PID: $$(pgrep -x $(APP_NAME)))" || echo "$(APP_NAME) not running"
 
 logs:
-	@tail -f "$(LOG_DIR)/$(APP_NAME).log" 2>/dev/null || echo "No logs yet"
+	@log stream --style compact --predicate 'subsystem == "com.assagman.applebox"' 2>/dev/null || echo "No logs yet"
 
 # --- Install ---
 
