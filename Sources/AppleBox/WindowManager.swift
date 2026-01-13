@@ -360,6 +360,11 @@ class WindowManager: NSObject {
         searchField.focusRingType = .none  // We'll add custom focus styling
         searchField.backgroundColor = .clear
         searchField.textColor = .labelColor
+        
+        // Hide search magnifier icon for cleaner look
+        if let cell = searchField.cell as? NSSearchFieldCell {
+            cell.searchButtonCell = nil
+        }
 
         // Accessibility for search field
         searchField.setAccessibilityIdentifier("AppleBoxSearchField")
@@ -383,13 +388,14 @@ class WindowManager: NSObject {
             object: searchField
         )
 
-        // Premium results panel
+        // Premium results panel - matching glass style of search view with translucent blend
         let resultsPanel = NSView(frame: NSRect(x: 16, y: 16, width: 568, height: 316))
         resultsPanel.wantsLayer = true
-        resultsPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        // Fully transparent background - let glass blur show through
+        resultsPanel.layer?.backgroundColor = NSColor.clear.cgColor
         resultsPanel.layer?.cornerRadius = 18
         resultsPanel.layer?.borderWidth = 0.5
-        resultsPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+        resultsPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor  // Lighter stroke
         if #available(macOS 11.0, *) {
             resultsPanel.layer?.cornerCurve = .continuous
         }
@@ -401,6 +407,8 @@ class WindowManager: NSObject {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = false  // Prevent dark background drawing
+        scrollView.contentView.drawsBackground = false  // Clip view also needs this
 
         // Track user scrolling so we don't fight it
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -426,9 +434,9 @@ class WindowManager: NSObject {
         tableView.setAccessibilityLabel("Search Results")
         tableView.setAccessibilityHelp("Use arrow keys to navigate results, Enter to select.")
 
-        // Create single text column
+        // Create single text column - match scrollView width for proper alignment
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("AppColumn"))
-        column.width = 560
+        column.width = 544  // Match scrollView width to prevent right-side overflow
         column.dataCell = NSTextFieldCell()
         tableView.addTableColumn(column)
 
