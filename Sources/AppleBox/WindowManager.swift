@@ -107,10 +107,154 @@ class WindowManager: NSObject {
         self.iconProvider = iconProvider
         super.init()
         setupWindow()
+        observeAccessibilityChanges()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    // MARK: - Accessibility Settings (US-005)
+    
+    /// Returns current accessibility settings from macOS
+    private func getAccessibilitySettings() -> (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool) {
+        return (
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+    }
+    
+    /// Observes accessibility setting changes and updates UI accordingly
+    private func observeAccessibilityChanges() {
+        // NSWorkspace posts notifications when accessibility settings change
+        NotificationCenter.default.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyAccessibilitySettings()
+        }
+    }
+    
+    /// Applies current accessibility settings to all UI elements
+    private func applyAccessibilitySettings() {
+        let settings = getAccessibilitySettings()
+        
+        // Update main window
+        if let window = window, let glassView = window.contentView as? NSVisualEffectView {
+            updateGlassViewForAccessibility(glassView, settings: settings)
+            
+            // Update overlay and panels within the glass view
+            for subview in glassView.subviews {
+                if subview is NSVisualEffectView {
+                    continue  // Skip the glass view itself
+                }
+                updateOverlayForAccessibility(subview, settings: settings, isSidecar: false)
+            }
+        }
+        
+        // Update sidecar window
+        if let sidecar = sidecarWindow, let glassView = sidecar.contentView as? NSVisualEffectView {
+            updateGlassViewForAccessibility(glassView, settings: settings)
+            
+            for subview in glassView.subviews {
+                updateOverlayForAccessibility(subview, settings: settings, isSidecar: true)
+            }
+        }
+        
+        // Refresh header panel styling (might need contrast adjustment)
+        if let headerPanel = headerPanel {
+            updatePanelForAccessibility(headerPanel, settings: settings, isSidecar: false)
+        }
+        
+        // Reload table to update cards
+        tableView?.reloadData()
+    }
+    
+    /// Updates glass view material based on accessibility settings
+    private func updateGlassViewForAccessibility(_ glassView: NSVisualEffectView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool)) {
+        // When Reduce Transparency is enabled, reduce blur effect
+        if settings.reduceTransparency {
+            glassView.material = .sidebar  // Less translucent material
+            glassView.state = .active
+        } else {
+            glassView.material = .hudWindow  // Original translucent material
+            glassView.state = .active
+        }
+    }
+    
+    /// Updates overlay opacity based on accessibility settings
+    private func updateOverlayForAccessibility(_ overlay: NSView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool), isSidecar: Bool) {
+        guard let layer = overlay.layer else { return }
+        
+        // Base opacity values
+        let baseOverlayOpacity: CGFloat = isSidecar ? 0.16 : 0.22
+        let baseStrokeOpacity: CGFloat = isSidecar ? 0.2 : 0.3
+        
+        // Adjust for Reduce Transparency (increase opacity, less reliance on blur)
+        var overlayOpacity = baseOverlayOpacity
+        var strokeOpacity = baseStrokeOpacity
+        
+        if settings.reduceTransparency {
+            overlayOpacity = min(overlayOpacity + 0.2, 0.7)  // Significantly increase opacity
+        }
+        
+        // Adjust for Increase Contrast (strengthen strokes)
+        if settings.increaseContrast {
+            strokeOpacity = min(strokeOpacity + 0.25, 0.8)  // Strengthen strokes
+        }
+        
+        // Apply settings
+        if let bgColor = layer.backgroundColor {
+            let color = NSColor(cgColor: bgColor)?.withAlphaComponent(overlayOpacity)
+            layer.backgroundColor = color?.cgColor
+        }
+        
+        if let borderColor = layer.borderColor {
+            let color = NSColor(cgColor: borderColor)?.withAlphaComponent(strokeOpacity)
+            layer.borderColor = color?.cgColor
+            
+            // Increase border width for better visibility in high contrast
+            if settings.increaseContrast {
+                layer.borderWidth = 1.0  // Thicker stroke
+            }
+        }
+    }
+    
+    /// Updates panel styling based on accessibility settings
+    private func updatePanelForAccessibility(_ panel: NSView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool), isSidecar: Bool) {
+        guard let layer = panel.layer else { return }
+        
+        // Base values for main vs sidecar
+        let basePanelOpacity: CGFloat = isSidecar ? 0.09 : 0.12
+        let basePanelStroke: CGFloat = isSidecar ? 0.18 : 0.25
+        
+        var panelOpacity = basePanelOpacity
+        var strokeOpacity = basePanelStroke
+        
+        // Adjust for Reduce Transparency
+        if settings.reduceTransparency {
+            panelOpacity = min(panelOpacity + 0.15, 0.5)
+        }
+        
+        // Adjust for Increase Contrast
+        if settings.increaseContrast {
+            strokeOpacity = min(strokeOpacity + 0.25, 0.7)
+        }
+        
+        // Apply background color
+        layer.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(panelOpacity).cgColor
+        
+        // Apply border color
+        layer.borderColor = NSColor.separatorColor.withAlphaComponent(strokeOpacity).cgColor
+        
+        // Increase border width for high contrast
+        if settings.increaseContrast {
+            layer.borderWidth = 1.0
+        } else {
+            layer.borderWidth = 0.5
+        }
     }
 
     func setSearchService(_ service: SearchService) {
@@ -306,6 +450,9 @@ class WindowManager: NSObject {
 
         self.window = window
         setupSidecarWindow()
+        
+        // Apply accessibility settings to initial UI
+        applyAccessibilitySettings()
     }
 
     private func setupSidecarWindow() {
@@ -597,7 +744,8 @@ class WindowManager: NSObject {
 
     private func animateResultsUpdateIfAppropriate() {
         guard isWindowVisible, let scrollView = scrollView else { return }
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let settings = getAccessibilitySettings()
+        guard !settings.reduceMotion else { return }
 
         let now = ProcessInfo.processInfo.systemUptime
         let minimumInterval: TimeInterval = 0.10
@@ -753,17 +901,23 @@ class WindowManager: NSObject {
     
     /// Updates the header panel styling to show premium focus treatment.
     /// - Adds subtle inner glow and thin accent stroke when focused
-    /// - Respects Reduce Motion for animations
+    /// - Respects Reduce Motion for animations and Increase Contrast for visibility
     private func updateSearchFieldFocusState(focused: Bool) {
         guard let headerPanel = headerPanel else { return }
         guard let layer = headerPanel.layer else { return }
         
-        let shouldAnimate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let settings = getAccessibilitySettings()
+        let shouldAnimate = !settings.reduceMotion
         
         if focused {
             // Premium focus: thin accent stroke + subtle inner glow
-            let accentColor = NSColor.controlAccentColor.withAlphaComponent(0.5)
-            let glowColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
+            // Adjust opacity for Increase Contrast
+            let accentAlpha: CGFloat = settings.increaseContrast ? 0.75 : 0.5
+            let glowAlpha: CGFloat = settings.increaseContrast ? 0.25 : 0.15
+            let borderWidth: CGFloat = settings.increaseContrast ? 2.0 : 1.5
+            
+            let accentColor = NSColor.controlAccentColor.withAlphaComponent(accentAlpha)
+            let glowColor = NSColor.controlAccentColor.withAlphaComponent(glowAlpha)
             
             if shouldAnimate {
                 // Smooth transition
@@ -771,19 +925,24 @@ class WindowManager: NSObject {
                     context.duration = 0.2
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     layer.borderColor = accentColor.cgColor
-                    layer.borderWidth = 1.5
+                    layer.borderWidth = borderWidth
                     layer.backgroundColor = glowColor.cgColor
                 }
             } else {
                 // Instant change
                 layer.borderColor = accentColor.cgColor
-                layer.borderWidth = 1.5
+                layer.borderWidth = borderWidth
                 layer.backgroundColor = glowColor.cgColor
             }
         } else {
             // Return to default panel styling
-            let defaultStroke = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
-            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(0.15).cgColor
+            // Adjust for Increase Contrast
+            let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.25
+            let bgAlpha: CGFloat = settings.increaseContrast ? 0.25 : 0.15
+            let borderWidth: CGFloat = settings.increaseContrast ? 1.0 : 0.5
+            
+            let defaultStroke = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
+            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
             
             if shouldAnimate {
                 // Smooth transition
@@ -791,13 +950,13 @@ class WindowManager: NSObject {
                     context.duration = 0.2
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     layer.borderColor = defaultStroke
-                    layer.borderWidth = 0.5
+                    layer.borderWidth = borderWidth
                     layer.backgroundColor = defaultBackground
                 }
             } else {
                 // Instant change
                 layer.borderColor = defaultStroke
-                layer.borderWidth = 0.5
+                layer.borderWidth = borderWidth
                 layer.backgroundColor = defaultBackground
             }
         }
@@ -1127,16 +1286,22 @@ extension WindowManager: NSTableViewDelegate {
         var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
         
         if cardContainer == nil {
+            let settings = getAccessibilitySettings()
+            
             // Create card container with premium styling
             cardContainer = NSView()
             cardContainer?.identifier = cellId
             cardContainer?.wantsLayer = true
             
-            // Card background and stroke
-            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            // Card background and stroke (adjusted for accessibility)
+            let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
+            let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
+            let strokeWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
+            
+            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
             cardContainer?.layer?.cornerRadius = 12
-            cardContainer?.layer?.borderWidth = 0.5
-            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+            cardContainer?.layer?.borderWidth = strokeWidth
+            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
             if #available(macOS 11.0, *) {
                 cardContainer?.layer?.cornerCurve = .continuous
             }
@@ -1199,16 +1364,22 @@ extension WindowManager: NSTableViewDelegate {
         let padding: CGFloat = 16
         
         if cardContainer == nil {
+            let settings = getAccessibilitySettings()
+            
             // Create card container with premium styling
             cardContainer = NSView()
             cardContainer?.identifier = cellId
             cardContainer?.wantsLayer = true
             
-            // Card background and stroke
-            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            // Card background and stroke (adjusted for accessibility)
+            let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
+            let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
+            let strokeWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
+            
+            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
             cardContainer?.layer?.cornerRadius = 12
-            cardContainer?.layer?.borderWidth = 0.5
-            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+            cardContainer?.layer?.borderWidth = strokeWidth
+            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
             if #available(macOS 11.0, *) {
                 cardContainer?.layer?.cornerCurve = .continuous
             }
@@ -1308,12 +1479,20 @@ extension WindowManager: NSTableViewDelegate {
     private func applyCardSelectionStyle(to card: NSView?, isSelected: Bool, animated: Bool) {
         guard let card = card, let layer = card.layer else { return }
         
-        let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let settings = getAccessibilitySettings()
+        let shouldAnimate = animated && !settings.reduceMotion
         
         if isSelected {
             // Premium selection: thin accent outline + slight fill
-            let accentStroke = NSColor.controlAccentColor.withAlphaComponent(0.6).cgColor
-            let accentFill = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+            // Adjust opacity for Increase Contrast
+            let strokeAlpha: CGFloat = settings.increaseContrast ? 0.85 : 0.6
+            let fillAlpha: CGFloat = settings.increaseContrast ? 0.22 : 0.12
+            
+            let accentStroke = NSColor.controlAccentColor.withAlphaComponent(strokeAlpha).cgColor
+            let accentFill = NSColor.controlAccentColor.withAlphaComponent(fillAlpha).cgColor
+            
+            // Thicker border for Increase Contrast
+            let borderWidth: CGFloat = settings.increaseContrast ? 2.0 : 1.5
             
             if shouldAnimate {
                 // Subtle animated transition
@@ -1321,12 +1500,12 @@ extension WindowManager: NSTableViewDelegate {
                     context.duration = 0.18
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     layer.borderColor = accentStroke
-                    layer.borderWidth = 1.5
+                    layer.borderWidth = borderWidth
                     layer.backgroundColor = accentFill
                     layer.opacity = 1.0
                 }
                 
-                // Very subtle pulse effect (low CPU cost)
+                // Very subtle pulse effect (low CPU cost) - only if motion allowed
                 let pulseAnimation = CABasicAnimation(keyPath: "opacity")
                 pulseAnimation.fromValue = 0.92
                 pulseAnimation.toValue = 1.0
@@ -1337,27 +1516,34 @@ extension WindowManager: NSTableViewDelegate {
             } else {
                 // Instant change
                 layer.borderColor = accentStroke
-                layer.borderWidth = 1.5
+                layer.borderWidth = borderWidth
                 layer.backgroundColor = accentFill
             }
         } else {
             // Default card state
-            let defaultStroke = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
-            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            // Adjust opacity for Increase Contrast
+            let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
+            let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
+            
+            let defaultStroke = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
+            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
+            
+            // Thicker border for Increase Contrast
+            let borderWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
             
             if shouldAnimate {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.15
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     layer.borderColor = defaultStroke
-                    layer.borderWidth = 0.5
+                    layer.borderWidth = borderWidth
                     layer.backgroundColor = defaultBackground
                     layer.opacity = 1.0
                 }
             } else {
                 // Instant change
                 layer.borderColor = defaultStroke
-                layer.borderWidth = 0.5
+                layer.borderWidth = borderWidth
                 layer.backgroundColor = defaultBackground
             }
         }
