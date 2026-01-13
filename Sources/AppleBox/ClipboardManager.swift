@@ -35,19 +35,28 @@ struct ClipboardItem: Codable {
     }
 }
 
-class ClipboardManager {
+final class ClipboardManager {
     private let maxHistoryCount = 50
-    private var history: [ClipboardItem] = []
+
     private let pasteboard: PasteboardProtocol
     private let fileSystem: FileSystemProtocol
     private var lastChangeCount: Int = 0
     private var monitoringTimer: Timer?
     private let storageURL: URL
 
+    private let historyQueue = DispatchQueue(label: "applebox.clipboard.history", qos: .userInitiated)
+    private var history: [ClipboardItem] = []
+
+    private let persistenceQueue = DispatchQueue(label: "applebox.clipboard.persistence", qos: .utility)
+
     // File location for persistent storage
     private let fileName = "clipboard_history.json"
 
-    init(pasteboard: PasteboardProtocol = SystemPasteboard(), fileSystem: FileSystemProtocol = SystemFileManager()) {
+    init(
+        pasteboard: PasteboardProtocol = SystemPasteboard(),
+        fileSystem: FileSystemProtocol = SystemFileManager(),
+        loadSynchronously: Bool = true
+    ) {
         self.pasteboard = pasteboard
         self.fileSystem = fileSystem
 
@@ -62,8 +71,11 @@ class ClipboardManager {
 
         storageURL = appDirectory.appendingPathComponent(fileName)
 
-        // Load existing history
-        loadHistory()
+        if loadSynchronously {
+            loadHistorySync()
+        } else {
+            loadHistoryAsync()
+        }
 
         // Start monitoring
         startMonitoring()
@@ -76,7 +88,7 @@ class ClipboardManager {
     // MARK: - Public Methods
 
     func getHistory() -> [ClipboardItem] {
-        return history
+        historyQueue.sync { history }
     }
 
     /// Result of a clipboard search with score and matched indices.
@@ -87,17 +99,19 @@ class ClipboardManager {
     }
 
     func searchHistory(query: String) -> [ClipboardItem] {
-        return searchHistoryWithMatches(query: query).map { $0.item }
+        searchHistoryWithMatches(query: query).map { $0.item }
     }
 
     /// Search history returning full match results (score + indices) to avoid duplicate fuzzy matching.
     func searchHistoryWithMatches(query: String) -> [ClipboardSearchMatch] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshot = getHistory()
+
         guard !trimmedQuery.isEmpty else {
-            return history.map { ClipboardSearchMatch(item: $0, score: 0, matchedIndices: []) }
+            return snapshot.map { ClipboardSearchMatch(item: $0, score: 0, matchedIndices: []) }
         }
 
-        let scored = history.enumerated().compactMap { index, item -> (index: Int, match: ClipboardSearchMatch)? in
+        let scored = snapshot.enumerated().compactMap { index, item -> (index: Int, match: ClipboardSearchMatch)? in
             let result = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: item.content)
             guard result.score > 0 else { return nil }
             return (index: index, match: ClipboardSearchMatch(item: item, score: result.score, matchedIndices: result.matchedIndices))
@@ -133,82 +147,102 @@ class ClipboardManager {
 
     private func checkForChanges() {
         guard pasteboard.changeCount != lastChangeCount else { return }
-
         lastChangeCount = pasteboard.changeCount
 
         // Try to capture image first (PNG or TIFF)
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            // Ignore duplicate consecutive images (compare base64)
             let newBase64 = imageData.base64EncodedString()
-            if let lastItem = history.first, lastItem.contentType == .image, lastItem.imageData == newBase64 {
-                return
+
+            var shouldSave = false
+            historyQueue.sync {
+                if let lastItem = history.first, lastItem.contentType == .image, lastItem.imageData == newBase64 {
+                    return
+                }
+
+                history.insert(ClipboardItem(imageData: imageData), at: 0)
+                if history.count > maxHistoryCount {
+                    history = Array(history.prefix(maxHistoryCount))
+                }
+                shouldSave = true
             }
 
-            let newItem = ClipboardItem(imageData: imageData)
-            history.insert(newItem, at: 0)
-
-            if history.count > maxHistoryCount {
-                history = Array(history.prefix(maxHistoryCount))
+            if shouldSave {
+                postHistoryUpdated()
+                saveHistoryAsync()
             }
-
-            saveHistory()
-            print("ClipboardManager: Captured new image (\(imageData.count) bytes)")
             return
         }
 
         // Capture plain text
         guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
 
-        // Ignore duplicate consecutive copies
-        if let lastItem = history.first, lastItem.contentType == .text, lastItem.content == text {
-            return
+        var shouldSave = false
+        historyQueue.sync {
+            if let lastItem = history.first, lastItem.contentType == .text, lastItem.content == text {
+                return
+            }
+
+            history.insert(ClipboardItem(content: text), at: 0)
+            if history.count > maxHistoryCount {
+                history = Array(history.prefix(maxHistoryCount))
+            }
+            shouldSave = true
         }
 
-        // Add new item to beginning of history
-        let newItem = ClipboardItem(content: text)
-        history.insert(newItem, at: 0)
-
-        // Limit history to maxHistoryCount items
-        if history.count > maxHistoryCount {
-            history = Array(history.prefix(maxHistoryCount))
-        }
-
-        // Persist to disk
-        saveHistory()
-
-        print("ClipboardManager: Captured new item (\(text.count) characters)")
-    }
-
-    private func saveHistory() {
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(history)
-            _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
-            print("ClipboardManager: Saved \(history.count) items to disk")
-        } catch {
-            print("ClipboardManager: Failed to save history - \(error.localizedDescription)")
+        if shouldSave {
+            postHistoryUpdated()
+            saveHistoryAsync()
         }
     }
 
-    private func loadHistory() {
-        guard fileSystem.fileExists(atPath: storageURL.path) else {
-            print("ClipboardManager: No existing history found")
-            return
+    private func postHistoryUpdated() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Notification.Name("applebox.clipboardHistory.didUpdate"), object: nil)
         }
+    }
 
-        guard let data = fileSystem.contents(atPath: storageURL.path) else {
-            print("ClipboardManager: Failed to read history file")
-            return
+    private func saveHistoryAsync() {
+        let snapshot = getHistory()
+        persistenceQueue.async { [snapshot, storageURL, fileSystem] in
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(snapshot)
+                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
+            } catch {
+                // Best-effort persistence.
+            }
         }
+    }
+
+    private func loadHistoryAsync() {
+        persistenceQueue.async { [weak self] in
+            guard let self else { return }
+            let loaded = self.loadHistoryFromDisk()
+            self.historyQueue.sync {
+                self.history = loaded
+            }
+            self.postHistoryUpdated()
+        }
+    }
+
+    private func loadHistorySync() {
+        let loaded = loadHistoryFromDisk()
+        historyQueue.sync {
+            history = loaded
+        }
+    }
+
+    private func loadHistoryFromDisk() -> [ClipboardItem] {
+        guard fileSystem.fileExists(atPath: storageURL.path) else { return [] }
+        guard let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
 
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            history = try decoder.decode([ClipboardItem].self, from: data)
-            print("ClipboardManager: Loaded \(history.count) items from disk")
+            return try decoder.decode([ClipboardItem].self, from: data)
         } catch {
-            print("ClipboardManager: Failed to load history - \(error.localizedDescription)")
+            return []
         }
     }
 }
