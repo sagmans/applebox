@@ -187,3 +187,24 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Keep contrast reduction subtle to maintain readability for both text and images
 ---
 
+## 2026-01-13 03:25:21 +0300 - US-005
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented comprehensive macOS accessibility settings support
+- Added getAccessibilitySettings() to detect Reduce Transparency, Increase Contrast, and Reduce Motion
+- Added observeAccessibilityChanges() to observe NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
+- Added applyAccessibilitySettings() to update all UI elements dynamically when settings change
+- Files changed:
+  - `Sources/AppleBox/WindowManager.swift` - added 215 lines for accessibility support
+  - `Tests/AppleBoxTests/__Snapshots__/SnapshotTests/*.png` - updated all 9 snapshots
+  - `prd.json` - marked US-005 as passing
+  - `.ralph/progress.txt` - this entry
+- **Learnings for future iterations:**
+  - Reduce Transparency: change NSVisualEffectView material (.hudWindow → .sidebar), increase overlay opacity (+0.2), increase panel opacity (+0.15)
+  - Increase Contrast: strengthen stroke opacity (+0.25), increase border widths (0.5→1.0 for panels, 1.5→2.0 for selection), increase selection fill opacity (0.12→0.22)
+  - Reduce Motion: check settings.reduceMotion before all animations (focus transitions, selection pulse, results slide-in)
+  - Use getAccessibilitySettings() helper to centralize detection and return tuple for consistency
+  - Observe NSWorkspace.accessibilityDisplayOptionsDidChangeNotification to update UI when user changes system settings
+  - Apply accessibility adjustments in cell creation (makeClipboardCell/makeApplicationCell) and dynamic updates (applyCardSelectionStyle)
+  - Test with RECORD_SNAPSHOTS=1 then re-run without to validate visual changes
+---
+
