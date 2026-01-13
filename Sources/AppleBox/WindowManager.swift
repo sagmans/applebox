@@ -81,6 +81,7 @@ class WindowManager: NSObject {
     private var lastSearchQuery: String = ""
     private var userHasOverriddenPinnedScrollSinceLastQueryChange = false
     private var isPerformingProgrammaticScroll = false
+    private var isNavigatingProgrammatically = false
 
     private var lastResultsAnimationUptime: TimeInterval = 0
     private var searchDebounceWorkItem: DispatchWorkItem?
@@ -350,20 +351,22 @@ class WindowManager: NSObject {
         self.headerPanel = headerPanel
         
         // Create search field inside header panel
-        let searchField = NSSearchField(frame: NSRect(x: 16, y: 9, width: 536, height: 30))
+        // Text draws at top of field, so use smaller height and position to center visually
+        let searchField = NSSearchField(frame: NSRect(x: 16, y: 12, width: 536, height: 24))
         searchField.placeholderString = "Search applications..."
-        searchField.font = NSFont.systemFont(ofSize: 17)  // Slightly larger for premium feel
+        searchField.font = NSFont.systemFont(ofSize: 17)
         searchField.target = self
         searchField.action = #selector(handleSearch(_:))
-        searchField.delegate = self  // For arrow key handling and text control
+        searchField.delegate = self
         searchField.isBordered = false
-        searchField.focusRingType = .none  // We'll add custom focus styling
+        searchField.focusRingType = .none
         searchField.backgroundColor = .clear
         searchField.textColor = .labelColor
         
-        // Hide search magnifier icon for cleaner look
+        // Hide search/cancel icons for cleaner look
         if let cell = searchField.cell as? NSSearchFieldCell {
             cell.searchButtonCell = nil
+            cell.cancelButtonCell = nil
         }
 
         // Accessibility for search field
@@ -1025,8 +1028,13 @@ class WindowManager: NSObject {
         // Handle navigation boundaries without wrapping
         if newIndex < 0 {
             // Going up from first element (or no selection) - focus search field
+            let previousIndex = selectedRowIndex
             selectedRowIndex = -1
             tableView?.deselectAll(nil)
+            // Deselect the previous card visually
+            if let tableView = tableView {
+                updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: -1)
+            }
             window?.makeFirstResponder(searchField)
             print("Focus returned to search field")
             return
@@ -1035,9 +1043,20 @@ class WindowManager: NSObject {
             return
         }
 
+        // Save previous index BEFORE updating for correct visual update
+        let previousIndex = selectedRowIndex
         selectedRowIndex = newIndex
+        
+        // Prevent tableViewSelectionDidChange from double-updating visuals
+        isNavigatingProgrammatically = true
         tableView?.selectRowIndexes(IndexSet(integer: selectedRowIndex), byExtendingSelection: false)
         tableView?.scrollRowToVisible(selectedRowIndex)
+        isNavigatingProgrammatically = false
+        
+        // Manually update card visuals with correct previous/current indices
+        if let tableView = tableView {
+            updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: selectedRowIndex)
+        }
         updateSidecarVisibility()
 
         if searchMode == .clipboard {
@@ -1454,6 +1473,10 @@ extension WindowManager: NSTableViewDelegate {
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard let tableView = tableView else { return }
+        
+        // Skip if navigating programmatically (handled in navigateResults)
+        guard !isNavigatingProgrammatically else { return }
+        
         let previousSelection = selectedRowIndex
         selectedRowIndex = tableView.selectedRow
         
