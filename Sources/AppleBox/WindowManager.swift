@@ -271,9 +271,9 @@ class WindowManager: NSObject {
         let tableView = NSTableView(frame: scrollView.bounds)
         tableView.style = .plain
         tableView.headerView = nil
-        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.intercellSpacing = NSSize(width: 0, height: 6)  // Spacing between card rows
         tableView.backgroundColor = .clear
-        tableView.selectionHighlightStyle = .regular
+        tableView.selectionHighlightStyle = .none  // Custom selection drawing
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
 
@@ -1122,17 +1122,40 @@ extension WindowManager: NSTableViewDelegate {
         guard row >= 0 && row < clipboardResults.count else { return nil }
         
         let cellId = NSUserInterfaceItemIdentifier("ClipboardCell")
-        var cell = tableView.makeView(withIdentifier: cellId, owner: nil) as? NSTextField
+        var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
         
-        if cell == nil {
-            cell = NSTextField()
-            cell?.identifier = cellId
-            cell?.isBordered = false
-            cell?.isEditable = false
-            cell?.isSelectable = false
-            cell?.backgroundColor = .clear
-            cell?.font = NSFont.systemFont(ofSize: 14)
-            cell?.lineBreakMode = .byTruncatingTail
+        if cardContainer == nil {
+            // Create card container with premium styling
+            cardContainer = NSView()
+            cardContainer?.identifier = cellId
+            cardContainer?.wantsLayer = true
+            
+            // Card background and stroke
+            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            cardContainer?.layer?.cornerRadius = 12
+            cardContainer?.layer?.borderWidth = 0.5
+            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+            if #available(macOS 11.0, *) {
+                cardContainer?.layer?.cornerCurve = .continuous
+            }
+            
+            // Text field inside card
+            let textField = NSTextField()
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            textField.isBordered = false
+            textField.isEditable = false
+            textField.isSelectable = false
+            textField.backgroundColor = .clear
+            textField.font = NSFont.systemFont(ofSize: 14)
+            textField.lineBreakMode = .byTruncatingTail
+            textField.tag = 200
+            cardContainer?.addSubview(textField)
+            
+            NSLayoutConstraint.activate([
+                textField.leadingAnchor.constraint(equalTo: cardContainer!.leadingAnchor, constant: 16),
+                textField.trailingAnchor.constraint(equalTo: cardContainer!.trailingAnchor, constant: -16),
+                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor)
+            ])
         }
         
         let result = clipboardResults[row]
@@ -1143,38 +1166,56 @@ extension WindowManager: NSTableViewDelegate {
         
         // Apply highlighting to matched indices (adjust for truncation)
         let truncatedIndices = result.matchedIndices.filter { $0 < displayContent.count }
-        cell?.attributedStringValue = attributedString(
-            for: displayContent,
-            highlightingIndices: truncatedIndices,
-            font: cell?.font ?? NSFont.systemFont(ofSize: 14)
-        )
+        
+        if let textField = cardContainer?.viewWithTag(200) as? NSTextField {
+            textField.attributedStringValue = attributedString(
+                for: displayContent,
+                highlightingIndices: truncatedIndices,
+                font: textField.font ?? NSFont.systemFont(ofSize: 14)
+            )
+        }
+        
+        // Apply initial selection styling
+        let isSelected = (selectedRowIndex == row)
+        applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
         
         // Accessibility
-        cell?.setAccessibilityIdentifier("ClipboardRow_\(row)")
-        cell?.setAccessibilityLabel("Clipboard item: \(displayContent)")
-        cell?.setAccessibilityHelp("Press Enter to copy this item to clipboard")
+        cardContainer?.setAccessibilityIdentifier("ClipboardRow_\(row)")
+        cardContainer?.setAccessibilityLabel("Clipboard item: \(displayContent)")
+        cardContainer?.setAccessibilityHelp("Press Enter to copy this item to clipboard")
         
-        return cell
+        return cardContainer
     }
     
     private func makeApplicationCell(tableView: NSTableView, row: Int) -> NSView? {
         guard row >= 0 && row < searchResults.count else { return nil }
         
         let cellId = NSUserInterfaceItemIdentifier("AppCell")
-        var containerView = tableView.makeView(withIdentifier: cellId, owner: nil)
+        var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
         
         let iconSize: CGFloat = 24
-        let padding: CGFloat = 8
+        let padding: CGFloat = 16
         
-        if containerView == nil {
-            containerView = NSView()
-            containerView?.identifier = cellId
+        if cardContainer == nil {
+            // Create card container with premium styling
+            cardContainer = NSView()
+            cardContainer?.identifier = cellId
+            cardContainer?.wantsLayer = true
+            
+            // Card background and stroke
+            cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            cardContainer?.layer?.cornerRadius = 12
+            cardContainer?.layer?.borderWidth = 0.5
+            cardContainer?.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+            if #available(macOS 11.0, *) {
+                cardContainer?.layer?.cornerCurve = .continuous
+            }
             
             let imageView = NSImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.tag = 100
-            containerView?.addSubview(imageView)
+            cardContainer?.addSubview(imageView)
             
             let textField = NSTextField()
             textField.translatesAutoresizingMaskIntoConstraints = false
@@ -1185,17 +1226,17 @@ extension WindowManager: NSTableViewDelegate {
             textField.font = NSFont.systemFont(ofSize: 14)
             textField.lineBreakMode = .byTruncatingTail
             textField.tag = 101
-            containerView?.addSubview(textField)
+            cardContainer?.addSubview(textField)
             
             NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: containerView!.leadingAnchor, constant: padding),
-                imageView.centerYAnchor.constraint(equalTo: containerView!.centerYAnchor),
+                imageView.leadingAnchor.constraint(equalTo: cardContainer!.leadingAnchor, constant: padding),
+                imageView.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor),
                 imageView.widthAnchor.constraint(equalToConstant: iconSize),
                 imageView.heightAnchor.constraint(equalToConstant: iconSize),
                 
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: padding),
-                textField.trailingAnchor.constraint(equalTo: containerView!.trailingAnchor, constant: -padding),
-                textField.centerYAnchor.constraint(equalTo: containerView!.centerYAnchor)
+                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 12),
+                textField.trailingAnchor.constraint(equalTo: cardContainer!.trailingAnchor, constant: -padding),
+                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor)
             ])
         }
         
@@ -1203,14 +1244,14 @@ extension WindowManager: NSTableViewDelegate {
         let appInfo = result.application
         
         // Get app icon
-        if let imageView = containerView?.viewWithTag(100) as? NSImageView {
+        if let imageView = cardContainer?.viewWithTag(100) as? NSImageView {
             let icon = iconProvider.icon(forBundlePath: appInfo.bundlePath)
             icon.size = NSSize(width: iconSize, height: iconSize)
             imageView.image = icon
         }
         
         // Set app name with highlighted matches
-        if let textField = containerView?.viewWithTag(101) as? NSTextField {
+        if let textField = cardContainer?.viewWithTag(101) as? NSTextField {
             textField.attributedStringValue = attributedString(
                 for: appInfo.name,
                 highlightingIndices: result.matchedIndices,
@@ -1218,22 +1259,110 @@ extension WindowManager: NSTableViewDelegate {
             )
         }
         
-        // Accessibility
-        containerView?.setAccessibilityIdentifier("ApplicationRow_\(row)")
-        containerView?.setAccessibilityLabel("Application: \(appInfo.name)")
-        containerView?.setAccessibilityHelp("Press Enter to launch this application")
+        // Apply initial selection styling
+        let isSelected = (selectedRowIndex == row)
+        applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
         
-        return containerView
+        // Accessibility
+        cardContainer?.setAccessibilityIdentifier("ApplicationRow_\(row)")
+        cardContainer?.setAccessibilityLabel("Application: \(appInfo.name)")
+        cardContainer?.setAccessibilityHelp("Press Enter to launch this application")
+        
+        return cardContainer
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard let tableView = tableView else { return }
+        let previousSelection = selectedRowIndex
         selectedRowIndex = tableView.selectedRow
+        
+        // Update card styling for previous and new selection
+        updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: selectedRowIndex)
+        
         updateSidecarVisibility()
+    }
+    
+    // MARK: - Card Selection Styling (US-003)
+    
+    /// Updates card selection visuals when selection changes.
+    /// Applies premium outline + fill to selected card with subtle animation.
+    private func updateCardSelectionVisuals(tableView: NSTableView, previousRow: Int, currentRow: Int) {
+        // Deselect previous card
+        if previousRow >= 0, let previousCard = tableView.view(atColumn: 0, row: previousRow, makeIfNecessary: false) {
+            applyCardSelectionStyle(to: previousCard, isSelected: false, animated: true)
+        }
+        
+        // Select new card
+        if currentRow >= 0, let currentCard = tableView.view(atColumn: 0, row: currentRow, makeIfNecessary: false) {
+            applyCardSelectionStyle(to: currentCard, isSelected: true, animated: true)
+        }
+    }
+    
+    /// Applies premium selection styling to a card view.
+    /// - Parameters:
+    ///   - card: The card container view
+    ///   - isSelected: Whether the card is selected
+    ///   - animated: Whether to animate the transition (respects Reduce Motion)
+    private func applyCardSelectionStyle(to card: NSView?, isSelected: Bool, animated: Bool) {
+        guard let card = card, let layer = card.layer else { return }
+        
+        let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        
+        if isSelected {
+            // Premium selection: thin accent outline + slight fill
+            let accentStroke = NSColor.controlAccentColor.withAlphaComponent(0.6).cgColor
+            let accentFill = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+            
+            if shouldAnimate {
+                // Subtle animated transition
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.borderColor = accentStroke
+                    layer.borderWidth = 1.5
+                    layer.backgroundColor = accentFill
+                    layer.opacity = 1.0
+                }
+                
+                // Very subtle pulse effect (low CPU cost)
+                let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+                pulseAnimation.fromValue = 0.92
+                pulseAnimation.toValue = 1.0
+                pulseAnimation.duration = 0.25
+                pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                pulseAnimation.autoreverses = false
+                layer.add(pulseAnimation, forKey: "selectionPulse")
+            } else {
+                // Instant change
+                layer.borderColor = accentStroke
+                layer.borderWidth = 1.5
+                layer.backgroundColor = accentFill
+            }
+        } else {
+            // Default card state
+            let defaultStroke = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(0.08).cgColor
+            
+            if shouldAnimate {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.borderColor = defaultStroke
+                    layer.borderWidth = 0.5
+                    layer.backgroundColor = defaultBackground
+                    layer.opacity = 1.0
+                }
+            } else {
+                // Instant change
+                layer.borderColor = defaultStroke
+                layer.borderWidth = 0.5
+                layer.backgroundColor = defaultBackground
+            }
+        }
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        return 36
+        return 44  // Increased height for premium card feel
     }
     
     // MARK: - Attributed String Highlighting
