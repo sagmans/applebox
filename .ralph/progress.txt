@@ -130,3 +130,20 @@ Thread: https://ampcode.com/threads/unknown
   - Search field needs `focusRingType = .none` and `isBordered = false` for custom styling
 ---
 
+## 2026-01-13 03:07:36 +0300 - US-002
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented premium focus treatment for search header bar
+- Added subtle inner glow using controlAccentColor @ 0.15 alpha for background
+- Added thin accent stroke (1.5px) using controlAccentColor @ 0.5 alpha when focused
+- Focus transitions animate smoothly (0.2s ease-out) and respect Reduce Motion accessibility setting
+- Default unfocused state: 0.5px separator stroke @ 0.25 alpha, controlBackground @ 0.15 alpha
+- Files changed:
+  - `Sources/AppleBox/WindowManager.swift` - added focus state tracking and updateSearchFieldFocusState()
+  - `prd.json` - marked US-002 as passing
+- **Learnings for future iterations:**
+  - Use NSControl.textDidBeginEditingNotification and textDidEndEditingNotification for focus tracking
+  - Premium focus treatment: animate border color, border width, and background color together
+  - Always respect NSWorkspace.shared.accessibilityDisplayShouldReduceMotion for animations
+  - Store UI component references (like headerPanel) for dynamic styling updates
+---
+
