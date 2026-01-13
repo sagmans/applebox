@@ -105,6 +105,50 @@ final class SearchModeSwitchingTests: XCTestCase {
         XCTAssertEqual(windowManager.getCurrentSearchMode(), .applications)
     }
 
+    func testApplicationsModeEmptyQueryShowsAllApplications() {
+        windowManager.show()
+        XCTAssertEqual(windowManager.getResultCount(), 4)
+    }
+
+    func testApplicationsModeOrdersByRecentApps() {
+        let appSupportURL = mockFileSystem.mockURLs.first ?? mockFileSystem.mockHomeDirectory
+        let appDirectory = appSupportURL.appendingPathComponent("AppleBox", isDirectory: true)
+        try? mockFileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+
+        let recentURL = appDirectory.appendingPathComponent("recent_applications.json")
+        let recentPaths = [
+            "/Applications/Slack.app",
+            "/System/Applications/Safari.app"
+        ]
+        let data = try? JSONEncoder().encode(recentPaths)
+        _ = mockFileSystem.createFile(atPath: recentURL.path, contents: data, attributes: nil)
+
+        let freshWindowManager = WindowManager(
+            workspace: mockWorkspace,
+            pasteboard: mockPasteboard,
+            eventSource: mockEventSource,
+            fileSystem: mockFileSystem
+        )
+        defer {
+            if freshWindowManager.isVisible() {
+                freshWindowManager.hide()
+            }
+        }
+
+        let indexer = ApplicationIndexer(fileSystem: mockFileSystem)
+        let freshSearchService = SearchService(indexer: indexer)
+        freshWindowManager.setSearchService(freshSearchService)
+
+        let freshClipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
+        freshWindowManager.setClipboardManager(freshClipboardManager)
+
+        freshWindowManager.show()
+
+        let cellView = freshWindowManager.getCellViewForTesting(at: 0)
+        let firstName = (cellView?.viewWithTag(101) as? NSTextField)?.stringValue
+        XCTAssertEqual(firstName, "Slack")
+    }
+
     // MARK: - Clipboard Mode
 
     func testShowClipboardModeStartsInClipboardMode() {
