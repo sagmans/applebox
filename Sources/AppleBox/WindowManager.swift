@@ -65,6 +65,7 @@ class WindowManager: NSObject {
     private var isWindowVisible = false
     private var isSidecarVisible = false
     private var searchField: NSSearchField?
+    private var headerPanel: NSView?
     private var tableView: NSTableView?
     private var scrollView: NSScrollView?
 
@@ -202,6 +203,7 @@ class WindowManager: NSObject {
             headerPanel.layer?.cornerCurve = .continuous
         }
         contentView.addSubview(headerPanel)
+        self.headerPanel = headerPanel
         
         // Create search field inside header panel
         let searchField = NSSearchField(frame: NSRect(x: 16, y: 9, width: 536, height: 30))
@@ -222,6 +224,20 @@ class WindowManager: NSObject {
 
         headerPanel.addSubview(searchField)
         self.searchField = searchField
+        
+        // Set up focus observation for custom focus styling
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(searchFieldDidBeginEditing(_:)),
+            name: NSControl.textDidBeginEditingNotification,
+            object: searchField
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(searchFieldDidEndEditing(_:)),
+            name: NSControl.textDidEndEditingNotification,
+            object: searchField
+        )
 
         // Premium results panel
         let resultsPanel = NSView(frame: NSRect(x: 16, y: 16, width: 568, height: 316))
@@ -721,6 +737,68 @@ class WindowManager: NSObject {
         }
         searchDebounceWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
+    }
+    
+    // MARK: - Focus Treatment (US-002)
+    
+    @objc private func searchFieldDidBeginEditing(_ notification: Notification) {
+        updateSearchFieldFocusState(focused: true)
+    }
+    
+    @objc private func searchFieldDidEndEditing(_ notification: Notification) {
+        updateSearchFieldFocusState(focused: false)
+    }
+    
+    /// Updates the header panel styling to show premium focus treatment.
+    /// - Adds subtle inner glow and thin accent stroke when focused
+    /// - Respects Reduce Motion for animations
+    private func updateSearchFieldFocusState(focused: Bool) {
+        guard let headerPanel = headerPanel else { return }
+        guard let layer = headerPanel.layer else { return }
+        
+        let shouldAnimate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        
+        if focused {
+            // Premium focus: thin accent stroke + subtle inner glow
+            let accentColor = NSColor.controlAccentColor.withAlphaComponent(0.5)
+            let glowColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
+            
+            if shouldAnimate {
+                // Smooth transition
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.2
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.borderColor = accentColor.cgColor
+                    layer.borderWidth = 1.5
+                    layer.backgroundColor = glowColor.cgColor
+                }
+            } else {
+                // Instant change
+                layer.borderColor = accentColor.cgColor
+                layer.borderWidth = 1.5
+                layer.backgroundColor = glowColor.cgColor
+            }
+        } else {
+            // Return to default panel styling
+            let defaultStroke = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+            let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(0.15).cgColor
+            
+            if shouldAnimate {
+                // Smooth transition
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.2
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.borderColor = defaultStroke
+                    layer.borderWidth = 0.5
+                    layer.backgroundColor = defaultBackground
+                }
+            } else {
+                // Instant change
+                layer.borderColor = defaultStroke
+                layer.borderWidth = 0.5
+                layer.backgroundColor = defaultBackground
+            }
+        }
     }
 
     /// Performs the actual search (called after debounce).
