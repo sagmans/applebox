@@ -349,13 +349,14 @@ class WindowManager: NSObject {
             glassView.layer?.cornerCurve = .continuous
         }
 
-        // Subtle readability overlay with premium stroke
+        // Subtle readability overlay with premium stroke (LOWER CONTRAST for sidecar)
+        // Reduced opacity for a more receded, blended appearance
         let overlayView = NSView(frame: glassView.bounds)
         overlayView.autoresizingMask = [.width, .height]
         overlayView.wantsLayer = true
-        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.22).cgColor
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.16).cgColor  // Reduced from 0.22
         overlayView.layer?.borderWidth = 0.5
-        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
+        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor  // Reduced from 0.3
         overlayView.layer?.cornerRadius = 20
         overlayView.layer?.masksToBounds = true
 
@@ -363,14 +364,15 @@ class WindowManager: NSObject {
         let containerView = NSView(frame: glassView.bounds)
         containerView.autoresizingMask = [.width, .height]
         
-        // Premium content panel
+        // Premium content panel (LOWER CONTRAST for sidecar)
+        // Slightly reduced background for a softer, more receded appearance
         let contentPanel = NSView(frame: NSRect(x: 16, y: 16, width: sidecarWidth - 32, height: sidecarHeight - 32))
         contentPanel.autoresizingMask = [.width, .height]
         contentPanel.wantsLayer = true
-        contentPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        contentPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.09).cgColor  // Reduced from 0.12
         contentPanel.layer?.cornerRadius = 18
         contentPanel.layer?.borderWidth = 0.5
-        contentPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+        contentPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.18).cgColor  // Reduced from 0.25
         if #available(macOS 11.0, *) {
             contentPanel.layer?.cornerCurve = .continuous
         }
