@@ -11,6 +11,8 @@ final class HotkeyManager {
     private enum HotkeyId: UInt32 {
         case application = 1
         case clipboard = 2
+        case applicationAlt = 3  // Cmd+F1 alternative
+        case clipboardAlt = 4    // Cmd+F2 alternative
     }
 
     private let callback: (HotkeyMode) -> Void
@@ -89,6 +91,12 @@ final class HotkeyManager {
                 case HotkeyId.clipboard.rawValue:
                     manager.logger.debug("Hotkey pressed: opt+space")
                     manager.callback(.clipboard)
+                case HotkeyId.applicationAlt.rawValue:
+                    manager.logger.debug("Hotkey pressed: cmd+F1")
+                    manager.callback(.application)
+                case HotkeyId.clipboardAlt.rawValue:
+                    manager.logger.debug("Hotkey pressed: cmd+F2")
+                    manager.callback(.clipboard)
                 default:
                     break
                 }
@@ -117,19 +125,23 @@ final class HotkeyManager {
     }
 
     private func registerCarbonHotkeys() -> Bool {
-        let cmdOk = registerCarbonHotkey(id: .application, modifiers: UInt32(cmdKey))
-        let optOk = registerCarbonHotkey(id: .clipboard, modifiers: UInt32(optionKey))
-        return cmdOk || optOk
+        // Primary shortcuts
+        let cmdOk = registerCarbonHotkey(id: .application, keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))
+        let optOk = registerCarbonHotkey(id: .clipboard, keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey))
+        // Alternative shortcuts: Cmd+F1 and Cmd+F2
+        let cmdF1Ok = registerCarbonHotkey(id: .applicationAlt, keyCode: UInt32(kVK_F1), modifiers: UInt32(cmdKey))
+        let cmdF2Ok = registerCarbonHotkey(id: .clipboardAlt, keyCode: UInt32(kVK_F2), modifiers: UInt32(cmdKey))
+        return cmdOk || optOk || cmdF1Ok || cmdF2Ok
     }
 
-    private func registerCarbonHotkey(id: HotkeyId, modifiers: UInt32) -> Bool {
+    private func registerCarbonHotkey(id: HotkeyId, keyCode: UInt32, modifiers: UInt32) -> Bool {
         if registeredHotKeys[id] != nil { return true }
 
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: HotkeyManager.hotKeySignature, id: id.rawValue)
 
         let status = RegisterEventHotKey(
-            UInt32(kVK_Space),
+            keyCode,
             modifiers,
             hotKeyID,
             GetApplicationEventTarget(),
@@ -167,6 +179,7 @@ final class HotkeyManager {
 
     private func handleKeyEventFallback(_ event: NSEvent) {
         // Cmd+Space for app mode, Opt+Space for clipboard mode
+        // Alt: Cmd+F1 for app mode, Cmd+F2 for clipboard mode
         let cmdPressed = event.modifierFlags.contains(.command)
         let optPressed = event.modifierFlags.contains(.option)
 
@@ -178,6 +191,12 @@ final class HotkeyManager {
                 logger.debug("Fallback key event: opt+space")
                 callback(.clipboard)
             }
+        } else if cmdPressed && event.keyCode == 122 { // F1
+            logger.debug("Fallback key event: cmd+F1")
+            callback(.application)
+        } else if cmdPressed && event.keyCode == 120 { // F2
+            logger.debug("Fallback key event: cmd+F2")
+            callback(.clipboard)
         }
     }
 }
