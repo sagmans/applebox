@@ -381,4 +381,86 @@ final class ClipboardManagerTests: XCTestCase {
         // Then - should not attempt to create directory
         XCTAssertEqual(mockFileSystem.createDirectoryCalls.count, 0, "Should not create directory if it exists")
     }
+    
+    // MARK: - Test: Exact Substring Ranking for Bracketed Queries
+    
+    func testExactSubstringRankedAboveScatteredMatch() {
+        // Given - pre-populate history with items where one has exact "[main]" and another
+        // only supports scattered subsequence matching
+        let itemWithExact = ClipboardItem(content: "[13:52:52] [~/source/me/dotf][main] (~6, ?1)")
+        // This item has all characters of "[main]" but scattered: [, m, a, i, n, ]
+        // [log] message about interesting news] - has [ m a i n ]
+        let itemWithScattered = ClipboardItem(content: "[log] message about interesting news]")
+        
+        // Order in history: scattered first, exact second (to verify ranking changes order)
+        let existingItems = [itemWithScattered, itemWithExact]
+        let existingData = encodeHistory(existingItems)
+        mockFileSystem.addFile(at: storageURL.path, contents: existingData)
+        
+        // When
+        let manager = createManager()
+        let results = manager.searchHistoryWithMatches(query: "[main]")
+        
+        // Then - exact substring match should be ranked first
+        XCTAssertEqual(results.count, 2, "Both items should match")
+        XCTAssertEqual(results[0].item.content, itemWithExact.content, "Exact substring match should be ranked first")
+        XCTAssertEqual(results[1].item.content, itemWithScattered.content, "Scattered match should be ranked second")
+        
+        // Verify the exact match has contiguous indices
+        let exactIndices = results[0].matchedIndices
+        for i in 1..<exactIndices.count {
+            XCTAssertEqual(
+                exactIndices[i],
+                exactIndices[i - 1] + 1,
+                "Exact substring indices should be contiguous"
+            )
+        }
+    }
+    
+    func testMatchedIndicesPointToCorrectSubstring() {
+        // Given
+        let item = ClipboardItem(content: "[13:52:52] [~/source/me/dotf][main] (~6, ?1)")
+        let existingData = encodeHistory([item])
+        mockFileSystem.addFile(at: storageURL.path, contents: existingData)
+        
+        // When
+        let manager = createManager()
+        let results = manager.searchHistoryWithMatches(query: "[main]")
+        
+        // Then
+        XCTAssertEqual(results.count, 1)
+        
+        let indices = results[0].matchedIndices
+        XCTAssertEqual(indices.count, 6, "Should have 6 matched indices for '[main]'")
+        
+        // Extract the matched substring using indices
+        let content = results[0].item.content
+        let startIdx = indices.first!
+        let endIdx = indices.last!
+        let startStringIdx = content.index(content.startIndex, offsetBy: startIdx)
+        let endStringIdx = content.index(content.startIndex, offsetBy: endIdx + 1)
+        let matchedSubstring = String(content[startStringIdx..<endStringIdx])
+        
+        XCTAssertEqual(matchedSubstring, "[main]", "Indices should point to the '[main]' substring")
+    }
+    
+    func testMultipleExactSubstringMatchesRankedByRecency() {
+        // Given - two items both containing exact "[main]"
+        let olderItem = ClipboardItem(content: "older [main] item")
+        let newerItem = ClipboardItem(content: "newer [main] item")
+        
+        // History is most-recent-first, so newer is at index 0
+        let existingItems = [newerItem, olderItem]
+        let existingData = encodeHistory(existingItems)
+        mockFileSystem.addFile(at: storageURL.path, contents: existingData)
+        
+        // When
+        let manager = createManager()
+        let results = manager.searchHistoryWithMatches(query: "[main]")
+        
+        // Then - both match with same score (exact substring), so recency should break tie
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(results[0].item.content, newerItem.content, "Newer item should be first")
+        XCTAssertEqual(results[1].item.content, olderItem.content, "Older item should be second")
+    }
 }

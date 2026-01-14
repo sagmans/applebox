@@ -549,4 +549,164 @@ final class WindowManagerTests: XCTestCase {
         // Verify content view is NSVisualEffectView
         XCTAssertTrue(sidecarWindow.contentView is NSVisualEffectView)
     }
+    
+    // MARK: - Exact Substring Highlight Verification Tests
+    
+    func testExactSubstringHighlightInClipboardSearch() throws {
+        // Given: Seed clipboard history with items containing "[main]"
+        let appSupportURL = try XCTUnwrap(mockFileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        let storageURL = appSupportURL
+            .appendingPathComponent("AppleBox", isDirectory: true)
+            .appendingPathComponent("clipboard_history.json")
+        
+        let itemWithExact = ClipboardItem(content: "[13:52:52] [~/source/me/dotf][main] (~6, ?1)")
+        // This item has all characters of "[main]" scattered: [ m a i n ]
+        let itemWithScattered = ClipboardItem(content: "[log] message about interesting news]")
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let historyData = try encoder.encode([itemWithExact, itemWithScattered])
+        _ = mockFileSystem.createFile(atPath: storageURL.path, contents: historyData, attributes: nil)
+        
+        // Re-create ClipboardManager to load the seeded history
+        clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
+        windowManager.setClipboardManager(clipboardManager)
+        
+        // When: Show clipboard UI and search for "[main]"
+        windowManager.show(mode: .clipboard)
+        windowManager.simulateSearch(query: "[main]")
+        
+        // Then: Row 0 should be the item with exact substring
+        XCTAssertEqual(windowManager.getResultCount(), 2, "Both items should match")
+        
+        // Get the cell view for row 0
+        guard let cellView = windowManager.getCellViewForTesting(at: 0) else {
+            XCTFail("Cell view should exist for row 0")
+            return
+        }
+        
+        // Find the text field with tag 200 (clipboard text label)
+        guard let textField = cellView.viewWithTag(200) as? NSTextField else {
+            XCTFail("Text field with tag 200 should exist")
+            return
+        }
+        
+        // Verify the text contains "[main]"
+        XCTAssertTrue(
+            textField.stringValue.contains("[main]"),
+            "Row 0 should display item containing exact '[main]'"
+        )
+        
+        // Verify highlighting: check that some characters have accent color
+        let attributedString = textField.attributedStringValue
+        var hasAccentHighlight = false
+        let accentColor = NSColor.controlAccentColor
+        
+        attributedString.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: attributedString.length)) { value, range, _ in
+            if let color = value as? NSColor, color == accentColor {
+                hasAccentHighlight = true
+            }
+        }
+        
+        XCTAssertTrue(hasAccentHighlight, "Row should have accent color highlights for matched characters")
+    }
+    
+    func testHighlightedIndicesAreContiguousForExactSubstring() throws {
+        // Given: Seed clipboard history
+        let appSupportURL = try XCTUnwrap(mockFileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        let storageURL = appSupportURL
+            .appendingPathComponent("AppleBox", isDirectory: true)
+            .appendingPathComponent("clipboard_history.json")
+        
+        let item = ClipboardItem(content: "test [main] string")
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let historyData = try encoder.encode([item])
+        _ = mockFileSystem.createFile(atPath: storageURL.path, contents: historyData, attributes: nil)
+        
+        clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
+        windowManager.setClipboardManager(clipboardManager)
+        
+        // When: Search for "[main]"
+        windowManager.show(mode: .clipboard)
+        windowManager.simulateSearch(query: "[main]")
+        
+        // Then: Verify indices are contiguous via the search results
+        let results = clipboardManager.searchHistoryWithMatches(query: "[main]")
+        XCTAssertEqual(results.count, 1)
+        
+        let indices = results[0].matchedIndices
+        XCTAssertEqual(indices.count, 6, "Should have 6 indices for '[main]'")
+        
+        // Verify contiguous
+        for i in 1..<indices.count {
+            XCTAssertEqual(
+                indices[i],
+                indices[i - 1] + 1,
+                "Indices should be contiguous for exact substring"
+            )
+        }
+        
+        // Verify they point to "[main]"
+        let content = results[0].item.content
+        let startIdx = content.index(content.startIndex, offsetBy: indices.first!)
+        let endIdx = content.index(content.startIndex, offsetBy: indices.last! + 1)
+        let matchedSubstring = String(content[startIdx..<endIdx])
+        XCTAssertEqual(matchedSubstring, "[main]")
+    }
+    
+    func testSidecarHighlightsMatchedIndices() throws {
+        // Given: Seed clipboard history with a long item (triggers sidecar)
+        let appSupportURL = try XCTUnwrap(mockFileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        let storageURL = appSupportURL
+            .appendingPathComponent("AppleBox", isDirectory: true)
+            .appendingPathComponent("clipboard_history.json")
+        
+        // Create a long item that will trigger sidecar visibility
+        let longContent = """
+        $ v benchmark.sh
+        [13:52:52] [~/source/me/dotf][main] (~6, ?1)
+        $ chmod +x benchmark.sh
+        [13:52:58] [~/source/me/dotf][main] (~6, ?1)
+        $ ./benchmark.sh
+        Running 5 iterations...
+        =====================================
+        Run 1...
+            Time: 3.660568000s | Input: 14208 | Output: 29 | Reasoning: 0
+        Run 2...
+            Time: 4.800637000s | Input: 14208 | Output: 96 | Reasoning: 64
+        """
+        let item = ClipboardItem(content: longContent)
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let historyData = try encoder.encode([item])
+        _ = mockFileSystem.createFile(atPath: storageURL.path, contents: historyData, attributes: nil)
+        
+        clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
+        windowManager.setClipboardManager(clipboardManager)
+        
+        // When: Show clipboard mode, sidecar, and search
+        windowManager.show(mode: .clipboard)
+        windowManager.showSidecar()
+        windowManager.simulateSearch(query: "[main]")
+        
+        // Then: Sidecar should be showing
+        XCTAssertTrue(windowManager.isSidecarShowing(), "Sidecar should be visible for long content")
+        
+        // Verify search result has contiguous indices for "[main]"
+        let results = clipboardManager.searchHistoryWithMatches(query: "[main]")
+        XCTAssertEqual(results.count, 1)
+        
+        let indices = results[0].matchedIndices
+        XCTAssertEqual(indices.count, 6)
+        
+        // Verify the indices point to the first "[main]" occurrence
+        let content = results[0].item.content
+        let startIdx = content.index(content.startIndex, offsetBy: indices.first!)
+        let endIdx = content.index(content.startIndex, offsetBy: indices.last! + 1)
+        let matchedSubstring = String(content[startIdx..<endIdx])
+        XCTAssertEqual(matchedSubstring, "[main]", "Highlighted indices should point to '[main]'")
+    }
 }
