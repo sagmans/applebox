@@ -171,6 +171,9 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         let manager1 = createManager()
         simulateClipboardChange(content: "Original item", in: manager1)
         
+        // Wait for async persistence to complete before creating second manager
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        
         // When - Second manager adds more items
         let freshPasteboard = MockPasteboard()
         let manager2 = ClipboardManager(pasteboard: freshPasteboard, fileSystem: mockFileSystem)
