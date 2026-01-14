@@ -289,4 +289,53 @@ final class SearchServiceTests: XCTestCase {
                 "All returned results should have positive scores")
         }
     }
+    
+    // MARK: - Performance Tests
+    
+    func testFuzzyMatcherPerformanceWithManyApplications() {
+        // Create a large mock file system with 500 applications
+        let largeMockFS = MockFileSystem()
+        let appsDir = URL(fileURLWithPath: "/Applications")
+        
+        var appURLs: [URL] = []
+        for i in 0..<500 {
+            let appURL = appsDir.appendingPathComponent("Application\(i).app")
+            appURLs.append(appURL)
+            largeMockFS.existingFiles[appURL.path] = true
+            largeMockFS.directoryFlags[appURL.path] = true
+        }
+        
+        largeMockFS.addDirectory(at: appsDir, contents: appURLs)
+        largeMockFS.existingFiles["/System/Applications"] = false
+        let userApps = largeMockFS.mockHomeDirectory.appendingPathComponent("Applications")
+        largeMockFS.existingFiles[userApps.path] = false
+        
+        let largeIndexer = ApplicationIndexer(fileSystem: largeMockFS)
+        let largeSearchService = SearchService(indexer: largeIndexer)
+        
+        XCTAssertEqual(largeIndexer.allApplications.count, 500, "Should have 500 apps")
+        
+        // Measure search time - should be under 10ms for blazing fast UX
+        let start = CFAbsoluteTimeGetCurrent()
+        let results = largeSearchService.search("app")
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        
+        XCTAssertFalse(results.isEmpty, "Should find results")
+        XCTAssertLessThan(elapsed, 10.0, "Search should complete in under 10ms for 500 apps, took \(elapsed)ms")
+    }
+    
+    func testFuzzyMatcherPerformanceSingleMatch() {
+        // Single fuzzy match should be sub-millisecond
+        let query = ContiguousArray("safari".utf8)
+        let candidate = ContiguousArray("safari technology preview".utf8)
+        
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<10000 {
+            _ = FuzzyMatcher.matchWithIndicesUTF8(queryBytes: query, candidateBytes: candidate)
+        }
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        let perMatch = elapsed / 10000
+        
+        XCTAssertLessThan(perMatch, 0.01, "Single match should be under 0.01ms (10μs), was \(perMatch)ms")
+    }
 }
