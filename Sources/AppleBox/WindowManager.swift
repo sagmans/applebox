@@ -683,6 +683,8 @@ class WindowManager: NSObject {
         searchField.focusRingType = .none
         searchField.backgroundColor = .clear
         searchField.textColor = .labelColor
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
         
         // Hide search/cancel icons for cleaner look
         if let cell = searchField.cell as? NSSearchFieldCell {
@@ -1329,93 +1331,53 @@ class WindowManager: NSObject {
     }
 
     private func scheduleSearch(query: String) {
+        // Cancel any pending async search
         searchComputeWorkItem?.cancel()
-
-        let mode = searchMode
-        let searchService = self.searchService
-        let clipboardManager = self.clipboardManager
+        searchComputeWorkItem = nil
 
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if mode == .applications, trimmedQuery.isEmpty {
-            searchComputeWorkItem = nil
+        
+        // Empty query in applications mode -> show recent apps
+        if searchMode == .applications, trimmedQuery.isEmpty {
             searchService?.resetCache()
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard self.searchMode == mode else { return }
-                guard self.searchField?.stringValue == query else { return }
-
-                self.updateApplicationResultsForEmptyQuery(animate: false)
-            }
+            updateApplicationResultsForEmptyQuery(animate: false)
             return
         }
 
-        var workItem: DispatchWorkItem!
-        workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            if workItem.isCancelled { return }
+        #if DEBUG
+        let start = ProcessInfo.processInfo.systemUptime
+        #endif
 
-            #if DEBUG
-            let start = ProcessInfo.processInfo.systemUptime
-            #endif
-
-            switch mode {
-            case .clipboard:
-                let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
-                let results = matches.map { match in
-                    ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
-                }
-
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    if workItem.isCancelled { return }
-                    guard self.searchMode == mode else { return }
-                    guard self.searchField?.stringValue == query else { return }
-
-                    self.searchResults = []
-                    self.clipboardResults = results
-                    self.selectedRowIndex = results.isEmpty ? -1 : 0
-
-                    self.reloadResults(animate: false)
-                    if !self.userHasOverriddenPinnedScrollSinceLastQueryChange {
-                        self.scrollResultsToTop(selectFirstRow: true)
-                    }
-
-                    #if DEBUG
-                    let end = ProcessInfo.processInfo.systemUptime
-                    self.logger.debug("search(clipboard) took \((end - start) * 1000, privacy: .public)ms")
-                    #endif
-                }
-
-            case .applications:
-                let results = searchService?.search(trimmedQuery) {
-                    workItem.isCancelled
-                } ?? []
-
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    if workItem.isCancelled { return }
-                    guard self.searchMode == mode else { return }
-                    guard self.searchField?.stringValue == query else { return }
-
-                    self.clipboardResults = []
-                    self.searchResults = results
-                    self.selectedRowIndex = results.isEmpty ? -1 : 0
-
-                    self.reloadResults(animate: false)
-                    if !self.userHasOverriddenPinnedScrollSinceLastQueryChange {
-                        self.scrollResultsToTop(selectFirstRow: true)
-                    }
-
-                    #if DEBUG
-                    let end = ProcessInfo.processInfo.systemUptime
-                    self.logger.debug("search(apps) took \((end - start) * 1000, privacy: .public)ms")
-                    #endif
-                }
+        // INSTANT SEARCH: Execute synchronously on main thread
+        // The optimized FuzzyMatcher is fast enough (<1ms for 500 items)
+        switch searchMode {
+        case .clipboard:
+            let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
+            let results = matches.map { match in
+                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
             }
+
+            searchResults = []
+            clipboardResults = results
+            selectedRowIndex = results.isEmpty ? -1 : 0
+
+        case .applications:
+            let results = searchService?.search(trimmedQuery) ?? []
+
+            clipboardResults = []
+            searchResults = results
+            selectedRowIndex = results.isEmpty ? -1 : 0
         }
 
-        searchComputeWorkItem = workItem
-        searchQueue.async(execute: workItem)
+        reloadResults(animate: false)
+        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+            scrollResultsToTop(selectFirstRow: true)
+        }
+
+        #if DEBUG
+        let end = ProcessInfo.processInfo.systemUptime
+        logger.debug("search(\(self.searchMode == .clipboard ? "clipboard" : "apps", privacy: .public)) took \((end - start) * 1000, privacy: .public)ms")
+        #endif
     }
 
     private func navigateResults(direction: Int) {
