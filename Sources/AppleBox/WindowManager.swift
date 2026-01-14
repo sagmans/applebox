@@ -1813,7 +1813,7 @@ extension WindowManager: NSTableViewDelegate {
                 cardContainer?.layer?.cornerCurve = .continuous
             }
             
-            // Text field inside card
+            // Text field inside card (single line only - sidecar shows full content)
             let textField = NSTextField()
             textField.translatesAutoresizingMaskIntoConstraints = false
             textField.isBordered = false
@@ -1822,6 +1822,8 @@ extension WindowManager: NSTableViewDelegate {
             textField.backgroundColor = .clear
             textField.font = NSFont.systemFont(ofSize: 14)
             textField.lineBreakMode = .byTruncatingTail
+            textField.maximumNumberOfLines = 1
+            textField.cell?.usesSingleLineMode = true
             textField.tag = 200
             cardContainer?.addSubview(textField)
             
@@ -1834,17 +1836,35 @@ extension WindowManager: NSTableViewDelegate {
         
         let result = clipboardResults[row]
         let item = result.item
-        let displayContent = item.content.count > 100
-            ? String(item.content.prefix(100)) + "..."
-            : item.content
         
-        // Apply highlighting to matched indices (adjust for truncation)
-        let truncatedIndices = result.matchedIndices.filter { $0 < displayContent.count }
+        // Collapse to single line: replace newlines/tabs with spaces, collapse multiple spaces
+        let singleLine = item.content
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+        
+        let displayContent = singleLine.count > 100
+            ? String(singleLine.prefix(100)) + "..."
+            : singleLine
+        
+        // Remap matched indices from original content to collapsed single-line content
+        // For simplicity, re-match on the display content to get correct indices
+        let rematchedIndices: [Int]
+        if !result.matchedIndices.isEmpty, let query = searchField?.stringValue, !query.isEmpty {
+            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rematch = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: displayContent)
+            rematchedIndices = rematch.matchedIndices.filter { $0 < displayContent.count }
+        } else {
+            rematchedIndices = []
+        }
         
         if let textField = cardContainer?.viewWithTag(200) as? NSTextField {
             textField.attributedStringValue = attributedString(
                 for: displayContent,
-                highlightingIndices: truncatedIndices,
+                highlightingIndices: rematchedIndices,
                 font: textField.font ?? NSFont.systemFont(ofSize: 14)
             )
         }
