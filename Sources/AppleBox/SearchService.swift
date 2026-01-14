@@ -7,77 +7,116 @@ struct FuzzyMatchResult {
     let matchedIndices: [Int]
 }
 
+/// Blazing fast fuzzy matcher using direct byte array operations.
+/// Avoids slow String.Index operations for O(1) character access.
 enum FuzzyMatcher {
     /// fzf-style fuzzy matching score.
     /// Returns `0` if `query` is not a subsequence of `candidate`.
+    @inlinable
     static func score(query: String, candidate: String) -> Int {
         return matchWithIndices(query: query, candidate: candidate).score
     }
 
     /// fzf-style fuzzy matching with score and match indices.
     /// Returns score `0` and empty indices if `query` is not a subsequence of `candidate`.
+    @inlinable
     static func matchWithIndices(query: String, candidate: String) -> FuzzyMatchResult {
-        let normalizedQuery = query.lowercased()
-        guard !normalizedQuery.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
-        return matchWithIndices(normalizedQuery: normalizedQuery, normalizedCandidate: candidate.lowercased())
+        guard !query.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
+        return matchWithIndicesUTF8(
+            queryBytes: ContiguousArray(query.utf8),
+            candidateBytes: ContiguousArray(candidate.utf8)
+        )
     }
 
-    /// Fast path for already-normalized inputs.
-    /// - Note: `normalizedQuery` and `normalizedCandidate` must already be lowercased.
+    /// Fast path for pre-normalized UTF-8 bytes.
+    /// Both inputs must already be lowercased ASCII bytes.
+    @inlinable
     static func matchWithIndices(normalizedQuery: String, normalizedCandidate: String) -> FuzzyMatchResult {
         guard !normalizedQuery.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
+        return matchWithIndicesUTF8(
+            queryBytes: ContiguousArray(normalizedQuery.utf8),
+            candidateBytes: ContiguousArray(normalizedCandidate.utf8)
+        )
+    }
 
-        var queryIndex = normalizedQuery.startIndex
-        var candidateIndex = normalizedCandidate.startIndex
-        var candidateOffset = 0
-
+    /// Ultra-fast path using pre-computed byte arrays.
+    /// - Parameters:
+    ///   - queryBytes: Lowercased UTF-8 bytes of query
+    ///   - candidateBytes: Lowercased UTF-8 bytes of candidate
+    @inlinable
+    static func matchWithIndicesUTF8(
+        queryBytes: ContiguousArray<UInt8>,
+        candidateBytes: ContiguousArray<UInt8>
+    ) -> FuzzyMatchResult {
+        let queryCount = queryBytes.count
+        let candidateCount = candidateBytes.count
+        
+        guard queryCount > 0, candidateCount > 0 else {
+            return FuzzyMatchResult(score: 0, matchedIndices: [])
+        }
+        
+        // Quick rejection: query longer than candidate
+        guard queryCount <= candidateCount else {
+            return FuzzyMatchResult(score: 0, matchedIndices: [])
+        }
+        
+        var queryIdx = 0
+        var candidateIdx = 0
         var score = 0
         var consecutiveMatches = 0
         var previousCharWasMatch = false
         var matchedIndices: [Int] = []
-        matchedIndices.reserveCapacity(normalizedQuery.count)
-
-        while queryIndex < normalizedQuery.endIndex && candidateIndex < normalizedCandidate.endIndex {
-            let queryChar = normalizedQuery[queryIndex]
-            let candidateChar = normalizedCandidate[candidateIndex]
-
-            if queryChar == candidateChar {
-                matchedIndices.append(candidateOffset)
-
+        matchedIndices.reserveCapacity(queryCount)
+        
+        // ASCII lowercase: a-z = 97-122, A-Z = 65-90
+        // To lowercase: if 65 <= c <= 90, add 32
+        @inline(__always)
+        func toLower(_ c: UInt8) -> UInt8 {
+            return (c >= 65 && c <= 90) ? c + 32 : c
+        }
+        
+        while queryIdx < queryCount && candidateIdx < candidateCount {
+            let qChar = toLower(queryBytes[queryIdx])
+            let cChar = toLower(candidateBytes[candidateIdx])
+            
+            if qChar == cChar {
+                matchedIndices.append(candidateIdx)
                 score += 10
-
+                
                 if previousCharWasMatch {
                     consecutiveMatches += 1
                     score += 5 * consecutiveMatches
                 } else {
                     consecutiveMatches = 0
                 }
-
-                if candidateIndex == normalizedCandidate.startIndex {
+                
+                // Start of string bonus
+                if candidateIdx == 0 {
                     score += 20
                 }
-
-                if candidateIndex > normalizedCandidate.startIndex {
-                    let previousIndex = normalizedCandidate.index(before: candidateIndex)
-                    let previousChar = normalizedCandidate[previousIndex]
-                    if previousChar == " " || previousChar == "-" || previousChar == "_" {
+                
+                // Word boundary bonus (after space, dash, underscore)
+                if candidateIdx > 0 {
+                    let prevChar = candidateBytes[candidateIdx - 1]
+                    if prevChar == 32 || prevChar == 45 || prevChar == 95 {  // ' ', '-', '_'
                         score += 15
                     }
                 }
-
-                queryIndex = normalizedQuery.index(after: queryIndex)
+                
+                queryIdx += 1
                 previousCharWasMatch = true
             } else {
                 previousCharWasMatch = false
             }
-
-            candidateIndex = normalizedCandidate.index(after: candidateIndex)
-            candidateOffset += 1
+            
+            candidateIdx += 1
         }
-
-        if queryIndex < normalizedQuery.endIndex {
+        
+        // Check if all query characters were matched
+        if queryIdx < queryCount {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
+        
         return FuzzyMatchResult(score: score, matchedIndices: matchedIndices)
     }
 }
@@ -92,8 +131,9 @@ struct SearchResult {
 
 final class SearchService {
     private let indexer: ApplicationIndexer
-    private var cachedQuery: String = ""
+    private var cachedQuery: ContiguousArray<UInt8> = []
     private var cachedCandidates: [ApplicationInfo] = []
+    private var cachedIndexerCount: Int = 0
 
     init(indexer: ApplicationIndexer) {
         self.indexer = indexer
@@ -104,8 +144,9 @@ final class SearchService {
     }
 
     func resetCache() {
-        cachedQuery = ""
+        cachedQuery = []
         cachedCandidates = []
+        cachedIndexerCount = 0
     }
 
     /// Search applications using fuzzy matching
@@ -124,27 +165,47 @@ final class SearchService {
 
         if isCancelled() { return [] }
 
-        let normalizedQuery = trimmedQuery.lowercased()
+        // Pre-compute lowercased query bytes once
+        let queryBytes = ContiguousArray(trimmedQuery.lowercased().utf8)
+        let allApps = indexer.allApplications
         let candidates: [ApplicationInfo]
 
-        if !cachedQuery.isEmpty, !cachedCandidates.isEmpty, normalizedQuery.hasPrefix(cachedQuery) {
-            candidates = cachedCandidates
-        } else {
-            candidates = indexer.allApplications
+        // Invalidate cache if indexer data changed (app added/removed)
+        let currentCount = allApps.count
+        if currentCount != cachedIndexerCount {
+            cachedQuery = []
+            cachedCandidates = []
+            cachedIndexerCount = currentCount
         }
 
+        // Use cached candidates if query is a refinement (prefix match)
+        if !cachedQuery.isEmpty, !cachedCandidates.isEmpty, 
+           queryBytes.count >= cachedQuery.count,
+           queryBytes.prefix(cachedQuery.count).elementsEqual(cachedQuery) {
+            candidates = cachedCandidates
+        } else {
+            candidates = allApps
+        }
+
+        if isCancelled() { return [] }
+
         var results: [SearchResult] = []
-        results.reserveCapacity(candidates.count)
+        results.reserveCapacity(min(candidates.count, 50))
 
         for app in candidates {
             if isCancelled() { return [] }
 
-            let match = FuzzyMatcher.matchWithIndices(normalizedQuery: normalizedQuery, normalizedCandidate: app.normalizedName)
+            let match = FuzzyMatcher.matchWithIndicesUTF8(
+                queryBytes: queryBytes,
+                candidateBytes: app.normalizedNameBytes
+            )
 
             if match.score > 0 {
                 results.append(SearchResult(application: app, score: match.score, matchedIndices: match.matchedIndices))
             }
         }
+
+        if isCancelled() { return [] }
 
         results.sort {
             if $0.score != $1.score {
@@ -153,9 +214,7 @@ final class SearchService {
             return $0.application.name < $1.application.name
         }
 
-        if isCancelled() { return [] }
-
-        cachedQuery = normalizedQuery
+        cachedQuery = queryBytes
         cachedCandidates = results.map { $0.application }
 
         return results

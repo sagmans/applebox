@@ -5,11 +5,15 @@ struct ApplicationInfo {
     let bundlePath: String
     /// Cached normalized name for fast matching.
     let normalizedName: String
+    /// Pre-computed lowercased UTF-8 bytes for O(1) fuzzy matching.
+    let normalizedNameBytes: ContiguousArray<UInt8>
 
     init(name: String, bundlePath: String) {
         self.name = name
         self.bundlePath = bundlePath
-        self.normalizedName = name.lowercased()
+        let normalized = name.lowercased()
+        self.normalizedName = normalized
+        self.normalizedNameBytes = ContiguousArray(normalized.utf8)
     }
 }
 
