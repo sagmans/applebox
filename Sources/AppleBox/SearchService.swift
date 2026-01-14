@@ -60,6 +60,108 @@ enum FuzzyMatcher {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
         
+        // ASCII lowercase: a-z = 97-122, A-Z = 65-90
+        // To lowercase: if 65 <= c <= 90, add 32
+        @inline(__always)
+        func toLower(_ c: UInt8) -> UInt8 {
+            return (c >= 65 && c <= 90) ? c + 32 : c
+        }
+        
+        // PHASE 1: Try to find an exact contiguous substring match (case-insensitive).
+        // This ensures queries like "[main]" match the exact substring rather than
+        // scattered characters across the candidate.
+        if let substringResult = findExactSubstring(
+            queryBytes: queryBytes,
+            candidateBytes: candidateBytes,
+            queryCount: queryCount,
+            candidateCount: candidateCount,
+            toLower: toLower
+        ) {
+            return substringResult
+        }
+        
+        // PHASE 2: Fall back to greedy subsequence matching.
+        return fuzzySubsequenceMatch(
+            queryBytes: queryBytes,
+            candidateBytes: candidateBytes,
+            queryCount: queryCount,
+            candidateCount: candidateCount,
+            toLower: toLower
+        )
+    }
+    
+    /// Finds the earliest exact contiguous substring match (case-insensitive).
+    /// Returns nil if no exact substring match exists.
+    @inlinable
+    static func findExactSubstring(
+        queryBytes: ContiguousArray<UInt8>,
+        candidateBytes: ContiguousArray<UInt8>,
+        queryCount: Int,
+        candidateCount: Int,
+        toLower: (UInt8) -> UInt8
+    ) -> FuzzyMatchResult? {
+        let searchLimit = candidateCount - queryCount
+        
+        // Scan for the first occurrence of the query as a contiguous substring
+        outer: for startIdx in 0...searchLimit {
+            // Check if all query bytes match starting at startIdx
+            for qIdx in 0..<queryCount {
+                let qChar = toLower(queryBytes[qIdx])
+                let cChar = toLower(candidateBytes[startIdx + qIdx])
+                if qChar != cChar {
+                    continue outer
+                }
+            }
+            
+            // Found exact substring match at startIdx
+            // Build contiguous indices
+            var matchedIndices: [Int] = []
+            matchedIndices.reserveCapacity(queryCount)
+            for i in 0..<queryCount {
+                matchedIndices.append(startIdx + i)
+            }
+            
+            // Calculate score for the contiguous match
+            // Use a large base score to ensure substring matches outrank fuzzy-only matches
+            let substringBaseScore = 1_000_000
+            
+            // Add standard scoring bonuses
+            var bonusScore = 10 * queryCount  // Base per-character score
+            
+            // Consecutive bonus: all characters are consecutive
+            // Formula: 5 * (1 + 2 + ... + (n-1)) = 5 * (n-1)*n/2
+            if queryCount > 1 {
+                bonusScore += 5 * (queryCount - 1) * queryCount / 2
+            }
+            
+            // Start of string bonus
+            if startIdx == 0 {
+                bonusScore += 20
+            }
+            
+            // Word boundary bonus (after space, dash, underscore)
+            if startIdx > 0 {
+                let prevChar = candidateBytes[startIdx - 1]
+                if prevChar == 32 || prevChar == 45 || prevChar == 95 {  // ' ', '-', '_'
+                    bonusScore += 15
+                }
+            }
+            
+            return FuzzyMatchResult(score: substringBaseScore + bonusScore, matchedIndices: matchedIndices)
+        }
+        
+        return nil
+    }
+    
+    /// Greedy subsequence matching (original algorithm).
+    @inlinable
+    static func fuzzySubsequenceMatch(
+        queryBytes: ContiguousArray<UInt8>,
+        candidateBytes: ContiguousArray<UInt8>,
+        queryCount: Int,
+        candidateCount: Int,
+        toLower: (UInt8) -> UInt8
+    ) -> FuzzyMatchResult {
         var queryIdx = 0
         var candidateIdx = 0
         var score = 0
@@ -67,13 +169,6 @@ enum FuzzyMatcher {
         var previousCharWasMatch = false
         var matchedIndices: [Int] = []
         matchedIndices.reserveCapacity(queryCount)
-        
-        // ASCII lowercase: a-z = 97-122, A-Z = 65-90
-        // To lowercase: if 65 <= c <= 90, add 32
-        @inline(__always)
-        func toLower(_ c: UInt8) -> UInt8 {
-            return (c >= 65 && c <= 90) ? c + 32 : c
-        }
         
         while queryIdx < queryCount && candidateIdx < candidateCount {
             let qChar = toLower(queryBytes[queryIdx])
