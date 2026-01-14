@@ -325,4 +325,38 @@ final class SnapshotTests: XCTestCase {
         // Take snapshot of sidecar panel
         assertSnapshot(of: sidecarGlassView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
     }
+
+    func testSnapshotSidecarPanelWithHighlightedMatches() {
+        // Create a long multiline item (triggers sidecar visibility)
+        let longText = """
+        func calculateTotal(items: [Item]) -> Double {
+            var total = 0.0
+            for item in items {
+                total += item.price * Double(item.quantity)
+            }
+            return total
+        }
+        """
+        let item = ClipboardItem(content: longText)
+
+        // Compute match indices for query "total"
+        let matchResult = FuzzyMatcher.matchWithIndices(query: "total", candidate: longText)
+        let result = ClipboardSearchResult(item: item, relevanceScore: matchResult.score, matchedIndices: matchResult.matchedIndices)
+
+        // Set up clipboard search results with highlights
+        windowManager.setClipboardSearchResultsForTesting([result])
+
+        // Get the sidecar window for snapshot
+        guard let sidecarWindow = windowManager.getSidecarWindow(),
+              let sidecarGlassView = sidecarWindow.contentView else {
+            XCTFail("Sidecar window content view should exist")
+            return
+        }
+
+        // Ensure the view has proper layout
+        sidecarGlassView.layoutSubtreeIfNeeded()
+
+        // Take snapshot of sidecar panel with highlighted matches
+        assertSnapshot(of: sidecarGlassView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
+    }
 }

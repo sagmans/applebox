@@ -299,6 +299,12 @@ class WindowManager: NSObject {
 
     private let clipboardImageCache = ClipboardImageCache()
 
+    // Sidecar text preview state (for scroll-preserving highlight updates)
+    private weak var sidecarTextView: NSTextView?
+    private weak var sidecarTextScrollView: NSScrollView?
+    private var sidecarDisplayedItemTimestamp: Date?
+    private var sidecarHighlightedIndices: [Int] = []
+
     // Injected dependencies
     private let workspace: WorkspaceProtocol
     private let pasteboard: PasteboardProtocol
@@ -925,18 +931,19 @@ class WindowManager: NSObject {
             return
         }
 
-        let item = clipboardResults[selectedRowIndex].item
+        let result = clipboardResults[selectedRowIndex]
+        let item = result.item
 
         // Rule 1: Show for images
         if item.contentType == .image {
-            updateSidecarContent(for: item)
+            updateSidecarContent(for: item, matchedIndices: result.matchedIndices)
             showSidecar()
             return
         }
 
         // Rule 2: Show for overflowing text
         if item.content.count > singleLineCharacterLimit || item.content.contains("\n") {
-            updateSidecarContent(for: item)
+            updateSidecarContent(for: item, matchedIndices: result.matchedIndices)
             showSidecar()
             return
         }
@@ -946,8 +953,14 @@ class WindowManager: NSObject {
     }
 
     /// Updates the sidecar content view with the appropriate preview.
-    private func updateSidecarContent(for item: ClipboardItem) {
+    private func updateSidecarContent(for item: ClipboardItem, matchedIndices: [Int] = []) {
         clearSidecarContent()
+
+        // Clear sidecar text state when rebuilding
+        sidecarTextView = nil
+        sidecarTextScrollView = nil
+        sidecarDisplayedItemTimestamp = nil
+        sidecarHighlightedIndices = []
 
         guard let contentView = sidecarContentView else { return }
 
@@ -983,20 +996,81 @@ class WindowManager: NSObject {
                 ? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
                 : NSFont.systemFont(ofSize: 13)
 
-            textView.font = font
-            textView.textColor = .labelColor
-            textView.string = item.content
+            // Apply highlighted attributed string
+            textView.textStorage?.setAttributedString(
+                attributedString(for: item.content, highlightingIndices: matchedIndices, font: font)
+            )
 
             scrollView.documentView = textView
             scrollView.setAccessibilityIdentifier("SidecarTextPreview")
             scrollView.setAccessibilityLabel("Clipboard text preview")
             contentView.addSubview(scrollView)
+
+            // Store references for scroll-preserving highlight updates
+            sidecarTextView = textView
+            sidecarTextScrollView = scrollView
+            sidecarDisplayedItemTimestamp = item.timestamp
+            sidecarHighlightedIndices = matchedIndices
         }
     }
 
     /// Clears all subviews from the sidecar content view.
     private func clearSidecarContent() {
         sidecarContentView?.subviews.forEach { $0.removeFromSuperview() }
+    }
+
+    /// Updates sidecar highlights without rebuilding the view (preserves scroll position).
+    /// Called after search results change but the selected item remains the same.
+    private func refreshSidecarHighlightIfNeeded() {
+        guard searchMode == .clipboard else { return }
+        guard isSidecarVisible else { return }
+        guard selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else { return }
+
+        let result = clipboardResults[selectedRowIndex]
+        let item = result.item
+
+        // Only update if showing the same text item (fingerprint match)
+        guard item.contentType == .text,
+              let displayedTimestamp = sidecarDisplayedItemTimestamp,
+              item.timestamp == displayedTimestamp,
+              let textView = sidecarTextView,
+              let textStorage = textView.textStorage,
+              let scrollView = sidecarTextScrollView else {
+            // Different item or image; need full rebuild
+            updateSidecarVisibility()
+            return
+        }
+
+        let newIndices = result.matchedIndices
+
+        // Skip if highlights haven't changed
+        guard newIndices != sidecarHighlightedIndices else { return }
+
+        // Preserve scroll position and selection
+        let savedScrollOrigin = scrollView.contentView.bounds.origin
+        let savedSelection = textView.selectedRange()
+
+        // Clear previous highlights
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
+
+        // Apply new highlights
+        let highlightColor = NSColor.controlAccentColor
+        for charIndex in newIndices {
+            guard charIndex < item.content.count else { continue }
+            let stringIndex = item.content.index(item.content.startIndex, offsetBy: charIndex)
+            let utf16Offset = item.content.utf16.distance(from: item.content.utf16.startIndex, to: stringIndex)
+            let range = NSRange(location: utf16Offset, length: 1)
+            guard range.location + range.length <= textStorage.length else { continue }
+            textStorage.addAttribute(.foregroundColor, value: highlightColor, range: range)
+        }
+
+        sidecarHighlightedIndices = newIndices
+
+        // Restore scroll position and selection
+        scrollView.contentView.scroll(to: savedScrollOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        textView.setSelectedRange(savedSelection)
     }
 
     /// Heuristic to detect code-like content for monospace formatting.
@@ -1374,6 +1448,11 @@ class WindowManager: NSObject {
             scrollResultsToTop(selectFirstRow: true)
         }
 
+        // Update sidecar highlights (scroll-preserving) for clipboard mode
+        if searchMode == .clipboard {
+            refreshSidecarHighlightIfNeeded()
+        }
+
         #if DEBUG
         let end = ProcessInfo.processInfo.systemUptime
         logger.debug("search(\(self.searchMode == .clipboard ? "clipboard" : "apps", privacy: .public)) took \((end - start) * 1000, privacy: .public)ms")
@@ -1629,6 +1708,19 @@ class WindowManager: NSObject {
         if !items.isEmpty {
             self.tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
+    }
+
+    /// Sets clipboard search results with matchedIndices for testing highlight behavior
+    func setClipboardSearchResultsForTesting(_ results: [ClipboardSearchResult]) {
+        self.searchMode = .clipboard
+        self.clipboardResults = results
+        self.selectedRowIndex = results.isEmpty ? -1 : 0
+        searchField?.placeholderString = "Search clipboard history..."
+        self.tableView?.reloadData()
+        if !results.isEmpty {
+            self.tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+        updateSidecarVisibility()
     }
     
     /// Select a specific row for snapshot testing
