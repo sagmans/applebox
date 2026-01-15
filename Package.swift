@@ -1,10 +1,10 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "AppleBox",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v15)
     ],
     products: [
         .executable(name: "AppleBox", targets: ["AppleBox"]),
@@ -15,7 +15,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "AppleBox",
-            path: "Sources/AppleBox"
+            path: "Sources/AppleBox",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         ),
         .testTarget(
             name: "AppleBoxTests",
@@ -24,7 +27,10 @@ let package = Package(
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ],
             path: "Tests/AppleBoxTests",
-            exclude: ["__Snapshots__"]
+            exclude: ["__Snapshots__"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         ),
     ]
 )
