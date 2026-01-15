@@ -2,374 +2,433 @@
 
 ## Overview
 
-This document outlines the complete release process for AppleBox.
+This document outlines the complete release process for AppleBox, including code signing and notarization for macOS distribution.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Release Pipeline                                               │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Pre-flight    →  Verify clean state, update version        │
-│  2. Test          →  Run full test suite                        │
-│  3. Build         →  Create release binary and .app bundle     │
-│  4. Package       →  Create .zip and .dmg                       │
-│  5. Tag           →  Create signed git tag                      │
-│  6. Release       →  Push tag, create GitHub release            │
-│  7. Verify        →  Confirm release artifacts                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         RELEASE PIPELINE                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ┌─────────┐   ┌──────┐   ┌───────┐   ┌──────┐   ┌───────────┐            │
+│   │  Clean  │ → │ Test │ → │ Build │ → │ Sign │ → │ Notarize  │            │
+│   └─────────┘   └──────┘   └───────┘   └──────┘   └───────────┘            │
+│                                              │           │                   │
+│                                              ▼           ▼                   │
+│                                         ┌────────┐  ┌─────────┐             │
+│                                         │ Staple │←─│ Apple   │             │
+│                                         └────────┘  │ Servers │             │
+│                                              │      └─────────┘             │
+│                                              ▼                               │
+│   ┌─────────────────────────────────────────────────────────────┐           │
+│   │                    Package (.zip, .dmg)                      │           │
+│   └─────────────────────────────────────────────────────────────┘           │
+│                                              │                               │
+│                                              ▼                               │
+│   ┌─────────┐   ┌──────────┐   ┌────────────────────────────────┐           │
+│   │ Git Tag │ → │ Push Tag │ → │ GitHub Release + Upload Assets │           │
+│   └─────────┘   └──────────┘   └────────────────────────────────┘           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 1. Pre-flight Checks
+## Quick Start
 
-### 1.1 Verify Clean Working Tree
+### One-Command Release
 
 ```bash
-git status
+make ship VERSION=1.2.0 NOTES="Bug fixes and performance improvements"
+```
+
+This runs the **complete pipeline**:
+1. Clean all build artifacts
+2. Run pre-flight checks
+3. Execute test suite
+4. Build release binary
+5. Create app bundle
+6. Sign with Developer ID
+7. Submit to Apple notarization
+8. Staple notarization ticket
+9. Create .zip and .dmg packages
+10. Create git tag and push
+11. Create GitHub release with artifacts
+
+---
+
+## Prerequisites
+
+### Required Tools
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| Xcode CLI | Swift compiler, codesign | `xcode-select --install` |
+| gh | GitHub CLI | `brew install gh` |
+| Developer ID cert | Code signing | Apple Developer Portal |
+
+### One-Time Setup
+
+#### 1. Developer ID Certificate
+
+```bash
+# Verify certificate is installed
+security find-identity -v -p codesigning | grep "Developer ID"
 ```
 
 Expected output:
 ```
-On branch main
-nothing to commit, working tree clean
+A4B489BB... "Developer ID Application: Your Name (TEAM_ID)"
 ```
 
-If there are uncommitted changes, commit or stash them first.
+If missing:
+1. Go to [Apple Developer Portal](https://developer.apple.com/account/resources/certificates)
+2. Create "Developer ID Application" certificate
+3. Download and double-click to install in Keychain
 
-### 1.2 Pull Latest Changes
+#### 2. Notarization Credentials
+
+Store credentials in Keychain (one-time):
 
 ```bash
-git pull origin main
+xcrun notarytool store-credentials "AppleBox-Notarize" \
+    --apple-id "your-apple-id@example.com" \
+    --team-id "YOUR_TEAM_ID"
 ```
 
-### 1.3 Determine Version Number
+You'll be prompted for an **App-Specific Password**:
+1. Go to [appleid.apple.com](https://appleid.apple.com)
+2. Sign In → Security → App-Specific Passwords
+3. Generate password for "AppleBox Notarization"
 
-Check current version:
-```bash
-/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.plist
-```
-
-### 1.4 Update Version (if needed)
-
-Edit `Resources/Info.plist`:
-
-| Key | Description | Example |
-|-----|-------------|---------|
-| `CFBundleVersion` | Build version (semver) | `1.1.0` |
-| `CFBundleShortVersionString` | Display version | `1.1` |
+#### 3. GitHub CLI Authentication
 
 ```bash
-# Using PlistBuddy
-/usr/libexec/PlistBuddy -c "Set CFBundleVersion 1.1.0" Resources/Info.plist
-/usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString 1.1" Resources/Info.plist
-```
-
-Commit version bump:
-```bash
-git add Resources/Info.plist
-git commit -s -m "chore: bump version to 1.1.0"
-git push origin main
+gh auth login
 ```
 
 ---
 
-## 2. Run Tests
+## Code Signing Deep Dive
 
-### 2.1 Full Test Suite
+### Why Code Signing?
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Without Signing              │  With Signing + Notarization    │
+├───────────────────────────────┼─────────────────────────────────┤
+│  ❌ "damaged and can't be     │  ✅ Opens normally              │
+│     opened" error             │                                  │
+│  ❌ Blocked by Gatekeeper     │  ✅ Gatekeeper approved          │
+│  ❌ Scary security warnings   │  ✅ No warnings                  │
+│  ❌ Users must bypass security│  ✅ Professional distribution    │
+└───────────────────────────────┴─────────────────────────────────┘
+```
+
+### Signing Components
+
+| Component | Purpose |
+|-----------|---------|
+| Developer ID Certificate | Proves you're a registered Apple developer |
+| Hardened Runtime | Security protections required for notarization |
+| Timestamp | Proves when app was signed (valid even after cert expires) |
+| Entitlements | Declares app's security permissions |
+
+### Ad-Hoc vs Developer ID Signing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Ad-Hoc Signature (BAD)        │  Developer ID (GOOD)           │
+├────────────────────────────────┼────────────────────────────────┤
+│  Signature=adhoc               │  Signature size=9057           │
+│  TeamIdentifier=not set        │  TeamIdentifier=6C96BU4M82     │
+│  Authority=(none)              │  Authority=Developer ID App... │
+│                                │  Authority=Apple Root CA       │
+├────────────────────────────────┼────────────────────────────────┤
+│  ❌ Cannot notarize            │  ✅ Can notarize                │
+│  ❌ Blocked by Gatekeeper      │  ✅ Gatekeeper approved         │
+└────────────────────────────────┴────────────────────────────────┘
+```
+
+Check your app's signature:
+```bash
+make check-adhoc
+# or manually:
+codesign -dv --verbose=2 .build/release/AppleBox.app 2>&1 | grep -E "Signature|Authority|Team"
+```
+
+### Entitlements
+
+The `Resources/AppleBox.entitlements` file declares security permissions:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>
+```
+
+| Entitlement | Purpose |
+|-------------|---------|
+| `app-sandbox=false` | App runs outside sandbox (required for system-wide hotkeys) |
+| `automation.apple-events` | Send Apple Events for window management |
+
+---
+
+## Notarization Deep Dive
+
+### What is Notarization?
+
+Apple scans your app for malware and issues a "ticket" proving it's safe.
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│  Your Mac    │ ───▶ │ Apple Server │ ───▶ │  Your Mac    │
+│  Submit .zip │      │  Scan App    │      │  Get Ticket  │
+└──────────────┘      │  (~5-15 min) │      │  Staple App  │
+                      └──────────────┘      └──────────────┘
+```
+
+### Notarization Status
+
+| Status | Meaning |
+|--------|---------|
+| `In Progress` | Apple is scanning (wait 5-15 min) |
+| `Accepted` | ✅ App approved, ready to staple |
+| `Invalid` | ❌ Issues found, check log |
+| `Rejected` | ❌ Malware or policy violation |
+
+### Check Notarization Status
+
+```bash
+# By submission ID
+make check-notarize ID=b9976e01-0b7d-4f0a-9a61-79d65ef0731a
+
+# Get detailed log
+xcrun notarytool log <ID> --keychain-profile "AppleBox-Notarize"
+```
+
+### Common Notarization Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| Stuck "In Progress" | Ad-hoc signed | Re-sign with Developer ID |
+| Invalid signature | Missing hardened runtime | Add `--options runtime` to codesign |
+| Missing timestamp | No `--timestamp` flag | Add `--timestamp` to codesign |
+| Credentials error | Wrong keychain profile | Re-store credentials |
+
+---
+
+## Makefile Targets Reference
+
+### Development
+
+```bash
+make build          # Build release binary
+make test           # Run test suite
+make bundle         # Create .app bundle
+make run            # Build + run app
+make stop           # Stop running app
+make logs           # Stream app logs
+```
+
+### Code Signing
+
+```bash
+make sign           # Sign with Developer ID
+make verify-sign    # Verify signature details
+make check-adhoc    # Check for ad-hoc signature (error if found)
+make check-cert     # Verify Developer ID cert exists
+```
+
+### Notarization
+
+```bash
+make notarize       # Submit to Apple (includes sign, waits for result)
+make check-notarize ID=xxx  # Check submission status
+make staple         # Attach notarization ticket
+```
+
+### Packaging
+
+```bash
+make zip            # Create signed .zip
+make dmg            # Create signed .dmg
+make dist           # Create both packages
+```
+
+### Release
+
+```bash
+make preflight      # Run all pre-release checks
+make tag            # Create signed git tag
+make tag-push       # Create + push tag
+make release        # Full release to GitHub
+make ship           # COMPLETE PIPELINE (recommended)
+```
+
+### Utilities
+
+```bash
+make version-bump V=1.2.0   # Update version in Info.plist
+make clean                   # Remove all build artifacts
+make help                    # Show all targets
+```
+
+---
+
+## Step-by-Step Manual Release
+
+If you need more control than `make ship`:
+
+### 1. Pre-flight Checks
+
+```bash
+make preflight
+```
+
+### 2. Run Tests
 
 ```bash
 make test
 ```
 
-Or directly:
-```bash
-swift test
-```
-
-### 2.2 Verify All Tests Pass
-
-Expected: `0 failures`
-
-```
-Test Suite 'All tests' passed
-Executed 108 tests, with 0 failures
-```
-
-**Do not proceed if tests fail.**
-
----
-
-## 3. Build Release
-
-### 3.1 Clean Build
+### 3. Build and Sign
 
 ```bash
-make clean
-make build
+make sign
+make verify-sign
 ```
 
-### 3.2 Create App Bundle
+### 4. Notarize
 
 ```bash
-make bundle
+make notarize
 ```
 
-Verify bundle exists:
+If timeout occurs, check status:
 ```bash
-ls -la .build/release/AppleBox.app/Contents/
+make check-notarize ID=<submission-id>
 ```
 
-Expected structure:
-```
-AppleBox.app/
-├── Contents/
-│   ├── Info.plist
-│   ├── MacOS/
-│   │   └── AppleBox
-│   └── Resources/
-```
-
-### 3.3 Smoke Test
+### 5. Staple (if notarize didn't auto-staple)
 
 ```bash
-make run
+make staple
 ```
 
-Manual verification:
-- [ ] App launches without crash
-- [ ] `Cmd+Space` opens app search
-- [ ] `Opt+Space` opens clipboard history
-- [ ] `Esc` closes window
-- [ ] Keyboard navigation works
-
-Stop the app:
-```bash
-make stop
-```
-
----
-
-## 4. Create Distribution Packages
-
-### 4.1 Create Both .zip and .dmg
+### 6. Package
 
 ```bash
 make dist
 ```
 
-This creates:
-```
-.build/release/dist/
-├── AppleBox-v1.1.0-macOS.zip
-└── AppleBox-v1.1.0-macOS.dmg
-```
+### 7. Release
 
-### 4.2 Individual Packages (optional)
-
-```bash
-# ZIP only
-make zip
-
-# DMG only
-make dmg
-```
-
-### 4.3 Verify Packages
-
-```bash
-ls -lh .build/release/dist/
-```
-
-Expected sizes:
-| Package | Approximate Size |
-|---------|------------------|
-| .zip | ~160 KB |
-| .dmg | ~200 KB |
-
-### 4.4 Test DMG Installation
-
-```bash
-# Mount DMG
-hdiutil attach .build/release/dist/AppleBox-v1.1.0-macOS.dmg
-
-# Verify contents
-ls -la /Volumes/AppleBox/
-
-# Expected:
-# AppleBox.app
-# Applications -> /Applications
-
-# Unmount
-hdiutil detach /Volumes/AppleBox
-```
-
----
-
-## 5. Create Git Tag
-
-### 5.1 Create Signed Tag
-
-```bash
-make tag
-```
-
-Or manually:
-```bash
-git tag -s -a v1.1.0 -m "Release v1.1.0"
-```
-
-### 5.2 Verify Tag
-
-```bash
-git tag -l --sort=-v:refname | head -5
-git show v1.1.0
-```
-
-### 5.3 Push Tag
-
-```bash
-git push origin v1.1.0
-```
-
-Or use combined target:
 ```bash
 make tag-push
-```
-
----
-
-## 6. Create GitHub Release
-
-### 6.1 Prepare Release Notes
-
-Create a release notes file or use inline notes.
-
-**Option A: Inline Notes**
-```bash
-make release VERSION=1.1.0 NOTES="## What's New
-
-- Feature: Added XYZ
-- Fix: Resolved ABC issue
-- Performance: Improved search speed"
-```
-
-**Option B: Notes File**
-
-Create `RELEASE_NOTES.md`:
-```markdown
-## What's New
-
-### Features
-- Added XYZ feature
-
-### Bug Fixes  
-- Fixed ABC issue
-
-### Performance
-- Improved search speed by 2x
-```
-
-Then run:
-```bash
-make release VERSION=1.1.0 NOTES_FILE=RELEASE_NOTES.md
-```
-
-### 6.2 Manual GitHub Release (alternative)
-
-```bash
-gh release create v1.1.0 \
-  --title "AppleBox v1.1.0" \
-  --notes-file RELEASE_NOTES.md \
-  .build/release/dist/AppleBox-v1.1.0-macOS.zip \
-  .build/release/dist/AppleBox-v1.1.0-macOS.dmg
-```
-
----
-
-## 7. Post-Release Verification
-
-### 7.1 Verify GitHub Release
-
-```bash
-gh release view v1.1.0
-```
-
-Or visit: `https://github.com/assagman/applebox/releases/tag/v1.1.0`
-
-### 7.2 Verify Assets
-
-```bash
-gh release view v1.1.0 --json assets --jq '.assets[].name'
-```
-
-Expected:
-```
-AppleBox-v1.1.0-macOS.zip
-AppleBox-v1.1.0-macOS.dmg
-```
-
-### 7.3 Download and Test Release Artifact
-
-```bash
-# Download from GitHub
-gh release download v1.1.0 --pattern "*.dmg" --dir /tmp
-
-# Mount and verify
-hdiutil attach /tmp/AppleBox-v1.1.0-macOS.dmg
-ls /Volumes/AppleBox/
-hdiutil detach /Volumes/AppleBox
-```
-
----
-
-## Quick Release (One-Liner)
-
-For a standard release after version bump:
-
-```bash
-make clean && make test && make release VERSION=1.1.0 NOTES="Bug fixes and improvements"
+make release NOTES="Your release notes"
 ```
 
 ---
 
 ## Troubleshooting
 
-### Tag Already Exists
+### "damaged and can't be opened"
+
+**Cause**: App not notarized or notarization ticket not stapled.
+
+```bash
+# Check if notarized
+spctl -a -t exec -vv .build/release/AppleBox.app
+
+# If not, re-notarize
+make notarize
+make staple
+```
+
+### Notarization Stuck "In Progress"
+
+**Cause**: Usually ad-hoc signed app.
+
+```bash
+# Check signature
+make check-adhoc
+
+# If ad-hoc, re-sign properly
+make sign
+make notarize
+```
+
+### "Developer ID Application" certificate not found
+
+```bash
+# List available certificates
+security find-identity -v -p codesigning
+
+# If missing, download from Apple Developer Portal
+```
+
+### Gatekeeper Blocks App
+
+```bash
+# Verify app passes Gatekeeper
+spctl -a -t exec -vv .build/release/AppleBox.app
+
+# Should show: "accepted" and "Notarized Developer ID"
+```
+
+### Git Tag Already Exists
 
 ```bash
 # Delete local tag
-git tag -d v1.1.0
+git tag -d v1.2.0
 
-# Delete remote tag (if pushed)
-git push origin --delete v1.1.0
+# Delete remote tag
+git push origin --delete v1.2.0
 ```
 
-### Release Already Exists
+### GitHub Release Already Exists
 
 ```bash
-# Delete GitHub release
-gh release delete v1.1.0 --yes
+# Delete release (keeps tag)
+gh release delete v1.2.0 --yes
 
-# Then delete tag and recreate
+# Or delete both
+gh release delete v1.2.0 --yes
+git push origin --delete v1.2.0
 ```
 
-### DMG Creation Fails
+---
+
+## Configuration Reference
+
+### Makefile Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VERSION` | from Info.plist | Release version |
+| `DEVELOPER_ID` | hardcoded | Code signing certificate |
+| `TEAM_ID` | `6C96BU4M82` | Apple Team ID |
+| `NOTARIZE_PROFILE` | `AppleBox-Notarize` | Keychain profile name |
+| `NOTES` | (required) | Release notes inline |
+| `NOTES_FILE` | (optional) | Path to release notes file |
+
+### Override Examples
 
 ```bash
-# Check if volume is already mounted
-hdiutil info | grep AppleBox
+# Custom version
+make ship VERSION=2.0.0 NOTES="Major release"
 
-# Detach if mounted
-hdiutil detach /Volumes/AppleBox -force
-```
+# Release notes from file
+make ship VERSION=1.2.0 NOTES_FILE=CHANGELOG.md
 
-### Build Fails After Clean
-
-```bash
-# Reset Swift package
-swift package reset
-swift package resolve
-make build
+# Just check notarization (different ID)
+make check-notarize ID=abc123-def456
 ```
 
 ---
@@ -377,17 +436,37 @@ make build
 ## Release Checklist
 
 ```
-[ ] Working tree clean
-[ ] Version updated in Info.plist
+Pre-Release:
+[ ] Working tree clean (git status)
+[ ] Version bumped in Info.plist
+[ ] CHANGELOG updated (if maintained)
 [ ] All tests pass
-[ ] Release build succeeds
-[ ] App smoke test passes
+
+Signing:
+[ ] Developer ID certificate valid
+[ ] Notarization credentials stored
+[ ] App signed with hardened runtime
+[ ] NOT ad-hoc signed
+
+Notarization:
+[ ] Submitted to Apple
+[ ] Status: Accepted
+[ ] Ticket stapled to app
+
+Packaging:
 [ ] .zip created
 [ ] .dmg created
+[ ] Both verified (can open on fresh Mac)
+
+Release:
 [ ] Git tag created and pushed
 [ ] GitHub release created
-[ ] Release assets uploaded
-[ ] Download and verify artifacts
+[ ] Assets uploaded
+[ ] Release URL works
+
+Post-Release:
+[ ] Download and test artifact
+[ ] App opens without Gatekeeper warning
 ```
 
 ---
@@ -396,16 +475,5 @@ make build
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.1.0 | 2026-01-15 | Code signing & notarization support |
 | 1.0.0 | 2026-01-15 | Initial release |
-
----
-
-## Requirements
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| `swift` | Build | Xcode |
-| `git` | Version control | Xcode CLI |
-| `gh` | GitHub CLI | `brew install gh` |
-| `hdiutil` | DMG creation | macOS built-in |
-| `PlistBuddy` | Plist editing | macOS built-in |
