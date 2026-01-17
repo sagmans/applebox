@@ -676,7 +676,11 @@ clean: stop
 	@swift package clean 2>/dev/null || true
 	@rm -rf .build
 	@rm -rf .swiftpm
+	@rm -rf build
+	@rm -rf DerivedData
 	@rm -rf Package.resolved
 	@rm -rf *.xcodeproj
-	@rm -rf .DS_Store
+	@rm -rf xcuserdata
+	@rm -rf *.dSYM *.dSYM.zip
+	@find . -name ".DS_Store" -delete 2>/dev/null || true
 	@echo "$(GREEN)Cleaned$(NC)"
