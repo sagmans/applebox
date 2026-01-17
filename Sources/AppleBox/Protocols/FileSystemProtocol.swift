@@ -26,11 +26,18 @@ public protocol FileSystemProtocol {
 
     /// Creates a file with the specified content at the given location
     func createFile(atPath path: String, contents data: Data?, attributes attr: [FileAttributeKey: Any]?) -> Bool
+
+    /// Writes data to the specified URL (supports atomic writes via options)
+    func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws
 }
 
 /// Extension to provide default implementations for overloaded methods
 public extension FileSystemProtocol {
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool) throws {
         try createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: nil)
+    }
+
+    public func write(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
+        try data.write(to: url, options: options)
     }
 }

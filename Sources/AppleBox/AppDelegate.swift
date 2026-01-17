@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         logger.info("AppleBox terminating")
+        clipboardManager?.flushPendingPersistence()
     }
 
     private func toggleWindow(mode: SearchMode? = nil) {

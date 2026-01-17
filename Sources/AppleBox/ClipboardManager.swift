@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 /// Content type for clipboard items
 enum ClipboardContentType: String, Codable {
@@ -38,6 +39,11 @@ struct ClipboardItem: Codable {
 final class ClipboardManager {
     private let maxHistoryCount = 50
 
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        category: "clipboard"
+    )
+
     private let pasteboard: PasteboardProtocol
     private let fileSystem: FileSystemProtocol
     private var lastChangeCount: Int = 0
@@ -51,6 +57,11 @@ final class ClipboardManager {
 
     // File location for persistent storage
     private let fileName = "clipboard_history.json"
+
+    /// Drain any queued persistence work. Useful for deterministic tests and app shutdown.
+    func flushPendingPersistence() {
+        persistenceQueue.sync { }
+    }
 
     init(
         pasteboard: PasteboardProtocol = SystemPasteboard(),
@@ -203,14 +214,17 @@ final class ClipboardManager {
 
     private func saveHistoryAsync() {
         let snapshot = getHistory()
-        persistenceQueue.async { [snapshot, storageURL, fileSystem] in
+        persistenceQueue.async { [snapshot, storageURL, fileSystem, logger] in
             do {
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(snapshot)
-                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
+
+                // Atomic write to reduce risk of corrupted/partial files.
+                try fileSystem.write(data, to: storageURL, options: [.atomic])
             } catch {
-                // Best-effort persistence.
+                // Best-effort persistence, but keep a breadcrumb for debugging.
+                logger.error("Failed to persist clipboard history: \(String(describing: error))")
             }
         }
     }

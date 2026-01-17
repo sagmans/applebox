@@ -39,4 +39,8 @@ public final class SystemFileManager: FileSystemProtocol {
     public func createFile(atPath path: String, contents data: Data?, attributes attr: [FileAttributeKey: Any]?) -> Bool {
         fileManager.createFile(atPath: path, contents: data, attributes: attr)
     }
+
+    public func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try data.write(to: url, options: options)
+    }
 }

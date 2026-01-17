@@ -40,6 +40,7 @@ final class ClipboardManagerTests: XCTestCase {
         // Manually trigger change detection by running the run loop briefly
         // Since we can't directly trigger the timer, we'll use a different approach
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.flushPendingPersistence()
     }
     
     /// Encodes clipboard items to JSON data (matching ClipboardManager's format)

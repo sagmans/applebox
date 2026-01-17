@@ -163,6 +163,14 @@ final class MockFileSystem: FileSystemProtocol {
         return true
     }
 
+    func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        // Keep tracking consistent with createFile, since production code may switch to Data.write.
+        createFileCalls.append((path: url.path, data: data))
+        fileContents[url.path] = data
+        existingFiles[url.path] = true
+        directoryFlags[url.path] = false
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations
