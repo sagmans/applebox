@@ -678,7 +678,6 @@ clean: stop
 	@rm -rf .swiftpm
 	@rm -rf build
 	@rm -rf DerivedData
-	@rm -rf Package.resolved
 	@rm -rf *.xcodeproj
 	@rm -rf xcuserdata
 	@rm -rf *.dSYM *.dSYM.zip
