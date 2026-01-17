@@ -3,54 +3,107 @@ import Foundation
 
 /// Mock implementation of FileSystemProtocol for testing
 final class MockFileSystem: FileSystemProtocol {
+    private let stateLock = NSLock()
+
+    private func withStateLock<T>(_ work: () throws -> T) rethrows -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return try work()
+    }
+
     // MARK: - Configurable Properties
 
-    /// Configurable home directory URL
-    var mockHomeDirectory: URL = URL(fileURLWithPath: "/Users/testuser")
+    private var _mockHomeDirectory: URL = URL(fileURLWithPath: "/Users/testuser")
+    var mockHomeDirectory: URL {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _mockHomeDirectory }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_mockHomeDirectory }
+    }
 
-    /// Configurable URLs returned by urls(for:in:)
-    var mockURLs: [URL] = []
+    private var _mockURLs: [URL] = []
+    var mockURLs: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _mockURLs }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_mockURLs }
+    }
 
-    /// Dictionary mapping paths to whether they exist
-    var existingFiles: [String: Bool] = [:]
+    private var _existingFiles: [String: Bool] = [:]
+    var existingFiles: [String: Bool] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _existingFiles }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_existingFiles }
+    }
 
-    /// Dictionary mapping paths to whether they are directories
-    var directoryFlags: [String: Bool] = [:]
+    private var _directoryFlags: [String: Bool] = [:]
+    var directoryFlags: [String: Bool] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _directoryFlags }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_directoryFlags }
+    }
 
-    /// Dictionary mapping directory URLs to their contents
-    var directoryContents: [URL: [URL]] = [:]
+    private var _directoryContents: [URL: [URL]] = [:]
+    var directoryContents: [URL: [URL]] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _directoryContents }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_directoryContents }
+    }
 
-    /// Dictionary mapping file paths to their Data contents
-    var fileContents: [String: Data] = [:]
+    private var _fileContents: [String: Data] = [:]
+    var fileContents: [String: Data] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _fileContents }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_fileContents }
+    }
 
-    /// Error to throw from contentsOfDirectory if set
-    var contentsOfDirectoryError: Error?
+    private var _contentsOfDirectoryError: Error?
+    var contentsOfDirectoryError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _contentsOfDirectoryError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_contentsOfDirectoryError }
+    }
 
-    /// Error to throw from createDirectory if set
-    var createDirectoryError: Error?
+    private var _createDirectoryError: Error?
+    var createDirectoryError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _createDirectoryError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_createDirectoryError }
+    }
 
     // MARK: - Invocation Tracking
 
-    /// Tracks all fileExists(atPath:) calls
-    var fileExistsAtPathCalls: [String] = []
+    private var _fileExistsAtPathCalls: [String] = []
+    var fileExistsAtPathCalls: [String] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _fileExistsAtPathCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_fileExistsAtPathCalls }
+    }
 
-    /// Tracks all fileExists(atPath:isDirectory:) calls
-    var fileExistsWithDirectoryCalls: [(path: String, isDirectory: Bool)] = []
+    private var _fileExistsWithDirectoryCalls: [(path: String, isDirectory: Bool)] = []
+    var fileExistsWithDirectoryCalls: [(path: String, isDirectory: Bool)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _fileExistsWithDirectoryCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_fileExistsWithDirectoryCalls }
+    }
 
-    /// Tracks all contentsOfDirectory calls
-    var contentsOfDirectoryCalls: [URL] = []
+    private var _contentsOfDirectoryCalls: [URL] = []
+    var contentsOfDirectoryCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _contentsOfDirectoryCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_contentsOfDirectoryCalls }
+    }
 
-    /// Tracks all createDirectory calls
-    var createDirectoryCalls: [(url: URL, createIntermediates: Bool)] = []
+    private var _createDirectoryCalls: [(url: URL, createIntermediates: Bool)] = []
+    var createDirectoryCalls: [(url: URL, createIntermediates: Bool)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _createDirectoryCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_createDirectoryCalls }
+    }
 
-    /// Tracks all contents(atPath:) calls
-    var contentsAtPathCalls: [String] = []
+    private var _contentsAtPathCalls: [String] = []
+    var contentsAtPathCalls: [String] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _contentsAtPathCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_contentsAtPathCalls }
+    }
 
-    /// Tracks all createFile calls
-    var createFileCalls: [(path: String, data: Data?)] = []
+    private var _createFileCalls: [(path: String, data: Data?)] = []
+    var createFileCalls: [(path: String, data: Data?)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _createFileCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_createFileCalls }
+    }
 
-    /// Tracks all urls(for:in:) calls
-    var urlsCalls: [(directory: FileManager.SearchPathDirectory, domainMask: FileManager.SearchPathDomainMask)] = []
+    private var _urlsCalls: [(directory: FileManager.SearchPathDirectory, domainMask: FileManager.SearchPathDomainMask)] = []
+    var urlsCalls: [(directory: FileManager.SearchPathDirectory, domainMask: FileManager.SearchPathDomainMask)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _urlsCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_urlsCalls }
+    }
 
     // MARK: - FileSystemProtocol Implementation
 
