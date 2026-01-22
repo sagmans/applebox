@@ -25,7 +25,7 @@ body:
     attributes:
       label: AppleBox version
       description: Release version or git commit SHA
-      placeholder: "v1.1.1 or abc1234"
+      placeholder: "vX.Y.Z or abc1234"
     validations:
       required: true
 
