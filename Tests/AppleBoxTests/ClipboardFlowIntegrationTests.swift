@@ -45,6 +45,8 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         pb.simulateExternalChange(content: content)
         // Wait for timer-based change detection
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        // Persistence happens on a background queue; flush to keep tests deterministic.
+        manager.flushPendingPersistence()
     }
     
     /// Encodes clipboard items to JSON data (matching ClipboardManager's format)
@@ -144,6 +146,7 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         // Then - Second manager loads persisted history
         let history = manager2.getHistory()
         XCTAssertEqual(history.count, 2, "History should persist across manager instances")
+        guard history.count == 2 else { return }
         XCTAssertEqual(history[0].content, "Persisted item 2")
         XCTAssertEqual(history[1].content, "Persisted item 1")
     }
