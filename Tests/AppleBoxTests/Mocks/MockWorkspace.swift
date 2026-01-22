@@ -37,7 +37,7 @@ final class MockWorkspace: WorkspaceProtocol {
         openApplicationCalls.append(call)
 
         // Call completion handler if provided
-        if let completionHandler = completionHandler {
+        if let completionHandler {
             if callCompletionSynchronously {
                 completionHandler(mockRunningApplication, mockOpenError)
             } else {
@@ -57,11 +57,11 @@ final class MockWorkspace: WorkspaceProtocol {
 
     /// Returns the last application URL that was opened
     var lastOpenedApplicationURL: URL? {
-        return openApplicationCalls.last?.applicationURL
+        openApplicationCalls.last?.applicationURL
     }
 
     /// Returns the number of times openApplication was called
     var openApplicationCallCount: Int {
-        return openApplicationCalls.count
+        openApplicationCalls.count
     }
 }

@@ -1,11 +1,10 @@
-import XCTest
 import AppKit
 @testable import AppleBox
+import XCTest
 
 /// UI tests for search mode behavior.
 /// Verifies application and clipboard modes are separated (no ">" trigger).
 final class SearchModeSwitchingTests: XCTestCase {
-
     // MARK: - Test Fixtures
 
     var mockFileSystem: MockFileSystem!
@@ -118,7 +117,7 @@ final class SearchModeSwitchingTests: XCTestCase {
         let recentURL = appDirectory.appendingPathComponent("recent_applications.json")
         let recentPaths = [
             "/Applications/Slack.app",
-            "/System/Applications/Safari.app"
+            "/System/Applications/Safari.app",
         ]
         let data = try? JSONEncoder().encode(recentPaths)
         _ = mockFileSystem.createFile(atPath: recentURL.path, contents: data, attributes: nil)

@@ -1,10 +1,11 @@
 import AppKit
 import CoreGraphics
-import QuartzCore
-import OSLog
 import CryptoKit
+import OSLog
+import QuartzCore
 
 // MARK: - Search Mode
+
 enum SearchMode {
     case applications
     case clipboard
@@ -40,7 +41,7 @@ final class AppIconCache {
 
     init(loader: AppIconProviding) {
         self.loader = loader
-        self.placeholder = NSImage(size: NSSize(width: 24, height: 24))
+        placeholder = NSImage(size: NSSize(width: 24, height: 24))
     }
 
     func icon(forBundlePath bundlePath: String) -> NSImage {
@@ -78,10 +79,10 @@ final class AppIconCache {
 
         loadQueue.async { [weak self] in
             guard let self else { return }
-            let icon = self.loader.icon(forBundlePath: bundlePath)
-            self.cache.setObject(icon, forKey: bundlePath as NSString)
+            let icon = loader.icon(forBundlePath: bundlePath)
+            cache.setObject(icon, forKey: bundlePath as NSString)
 
-            self.inFlightQueue.sync {
+            inFlightQueue.sync {
                 _ = self.inFlight.remove(bundlePath)
             }
 
@@ -142,7 +143,7 @@ final class RecentApplicationsStore {
         if !fileSystem.fileExists(atPath: appDirectory.path) {
             try? fileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
         }
-        self.storageURL = appDirectory.appendingPathComponent(fileName)
+        storageURL = appDirectory.appendingPathComponent(fileName)
 
         recentBundlePaths = loadRecentsFromDisk()
     }
@@ -235,7 +236,7 @@ class AppleBoxWindow: NSWindow {
     var enterHandler: (() -> Void)?
 
     override var canBecomeKey: Bool {
-        return true
+        true
     }
 
     override func keyDown(with event: NSEvent) {
@@ -253,7 +254,7 @@ class AppleBoxWindow: NSWindow {
         }
     }
 
-    override func cancelOperation(_ sender: Any?) {
+    override func cancelOperation(_: Any?) {
         // Ensure Esc works even when a control (e.g. NSSearchField) consumes keyDown.
         escapeHandler?()
     }
@@ -326,8 +327,8 @@ class WindowManager: NSObject {
         self.eventSource = eventSource
         self.fileSystem = fileSystem
         self.iconProvider = iconProvider
-        self.iconCache = AppIconCache(loader: iconProvider)
-        self.recentApplicationsStore = RecentApplicationsStore(fileSystem: fileSystem)
+        iconCache = AppIconCache(loader: iconProvider)
+        recentApplicationsStore = RecentApplicationsStore(fileSystem: fileSystem)
         super.init()
         setupWindow()
         observeAccessibilityChanges()
@@ -342,18 +343,18 @@ class WindowManager: NSObject {
             workspaceCenter.removeObserver(observer)
         }
     }
-    
+
     // MARK: - Accessibility Settings (US-005)
-    
+
     /// Returns current accessibility settings from macOS
     private func getAccessibilitySettings() -> (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool) {
-        return (
+        (
             reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
             increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
     }
-    
+
     /// Observes accessibility setting changes and updates UI accordingly
     private func observeAccessibilityChanges() {
         // NSWorkspace posts notifications when accessibility settings change
@@ -373,12 +374,12 @@ class WindowManager: NSObject {
             queue: .main
         ) { [weak self] notification in
             guard let self else { return }
-            guard self.isWindowVisible else { return }
-            guard self.searchMode == .applications else { return }
+            guard isWindowVisible else { return }
+            guard searchMode == .applications else { return }
             guard let bundlePath = notification.userInfo?["bundlePath"] as? String else { return }
 
-            if let row = self.searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
-                self.tableView?.reloadData(
+            if let row = searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
+                tableView?.reloadData(
                     forRowIndexes: IndexSet(integer: row),
                     columnIndexes: IndexSet(integer: 0)
                 )
@@ -391,10 +392,10 @@ class WindowManager: NSObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            guard self.isWindowVisible else { return }
-            guard self.searchMode == .clipboard else { return }
+            guard isWindowVisible else { return }
+            guard searchMode == .clipboard else { return }
 
-            self.scheduleSearch(query: self.searchField?.stringValue ?? "")
+            scheduleSearch(query: searchField?.stringValue ?? "")
         }
 
         NotificationCenter.default.addObserver(
@@ -403,11 +404,11 @@ class WindowManager: NSObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            guard self.isWindowVisible else { return }
-            guard self.searchMode == .applications else { return }
+            guard isWindowVisible else { return }
+            guard searchMode == .applications else { return }
 
-            self.searchService?.resetCache()
-            self.scheduleSearch(query: self.searchField?.stringValue ?? "")
+            searchService?.resetCache()
+            scheduleSearch(query: searchField?.stringValue ?? "")
         }
     }
 
@@ -430,14 +431,14 @@ class WindowManager: NSObject {
                   let bundleURL = app.bundleURL else { return }
             guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
 
-            self.recentApplicationsStore.recordLaunch(bundlePath: bundleURL.path)
+            recentApplicationsStore.recordLaunch(bundlePath: bundleURL.path)
 
-            guard self.isWindowVisible else { return }
-            guard self.searchMode == .applications else { return }
-            let query = self.searchField?.stringValue ?? ""
+            guard isWindowVisible else { return }
+            guard searchMode == .applications else { return }
+            let query = searchField?.stringValue ?? ""
             guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-            self.updateApplicationResultsForEmptyQuery(animate: false)
+            updateApplicationResultsForEmptyQuery(animate: false)
         }
 
         let launchObserver = center.addObserver(
@@ -456,119 +457,119 @@ class WindowManager: NSObject {
 
         workspaceObservers = [launchObserver, activateObserver]
     }
-    
+
     /// Applies current accessibility settings to all UI elements
     private func applyAccessibilitySettings() {
         let settings = getAccessibilitySettings()
-        
+
         // Update main window
-        if let window = window, let glassView = window.contentView as? NSVisualEffectView {
+        if let window, let glassView = window.contentView as? NSVisualEffectView {
             updateGlassViewForAccessibility(glassView, settings: settings)
-            
+
             // Update overlay and panels within the glass view
             for subview in glassView.subviews {
                 if subview is NSVisualEffectView {
-                    continue  // Skip the glass view itself
+                    continue // Skip the glass view itself
                 }
                 updateOverlayForAccessibility(subview, settings: settings, isSidecar: false)
             }
         }
-        
+
         // Update sidecar window
         if let sidecar = sidecarWindow, let glassView = sidecar.contentView as? NSVisualEffectView {
             updateGlassViewForAccessibility(glassView, settings: settings)
-            
+
             for subview in glassView.subviews {
                 updateOverlayForAccessibility(subview, settings: settings, isSidecar: true)
             }
         }
-        
+
         // Refresh header panel styling (might need contrast adjustment)
-        if let headerPanel = headerPanel {
+        if let headerPanel {
             updatePanelForAccessibility(headerPanel, settings: settings, isSidecar: false)
         }
-        
+
         // Reload table to update cards
         tableView?.reloadData()
     }
-    
+
     /// Updates glass view material based on accessibility settings
     private func updateGlassViewForAccessibility(_ glassView: NSVisualEffectView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool)) {
         // When Reduce Transparency is enabled, reduce blur effect
         if settings.reduceTransparency {
-            glassView.material = .sidebar  // Less translucent material
+            glassView.material = .sidebar // Less translucent material
             glassView.state = .active
         } else {
-            glassView.material = .hudWindow  // Original translucent material
+            glassView.material = .hudWindow // Original translucent material
             glassView.state = .active
         }
     }
-    
+
     /// Updates overlay opacity based on accessibility settings
     private func updateOverlayForAccessibility(_ overlay: NSView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool), isSidecar: Bool) {
         guard let layer = overlay.layer else { return }
-        
+
         // Base opacity values
         let baseOverlayOpacity: CGFloat = isSidecar ? 0.16 : 0.22
         let baseStrokeOpacity: CGFloat = isSidecar ? 0.2 : 0.3
-        
+
         // Adjust for Reduce Transparency (increase opacity, less reliance on blur)
         var overlayOpacity = baseOverlayOpacity
         var strokeOpacity = baseStrokeOpacity
-        
+
         if settings.reduceTransparency {
-            overlayOpacity = min(overlayOpacity + 0.2, 0.7)  // Significantly increase opacity
+            overlayOpacity = min(overlayOpacity + 0.2, 0.7) // Significantly increase opacity
         }
-        
+
         // Adjust for Increase Contrast (strengthen strokes)
         if settings.increaseContrast {
-            strokeOpacity = min(strokeOpacity + 0.25, 0.8)  // Strengthen strokes
+            strokeOpacity = min(strokeOpacity + 0.25, 0.8) // Strengthen strokes
         }
-        
+
         // Apply settings
         if let bgColor = layer.backgroundColor {
             let color = NSColor(cgColor: bgColor)?.withAlphaComponent(overlayOpacity)
             layer.backgroundColor = color?.cgColor
         }
-        
+
         if let borderColor = layer.borderColor {
             let color = NSColor(cgColor: borderColor)?.withAlphaComponent(strokeOpacity)
             layer.borderColor = color?.cgColor
-            
+
             // Increase border width for better visibility in high contrast
             if settings.increaseContrast {
-                layer.borderWidth = 1.0  // Thicker stroke
+                layer.borderWidth = 1.0 // Thicker stroke
             }
         }
     }
-    
+
     /// Updates panel styling based on accessibility settings
     private func updatePanelForAccessibility(_ panel: NSView, settings: (reduceTransparency: Bool, increaseContrast: Bool, reduceMotion: Bool), isSidecar: Bool) {
         guard let layer = panel.layer else { return }
-        
+
         // Base values for main vs sidecar
         let basePanelOpacity: CGFloat = isSidecar ? 0.09 : 0.12
         let basePanelStroke: CGFloat = isSidecar ? 0.18 : 0.25
-        
+
         var panelOpacity = basePanelOpacity
         var strokeOpacity = basePanelStroke
-        
+
         // Adjust for Reduce Transparency
         if settings.reduceTransparency {
             panelOpacity = min(panelOpacity + 0.15, 0.5)
         }
-        
+
         // Adjust for Increase Contrast
         if settings.increaseContrast {
             strokeOpacity = min(strokeOpacity + 0.25, 0.7)
         }
-        
+
         // Apply background color
         layer.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(panelOpacity).cgColor
-        
+
         // Apply border color
         layer.borderColor = NSColor.separatorColor.withAlphaComponent(strokeOpacity).cgColor
-        
+
         // Increase border width for high contrast
         if settings.increaseContrast {
             layer.borderWidth = 1.0
@@ -578,16 +579,16 @@ class WindowManager: NSObject {
     }
 
     func setSearchService(_ service: SearchService) {
-        self.searchService = service
-        self.searchService?.resetCache()
+        searchService = service
+        searchService?.resetCache()
     }
 
     func setClipboardManager(_ manager: ClipboardManager) {
-        self.clipboardManager = manager
+        clipboardManager = manager
     }
 
     func prewarmAppIcons(applications: [ApplicationInfo]) {
-        let bundlePaths = applications.map { $0.bundlePath }
+        let bundlePaths = applications.map(\.bundlePath)
         DispatchQueue.global(qos: .utility).async { [iconCache] in
             iconCache.prewarm(bundlePaths: bundlePaths)
         }
@@ -638,7 +639,7 @@ class WindowManager: NSObject {
         glassView.blendingMode = .behindWindow
         glassView.state = .active
         glassView.wantsLayer = true
-        glassView.layer?.cornerRadius = 20  // Premium corner radius
+        glassView.layer?.cornerRadius = 20 // Premium corner radius
         glassView.layer?.masksToBounds = true
         if #available(macOS 11.0, *) {
             glassView.layer?.cornerCurve = .continuous
@@ -649,7 +650,7 @@ class WindowManager: NSObject {
         overlayView.autoresizingMask = [.width, .height]
         overlayView.wantsLayer = true
         overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.22).cgColor
-        
+
         // Subtle premium stroke
         overlayView.layer?.borderWidth = 0.5
         overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
@@ -676,7 +677,7 @@ class WindowManager: NSObject {
         }
         contentView.addSubview(headerPanel)
         self.headerPanel = headerPanel
-        
+
         // Create search field inside header panel
         // Text draws at top of field, so use smaller height and position to center visually
         let searchField = NSSearchField(frame: NSRect(x: 16, y: 12, width: 536, height: 24))
@@ -691,7 +692,7 @@ class WindowManager: NSObject {
         searchField.textColor = .labelColor
         searchField.sendsSearchStringImmediately = true
         searchField.sendsWholeSearchString = false
-        
+
         // Hide search/cancel icons for cleaner look
         if let cell = searchField.cell as? NSSearchFieldCell {
             cell.searchButtonCell = nil
@@ -705,7 +706,7 @@ class WindowManager: NSObject {
 
         headerPanel.addSubview(searchField)
         self.searchField = searchField
-        
+
         // Set up focus observation for custom focus styling
         NotificationCenter.default.addObserver(
             self,
@@ -727,20 +728,20 @@ class WindowManager: NSObject {
         resultsPanel.layer?.backgroundColor = NSColor.clear.cgColor
         resultsPanel.layer?.cornerRadius = 18
         resultsPanel.layer?.borderWidth = 0.5
-        resultsPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor  // Lighter stroke
+        resultsPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor // Lighter stroke
         if #available(macOS 11.0, *) {
             resultsPanel.layer?.cornerCurve = .continuous
         }
         contentView.addSubview(resultsPanel)
-        
+
         // Create scroll view for results inside panel
         let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 544, height: 292))
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = .clear
-        scrollView.drawsBackground = false  // Prevent dark background drawing
-        scrollView.contentView.drawsBackground = false  // Clip view also needs this
+        scrollView.drawsBackground = false // Prevent dark background drawing
+        scrollView.contentView.drawsBackground = false // Clip view also needs this
 
         // Track user scrolling so we don't fight it
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -755,9 +756,9 @@ class WindowManager: NSObject {
         let tableView = NSTableView(frame: scrollView.bounds)
         tableView.style = .plain
         tableView.headerView = nil
-        tableView.intercellSpacing = NSSize(width: 0, height: 6)  // Spacing between card rows
+        tableView.intercellSpacing = NSSize(width: 0, height: 6) // Spacing between card rows
         tableView.backgroundColor = .clear
-        tableView.selectionHighlightStyle = .none  // Custom selection drawing
+        tableView.selectionHighlightStyle = .none // Custom selection drawing
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
 
@@ -768,7 +769,7 @@ class WindowManager: NSObject {
 
         // Create single text column - match scrollView width for proper alignment
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("AppColumn"))
-        column.width = 544  // Match scrollView width to prevent right-side overflow
+        column.width = 544 // Match scrollView width to prevent right-side overflow
         column.dataCell = NSTextFieldCell()
         tableView.addTableColumn(column)
 
@@ -790,14 +791,14 @@ class WindowManager: NSObject {
 
         self.window = window
         setupSidecarWindow()
-        
+
         // Apply accessibility settings to initial UI
         applyAccessibilitySettings()
     }
 
     private func setupSidecarWindow() {
         let sidecarWidth: CGFloat = 320
-        let sidecarHeight: CGFloat = 400  // Match main window height
+        let sidecarHeight: CGFloat = 400 // Match main window height
 
         let sidecarWindow = AppleBoxWindow(
             contentRect: NSRect(x: 0, y: 0, width: sidecarWidth, height: sidecarHeight),
@@ -830,7 +831,7 @@ class WindowManager: NSObject {
         glassView.blendingMode = .behindWindow
         glassView.state = .active
         glassView.wantsLayer = true
-        glassView.layer?.cornerRadius = 20  // Premium corner radius
+        glassView.layer?.cornerRadius = 20 // Premium corner radius
         glassView.layer?.masksToBounds = true
         if #available(macOS 11.0, *) {
             glassView.layer?.cornerCurve = .continuous
@@ -841,25 +842,25 @@ class WindowManager: NSObject {
         let overlayView = NSView(frame: glassView.bounds)
         overlayView.autoresizingMask = [.width, .height]
         overlayView.wantsLayer = true
-        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.16).cgColor  // Reduced from 0.22
+        overlayView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.16).cgColor // Reduced from 0.22
         overlayView.layer?.borderWidth = 0.5
-        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor  // Reduced from 0.3
+        overlayView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor // Reduced from 0.3
         overlayView.layer?.cornerRadius = 20
         overlayView.layer?.masksToBounds = true
 
         // Container for sidecar content
         let containerView = NSView(frame: glassView.bounds)
         containerView.autoresizingMask = [.width, .height]
-        
+
         // Premium content panel (LOWER CONTRAST for sidecar)
         // Slightly reduced background for a softer, more receded appearance
         let contentPanel = NSView(frame: NSRect(x: 16, y: 16, width: sidecarWidth - 32, height: sidecarHeight - 32))
         contentPanel.autoresizingMask = [.width, .height]
         contentPanel.wantsLayer = true
-        contentPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.09).cgColor  // Reduced from 0.12
+        contentPanel.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.09).cgColor // Reduced from 0.12
         contentPanel.layer?.cornerRadius = 18
         contentPanel.layer?.borderWidth = 0.5
-        contentPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.18).cgColor  // Reduced from 0.25
+        contentPanel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.18).cgColor // Reduced from 0.25
         if #available(macOS 11.0, *) {
             contentPanel.layer?.cornerCurve = .continuous
         }
@@ -870,7 +871,7 @@ class WindowManager: NSObject {
         sidecarWindow.contentView = glassView
 
         self.sidecarWindow = sidecarWindow
-        self.sidecarContentView = contentPanel
+        sidecarContentView = contentPanel
     }
 
     // MARK: - Sidecar Panel Methods
@@ -878,7 +879,7 @@ class WindowManager: NSObject {
     /// Shows the sidecar panel positioned to the right of the main window.
     func showSidecar() {
         guard let mainWindow = window, let sidecar = sidecarWindow else { return }
-        guard searchMode == .clipboard else { return }  // Only show in clipboard mode
+        guard searchMode == .clipboard else { return } // Only show in clipboard mode
 
         let gap: CGFloat = 8
         let mainFrame = mainWindow.frame
@@ -907,7 +908,7 @@ class WindowManager: NSObject {
 
     /// Returns whether the sidecar is currently visible.
     func isSidecarShowing() -> Bool {
-        return isSidecarVisible
+        isSidecarVisible
     }
 
     // MARK: - Sidecar Visibility Rules (US-006)
@@ -1024,7 +1025,7 @@ class WindowManager: NSObject {
     private func refreshSidecarHighlightIfNeeded() {
         guard searchMode == .clipboard else { return }
         guard isSidecarVisible else { return }
-        guard selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else { return }
+        guard selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else { return }
 
         let result = clipboardResults[selectedRowIndex]
         let item = result.item
@@ -1035,7 +1036,8 @@ class WindowManager: NSObject {
               item.timestamp == displayedTimestamp,
               let textView = sidecarTextView,
               let textStorage = textView.textStorage,
-              let scrollView = sidecarTextScrollView else {
+              let scrollView = sidecarTextScrollView
+        else {
             // Different item or image; need full rebuild
             updateSidecarVisibility()
             return
@@ -1078,10 +1080,10 @@ class WindowManager: NSObject {
     private func isCodeLike(_ text: String) -> Bool {
         // Code indicators
         let codePatterns = [
-            "func ", "class ", "struct ", "enum ", "let ", "var ", "import ",  // Swift
-            "function ", "const ", "=>", "===", "!==",  // JavaScript
-            "def ", "if __name__", "import ", "from ",  // Python
-            "{", "}", "[", "]", "();", "();", "->", "::",  // Common syntax
+            "func ", "class ", "struct ", "enum ", "let ", "var ", "import ", // Swift
+            "function ", "const ", "=>", "===", "!==", // JavaScript
+            "def ", "if __name__", "import ", "from ", // Python
+            "{", "}", "[", "]", "();", "();", "->", "::", // Common syntax
         ]
 
         let lowercased = text.lowercased()
@@ -1106,7 +1108,7 @@ class WindowManager: NSObject {
     func toggle(mode: SearchMode? = nil) {
         if isWindowVisible {
             // If window is visible, switch to the requested mode or hide
-            if let mode = mode, mode != searchMode {
+            if let mode, mode != searchMode {
                 switchToMode(mode)
             } else {
                 hide()
@@ -1116,13 +1118,13 @@ class WindowManager: NSObject {
         }
     }
 
-    @objc private func resultsDidScroll(_ notification: Notification) {
+    @objc private func resultsDidScroll(_: Notification) {
         guard !isPerformingProgrammaticScroll else { return }
         userHasOverriddenPinnedScrollSinceLastQueryChange = true
     }
 
     private func scrollResultsToTop(selectFirstRow: Bool) {
-        guard let scrollView = scrollView else { return }
+        guard let scrollView else { return }
 
         isPerformingProgrammaticScroll = true
         defer { isPerformingProgrammaticScroll = false }
@@ -1130,7 +1132,7 @@ class WindowManager: NSObject {
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
 
-        guard selectFirstRow, let tableView = tableView else { return }
+        guard selectFirstRow, let tableView else { return }
 
         let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
         if count > 0 {
@@ -1171,7 +1173,7 @@ class WindowManager: NSObject {
     }
 
     private func animateResultsUpdateIfAppropriate() {
-        guard isWindowVisible, let scrollView = scrollView else { return }
+        guard isWindowVisible, let scrollView else { return }
         let settings = getAccessibilitySettings()
         guard !settings.reduceMotion else { return }
 
@@ -1198,9 +1200,9 @@ class WindowManager: NSObject {
     private func switchToMode(_ mode: SearchMode) {
         searchMode = mode
 
-        if let searchField = searchField {
+        if let searchField {
             if mode == .clipboard {
-                searchField.stringValue = ""  // Don't show ">" in clipboard mode
+                searchField.stringValue = "" // Don't show ">" in clipboard mode
                 searchField.placeholderString = "Search clipboard history..."
                 // Load clipboard history
                 if let manager = clipboardManager {
@@ -1233,7 +1235,7 @@ class WindowManager: NSObject {
     }
 
     func show(mode: SearchMode? = nil) {
-        guard let window = window else { return }
+        guard let window else { return }
 
         // Center on the active screen
         if let screen = NSScreen.main {
@@ -1250,16 +1252,16 @@ class WindowManager: NSObject {
         NSApp.activate(ignoringOtherApps: true)
 
         // Set search mode
-        if let mode = mode {
+        if let mode {
             searchMode = mode
         } else {
             searchMode = .applications
         }
 
         // Configure based on mode
-        if let searchField = searchField {
+        if let searchField {
             if searchMode == .clipboard {
-                searchField.stringValue = ""  // Don't show ">" in clipboard mode
+                searchField.stringValue = "" // Don't show ">" in clipboard mode
                 searchField.placeholderString = "Search clipboard history..."
                 // Load clipboard history
                 if let manager = clipboardManager {
@@ -1330,37 +1332,37 @@ class WindowManager: NSObject {
         searchDebounceWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
     }
-    
+
     // MARK: - Focus Treatment (US-002)
-    
-    @objc private func searchFieldDidBeginEditing(_ notification: Notification) {
+
+    @objc private func searchFieldDidBeginEditing(_: Notification) {
         updateSearchFieldFocusState(focused: true)
     }
-    
-    @objc private func searchFieldDidEndEditing(_ notification: Notification) {
+
+    @objc private func searchFieldDidEndEditing(_: Notification) {
         updateSearchFieldFocusState(focused: false)
     }
-    
+
     /// Updates the header panel styling to show premium focus treatment.
     /// - Adds subtle inner glow and thin accent stroke when focused
     /// - Respects Reduce Motion for animations and Increase Contrast for visibility
     private func updateSearchFieldFocusState(focused: Bool) {
-        guard let headerPanel = headerPanel else { return }
+        guard let headerPanel else { return }
         guard let layer = headerPanel.layer else { return }
-        
+
         let settings = getAccessibilitySettings()
         let shouldAnimate = !settings.reduceMotion
-        
+
         if focused {
             // Premium focus: thin accent stroke + subtle inner glow
             // Adjust opacity for Increase Contrast
             let accentAlpha: CGFloat = settings.increaseContrast ? 0.75 : 0.5
             let glowAlpha: CGFloat = settings.increaseContrast ? 0.25 : 0.15
             let borderWidth: CGFloat = settings.increaseContrast ? 2.0 : 1.5
-            
+
             let accentColor = NSColor.controlAccentColor.withAlphaComponent(accentAlpha)
             let glowColor = NSColor.controlAccentColor.withAlphaComponent(glowAlpha)
-            
+
             if shouldAnimate {
                 // Smooth transition
                 NSAnimationContext.runAnimationGroup { context in
@@ -1382,10 +1384,10 @@ class WindowManager: NSObject {
             let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.25
             let bgAlpha: CGFloat = settings.increaseContrast ? 0.25 : 0.15
             let borderWidth: CGFloat = settings.increaseContrast ? 1.0 : 0.5
-            
+
             let defaultStroke = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
             let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
-            
+
             if shouldAnimate {
                 // Smooth transition
                 NSAnimationContext.runAnimationGroup { context in
@@ -1410,7 +1412,7 @@ class WindowManager: NSObject {
         searchComputeWorkItem = nil
 
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // Empty query in applications mode -> show recent apps
         if searchMode == .applications, trimmedQuery.isEmpty {
             searchService?.resetCache()
@@ -1419,7 +1421,7 @@ class WindowManager: NSObject {
         }
 
         #if DEBUG
-        let start = ProcessInfo.processInfo.systemUptime
+            let start = ProcessInfo.processInfo.systemUptime
         #endif
 
         // INSTANT SEARCH: Execute synchronously on main thread
@@ -1454,8 +1456,8 @@ class WindowManager: NSObject {
         }
 
         #if DEBUG
-        let end = ProcessInfo.processInfo.systemUptime
-        logger.debug("search(\(self.searchMode == .clipboard ? "clipboard" : "apps", privacy: .public)) took \((end - start) * 1000, privacy: .public)ms")
+            let end = ProcessInfo.processInfo.systemUptime
+            logger.debug("search(\(self.searchMode == .clipboard ? "clipboard" : "apps", privacy: .public)) took \((end - start) * 1000, privacy: .public)ms")
         #endif
     }
 
@@ -1474,7 +1476,7 @@ class WindowManager: NSObject {
             selectedRowIndex = -1
             tableView?.deselectAll(nil)
             // Deselect the previous card visually
-            if let tableView = tableView {
+            if let tableView {
                 updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: -1)
             }
             window?.makeFirstResponder(searchField)
@@ -1488,15 +1490,15 @@ class WindowManager: NSObject {
         // Save previous index BEFORE updating for correct visual update
         let previousIndex = selectedRowIndex
         selectedRowIndex = newIndex
-        
+
         // Prevent tableViewSelectionDidChange from double-updating visuals
         isNavigatingProgrammatically = true
         tableView?.selectRowIndexes(IndexSet(integer: selectedRowIndex), byExtendingSelection: false)
         tableView?.scrollRowToVisible(selectedRowIndex)
         isNavigatingProgrammatically = false
-        
+
         // Manually update card visuals with correct previous/current indices
-        if let tableView = tableView {
+        if let tableView {
             updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: selectedRowIndex)
         }
         updateSidecarVisibility()
@@ -1510,7 +1512,7 @@ class WindowManager: NSObject {
 
     private func handleEnterKey() {
         if searchMode == .clipboard {
-            guard selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else {
+            guard selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else {
                 hide()
                 return
             }
@@ -1518,7 +1520,7 @@ class WindowManager: NSObject {
             let item = clipboardResults[selectedRowIndex].item
             copyToClipboard(item.content)
         } else {
-            guard selectedRowIndex >= 0 && selectedRowIndex < searchResults.count else {
+            guard selectedRowIndex >= 0, selectedRowIndex < searchResults.count else {
                 hide()
                 return
             }
@@ -1532,12 +1534,12 @@ class WindowManager: NSObject {
         let clickedRow = sender.clickedRow
 
         if searchMode == .clipboard {
-            if clickedRow >= 0 && clickedRow < clipboardResults.count {
+            if clickedRow >= 0, clickedRow < clipboardResults.count {
                 let item = clipboardResults[clickedRow].item
                 copyToClipboard(item.content)
             }
         } else {
-            if clickedRow >= 0 && clickedRow < searchResults.count {
+            if clickedRow >= 0, clickedRow < searchResults.count {
                 let appInfo = searchResults[clickedRow].application
                 launchApplication(appInfo)
             }
@@ -1562,13 +1564,13 @@ class WindowManager: NSObject {
         // Launch the application
         let config = NSWorkspace.OpenConfiguration()
         workspace.openApplication(at: appUrl, configuration: config) { [weak self] app, error in
-            if let error = error {
+            if let error {
                 print("Error launching \(appInfo.name): \(error.localizedDescription)")
                 // Handle error gracefully - could show alert here
                 return
             }
 
-            if let app = app {
+            if let app {
                 print("Successfully launched: \(app.localizedName ?? appInfo.name)")
             }
 
@@ -1590,7 +1592,7 @@ class WindowManager: NSObject {
 
         // Close the window after copying
         hide()
-        
+
         // Auto-paste to frontmost app
         pasteToFrontmostApp()
     }
@@ -1599,45 +1601,45 @@ class WindowManager: NSObject {
     private func pasteToFrontmostApp() {
         // Wait briefly for the window to hide and previous app to activate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             // kVK_ANSI_V is 0x09
             let vKeyCode: CGKeyCode = 0x09
-            
+
             // Post key down with Command flag
-            self.eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: true, flags: .maskCommand)
+            eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: true, flags: .maskCommand)
             // Post key up with Command flag
-            self.eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: false, flags: .maskCommand)
-            
+            eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: false, flags: .maskCommand)
+
             print("Simulated Cmd+V")
         }
     }
 
     func isVisible() -> Bool {
-        return isWindowVisible
+        isWindowVisible
     }
 
     // MARK: - Test Helpers
-    
+
     /// Returns the current search mode (for testing)
     func getCurrentSearchMode() -> SearchMode {
-        return searchMode
+        searchMode
     }
-    
+
     /// Returns the current placeholder text (for testing)
     func getPlaceholderText() -> String? {
-        return searchField?.placeholderString
+        searchField?.placeholderString
     }
-    
+
     /// Returns the number of results currently displayed (for testing)
     func getResultCount() -> Int {
-        return searchMode == .clipboard ? clipboardResults.count : searchResults.count
+        searchMode == .clipboard ? clipboardResults.count : searchResults.count
     }
-    
+
     /// Returns the current search text (for testing)
     func getSearchText() -> String? {
-        return searchField?.stringValue
+        searchField?.stringValue
     }
-    
+
     /// Simulates typing in the search field (for testing).
     /// Executes search synchronously (bypassing debounce) for test reliability.
     func simulateSearch(query: String) {
@@ -1676,135 +1678,137 @@ class WindowManager: NSObject {
             scrollResultsToTop(selectFirstRow: true)
         }
     }
-    
+
     /// Returns the content view for snapshot testing
     func getContentView() -> NSView? {
-        return window?.contentView
+        window?.contentView
     }
-    
+
     /// Returns the window for snapshot testing
     func getWindow() -> NSWindow? {
-        return window
+        window
     }
-    
+
     /// Sets search results directly for snapshot testing
     func setSearchResultsForTesting(_ results: [SearchResult]) {
-        self.searchMode = .applications
-        self.searchResults = results
-        self.selectedRowIndex = results.isEmpty ? -1 : 0
-        self.tableView?.reloadData()
+        searchMode = .applications
+        searchResults = results
+        selectedRowIndex = results.isEmpty ? -1 : 0
+        tableView?.reloadData()
         if !results.isEmpty {
-            self.tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
     }
-    
+
     /// Sets clipboard results directly for snapshot testing
     func setClipboardResultsForTesting(_ items: [ClipboardItem]) {
-        self.searchMode = .clipboard
-        self.clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
-        self.selectedRowIndex = items.isEmpty ? -1 : 0
+        searchMode = .clipboard
+        clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
+        selectedRowIndex = items.isEmpty ? -1 : 0
         searchField?.placeholderString = "Search clipboard history..."
-        self.tableView?.reloadData()
+        tableView?.reloadData()
         if !items.isEmpty {
-            self.tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
     }
 
     /// Sets clipboard search results with matchedIndices for testing highlight behavior
     func setClipboardSearchResultsForTesting(_ results: [ClipboardSearchResult]) {
-        self.searchMode = .clipboard
-        self.clipboardResults = results
-        self.selectedRowIndex = results.isEmpty ? -1 : 0
+        searchMode = .clipboard
+        clipboardResults = results
+        selectedRowIndex = results.isEmpty ? -1 : 0
         searchField?.placeholderString = "Search clipboard history..."
-        self.tableView?.reloadData()
+        tableView?.reloadData()
         if !results.isEmpty {
-            self.tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
         updateSidecarVisibility()
     }
-    
+
     /// Select a specific row for snapshot testing
     func selectRowForTesting(_ row: Int) {
         let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
-        guard row >= 0 && row < count else { return }
+        guard row >= 0, row < count else { return }
         selectedRowIndex = row
         tableView?.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView?.scrollRowToVisible(row)
     }
-    
+
     // MARK: - Accessibility Test Helpers
-    
+
     /// Returns the search field for accessibility testing
     func getSearchField() -> NSSearchField? {
-        return searchField
+        searchField
     }
-    
+
     /// Returns the table view for accessibility testing
     func getTableView() -> NSTableView? {
-        return tableView
+        tableView
     }
-    
+
     /// Returns the cell view at a specific row for accessibility testing
     func getCellViewForTesting(at row: Int) -> NSView? {
-        guard let tableView = tableView else { return nil }
+        guard let tableView else { return nil }
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true)
     }
-    
+
     /// Returns the selected row index for testing
     func getSelectedRowIndex() -> Int {
-        return selectedRowIndex
+        selectedRowIndex
     }
-    
+
     // MARK: - Sidecar Test Helpers
-    
+
     /// Returns the sidecar window for testing
     func getSidecarWindow() -> NSWindow? {
-        return sidecarWindow
+        sidecarWindow
     }
-    
+
     /// Returns the sidecar content view for testing
     func getSidecarContentView() -> NSView? {
-        return sidecarContentView
+        sidecarContentView
     }
 }
 
 // MARK: - NSTableViewDataSource
+
 extension WindowManager: NSTableViewDataSource {
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        return searchMode == .clipboard ? clipboardResults.count : searchResults.count
+    func numberOfRows(in _: NSTableView) -> Int {
+        searchMode == .clipboard ? clipboardResults.count : searchResults.count
     }
 }
 
 // MARK: - NSTableViewDelegate
+
 extension WindowManager: NSTableViewDelegate {
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+    func tableView(_ tableView: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
         // Display based on search mode
         if searchMode == .clipboard {
-            return makeClipboardCell(tableView: tableView, row: row)
+            makeClipboardCell(tableView: tableView, row: row)
         } else {
-            return makeApplicationCell(tableView: tableView, row: row)
+            makeApplicationCell(tableView: tableView, row: row)
         }
     }
-    
+
     private func makeClipboardCell(tableView: NSTableView, row: Int) -> NSView? {
-        guard row >= 0 && row < clipboardResults.count else { return nil }
-        
+        guard row >= 0, row < clipboardResults.count else { return nil }
+
         let cellId = NSUserInterfaceItemIdentifier("ClipboardCell")
         var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
-        
+
         if cardContainer == nil {
             let settings = getAccessibilitySettings()
-            
+
             // Create card container with premium styling
             cardContainer = NSView()
             cardContainer?.identifier = cellId
             cardContainer?.wantsLayer = true
-            
+
             // Card background and stroke (adjusted for accessibility)
             let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
             let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
             let strokeWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
-            
+
             cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
             cardContainer?.layer?.cornerRadius = 12
             cardContainer?.layer?.borderWidth = strokeWidth
@@ -1812,7 +1816,7 @@ extension WindowManager: NSTableViewDelegate {
             if #available(macOS 11.0, *) {
                 cardContainer?.layer?.cornerCurve = .continuous
             }
-            
+
             // Text field inside card (single line only - sidecar shows full content)
             let textField = NSTextField()
             textField.translatesAutoresizingMaskIntoConstraints = false
@@ -1826,17 +1830,17 @@ extension WindowManager: NSTableViewDelegate {
             textField.cell?.usesSingleLineMode = true
             textField.tag = 200
             cardContainer?.addSubview(textField)
-            
+
             NSLayoutConstraint.activate([
                 textField.leadingAnchor.constraint(equalTo: cardContainer!.leadingAnchor, constant: 16),
                 textField.trailingAnchor.constraint(equalTo: cardContainer!.trailingAnchor, constant: -16),
-                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor)
+                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor),
             ])
         }
-        
+
         let result = clipboardResults[row]
         let item = result.item
-        
+
         // Collapse to single line: replace newlines/tabs with spaces, collapse multiple spaces
         let singleLine = item.content
             .replacingOccurrences(of: "\r\n", with: " ")
@@ -1845,11 +1849,11 @@ extension WindowManager: NSTableViewDelegate {
             .replacingOccurrences(of: "\t", with: " ")
             .split(separator: " ", omittingEmptySubsequences: true)
             .joined(separator: " ")
-        
+
         let displayContent = singleLine.count > 100
             ? String(singleLine.prefix(100)) + "..."
             : singleLine
-        
+
         // Remap matched indices from original content to collapsed single-line content
         // For simplicity, re-match on the display content to get correct indices
         let rematchedIndices: [Int]
@@ -1860,7 +1864,7 @@ extension WindowManager: NSTableViewDelegate {
         } else {
             rematchedIndices = []
         }
-        
+
         if let textField = cardContainer?.viewWithTag(200) as? NSTextField {
             textField.attributedStringValue = attributedString(
                 for: displayContent,
@@ -1868,41 +1872,41 @@ extension WindowManager: NSTableViewDelegate {
                 font: textField.font ?? NSFont.systemFont(ofSize: 14)
             )
         }
-        
+
         // Apply initial selection styling
         let isSelected = (selectedRowIndex == row)
         applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
-        
+
         // Accessibility
         cardContainer?.setAccessibilityIdentifier("ClipboardRow_\(row)")
         cardContainer?.setAccessibilityLabel("Clipboard item: \(displayContent)")
         cardContainer?.setAccessibilityHelp("Press Enter to copy this item to clipboard")
-        
+
         return cardContainer
     }
-    
+
     private func makeApplicationCell(tableView: NSTableView, row: Int) -> NSView? {
-        guard row >= 0 && row < searchResults.count else { return nil }
-        
+        guard row >= 0, row < searchResults.count else { return nil }
+
         let cellId = NSUserInterfaceItemIdentifier("AppCell")
         var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
-        
+
         let iconSize: CGFloat = 24
         let padding: CGFloat = 16
-        
+
         if cardContainer == nil {
             let settings = getAccessibilitySettings()
-            
+
             // Create card container with premium styling
             cardContainer = NSView()
             cardContainer?.identifier = cellId
             cardContainer?.wantsLayer = true
-            
+
             // Card background and stroke (adjusted for accessibility)
             let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
             let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
             let strokeWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
-            
+
             cardContainer?.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
             cardContainer?.layer?.cornerRadius = 12
             cardContainer?.layer?.borderWidth = strokeWidth
@@ -1910,13 +1914,13 @@ extension WindowManager: NSTableViewDelegate {
             if #available(macOS 11.0, *) {
                 cardContainer?.layer?.cornerCurve = .continuous
             }
-            
+
             let imageView = NSImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.tag = 100
             cardContainer?.addSubview(imageView)
-            
+
             let textField = NSTextField()
             textField.translatesAutoresizingMaskIntoConstraints = false
             textField.isBordered = false
@@ -1927,29 +1931,29 @@ extension WindowManager: NSTableViewDelegate {
             textField.lineBreakMode = .byTruncatingTail
             textField.tag = 101
             cardContainer?.addSubview(textField)
-            
+
             NSLayoutConstraint.activate([
                 imageView.leadingAnchor.constraint(equalTo: cardContainer!.leadingAnchor, constant: padding),
                 imageView.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor),
                 imageView.widthAnchor.constraint(equalToConstant: iconSize),
                 imageView.heightAnchor.constraint(equalToConstant: iconSize),
-                
+
                 textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 12),
                 textField.trailingAnchor.constraint(equalTo: cardContainer!.trailingAnchor, constant: -padding),
-                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor)
+                textField.centerYAnchor.constraint(equalTo: cardContainer!.centerYAnchor),
             ])
         }
-        
+
         let result = searchResults[row]
         let appInfo = result.application
-        
+
         // Get app icon
         if let imageView = cardContainer?.viewWithTag(100) as? NSImageView {
             let icon = iconCache.icon(forBundlePath: appInfo.bundlePath)
             icon.size = NSSize(width: iconSize, height: iconSize)
             imageView.image = icon
         }
-        
+
         // Set app name with highlighted matches
         if let textField = cardContainer?.viewWithTag(101) as? NSTextField {
             textField.attributedStringValue = attributedString(
@@ -1958,36 +1962,36 @@ extension WindowManager: NSTableViewDelegate {
                 font: textField.font ?? NSFont.systemFont(ofSize: 14)
             )
         }
-        
+
         // Apply initial selection styling
         let isSelected = (selectedRowIndex == row)
         applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
-        
+
         // Accessibility
         cardContainer?.setAccessibilityIdentifier("ApplicationRow_\(row)")
         cardContainer?.setAccessibilityLabel("Application: \(appInfo.name)")
         cardContainer?.setAccessibilityHelp("Press Enter to launch this application")
-        
+
         return cardContainer
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard let tableView = tableView else { return }
-        
+    func tableViewSelectionDidChange(_: Notification) {
+        guard let tableView else { return }
+
         // Skip if navigating programmatically (handled in navigateResults)
         guard !isNavigatingProgrammatically else { return }
-        
+
         let previousSelection = selectedRowIndex
         selectedRowIndex = tableView.selectedRow
-        
+
         // Update card styling for previous and new selection
         updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: selectedRowIndex)
-        
+
         updateSidecarVisibility()
     }
-    
+
     // MARK: - Card Selection Styling (US-003)
-    
+
     /// Updates card selection visuals when selection changes.
     /// Applies premium outline + fill to selected card with subtle animation.
     private func updateCardSelectionVisuals(tableView: NSTableView, previousRow: Int, currentRow: Int) {
@@ -1995,36 +1999,36 @@ extension WindowManager: NSTableViewDelegate {
         if previousRow >= 0, let previousCard = tableView.view(atColumn: 0, row: previousRow, makeIfNecessary: false) {
             applyCardSelectionStyle(to: previousCard, isSelected: false, animated: true)
         }
-        
+
         // Select new card
         if currentRow >= 0, let currentCard = tableView.view(atColumn: 0, row: currentRow, makeIfNecessary: false) {
             applyCardSelectionStyle(to: currentCard, isSelected: true, animated: true)
         }
     }
-    
+
     /// Applies premium selection styling to a card view.
     /// - Parameters:
     ///   - card: The card container view
     ///   - isSelected: Whether the card is selected
     ///   - animated: Whether to animate the transition (respects Reduce Motion)
     private func applyCardSelectionStyle(to card: NSView?, isSelected: Bool, animated: Bool) {
-        guard let card = card, let layer = card.layer else { return }
-        
+        guard let card, let layer = card.layer else { return }
+
         let settings = getAccessibilitySettings()
         let shouldAnimate = animated && !settings.reduceMotion
-        
+
         if isSelected {
             // Premium selection: thin accent outline + slight fill
             // Adjust opacity for Increase Contrast
             let strokeAlpha: CGFloat = settings.increaseContrast ? 0.85 : 0.6
             let fillAlpha: CGFloat = settings.increaseContrast ? 0.22 : 0.12
-            
+
             let accentStroke = NSColor.controlAccentColor.withAlphaComponent(strokeAlpha).cgColor
             let accentFill = NSColor.controlAccentColor.withAlphaComponent(fillAlpha).cgColor
-            
+
             // Thicker border for Increase Contrast
             let borderWidth: CGFloat = settings.increaseContrast ? 2.0 : 1.5
-            
+
             if shouldAnimate {
                 // Subtle animated transition
                 NSAnimationContext.runAnimationGroup { context in
@@ -2035,7 +2039,7 @@ extension WindowManager: NSTableViewDelegate {
                     layer.backgroundColor = accentFill
                     layer.opacity = 1.0
                 }
-                
+
                 // Very subtle pulse effect (low CPU cost) - only if motion allowed
                 let pulseAnimation = CABasicAnimation(keyPath: "opacity")
                 pulseAnimation.fromValue = 0.92
@@ -2055,13 +2059,13 @@ extension WindowManager: NSTableViewDelegate {
             // Adjust opacity for Increase Contrast
             let strokeAlpha: CGFloat = settings.increaseContrast ? 0.5 : 0.2
             let bgAlpha: CGFloat = settings.increaseContrast ? 0.15 : 0.08
-            
+
             let defaultStroke = NSColor.separatorColor.withAlphaComponent(strokeAlpha).cgColor
             let defaultBackground = NSColor.controlBackgroundColor.withAlphaComponent(bgAlpha).cgColor
-            
+
             // Thicker border for Increase Contrast
             let borderWidth: CGFloat = settings.increaseContrast ? 0.75 : 0.5
-            
+
             if shouldAnimate {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.15
@@ -2080,45 +2084,45 @@ extension WindowManager: NSTableViewDelegate {
         }
     }
 
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        return 44  // Increased height for premium card feel
+    func tableView(_: NSTableView, heightOfRow _: Int) -> CGFloat {
+        44 // Increased height for premium card feel
     }
-    
+
     // MARK: - Attributed String Highlighting
-    
+
     /// Creates an attributed string with matched characters highlighted using the system accent color.
     private func attributedString(for text: String, highlightingIndices indices: [Int], font: NSFont) -> NSAttributedString {
         let attributedString = NSMutableAttributedString(string: text, attributes: [
             .font: font,
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: NSColor.labelColor,
         ])
-        
+
         guard !indices.isEmpty else { return attributedString }
-        
+
         // Use controlAccentColor for highlighted matches
         let highlightColor = NSColor.controlAccentColor
-        
+
         // Convert character indices to UTF-16 ranges for NSAttributedString
         for charIndex in indices {
             guard charIndex < text.count else { continue }
-            
+
             let stringIndex = text.index(text.startIndex, offsetBy: charIndex)
             let utf16Offset = text.utf16.distance(from: text.utf16.startIndex, to: stringIndex)
-            
+
             // Highlight a single character
             let range = NSRange(location: utf16Offset, length: 1)
             guard range.location + range.length <= attributedString.length else { continue }
-            
+
             attributedString.addAttribute(.foregroundColor, value: highlightColor, range: range)
         }
-        
+
         return attributedString
     }
 }
 
 // NSWindowDelegate to handle window events
 extension WindowManager: NSWindowDelegate {
-    func windowDidResignKey(_ notification: Notification) {
+    func windowDidResignKey(_: Notification) {
         // Optional: hide window when losing focus
         // hide()
     }
@@ -2126,7 +2130,7 @@ extension WindowManager: NSWindowDelegate {
 
 // NSSearchFieldDelegate to handle arrow keys in search field
 extension WindowManager: NSSearchFieldDelegate {
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+    func control(_: NSControl, textView _: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.moveUp(_:)) {
             navigateResults(direction: -1)
             return true
@@ -2149,7 +2153,7 @@ extension WindowManager: NSSearchFieldDelegate {
         searchDebounceWorkItem = nil
 
         // When text exists, Esc should clear + hide.
-        if let searchField = searchField, !searchField.stringValue.isEmpty {
+        if let searchField, !searchField.stringValue.isEmpty {
             searchField.stringValue = ""
             lastSearchQuery = ""
 
@@ -2157,7 +2161,7 @@ extension WindowManager: NSSearchFieldDelegate {
             selectedRowIndex = -1
             tableView?.deselectAll(nil)
 
-            if let tableView = tableView {
+            if let tableView {
                 updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: -1)
             }
         }

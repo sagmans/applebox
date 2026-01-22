@@ -12,8 +12,8 @@ struct ApplicationInfo {
         self.name = name
         self.bundlePath = bundlePath
         let normalized = name.lowercased()
-        self.normalizedName = normalized
-        self.normalizedNameBytes = ContiguousArray(normalized.utf8)
+        normalizedName = normalized
+        normalizedNameBytes = ContiguousArray(normalized.utf8)
     }
 }
 
@@ -64,7 +64,7 @@ final class ApplicationIndexer {
         if !fileSystem.fileExists(atPath: appDirectory.path) {
             try? fileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
         }
-        self.storageURL = appDirectory.appendingPathComponent(cacheFileName)
+        storageURL = appDirectory.appendingPathComponent(cacheFileName)
 
         loadCachedApplications()
 
@@ -76,8 +76,8 @@ final class ApplicationIndexer {
     func scanForApplicationsAsync(completion: (([ApplicationInfo]) -> Void)? = nil) {
         scanQueue.async { [weak self] in
             guard let self else { return }
-            let scanned = self.scanForApplicationsInternal()
-            self.applicationsQueue.async(flags: .barrier) {
+            let scanned = scanForApplicationsInternal()
+            applicationsQueue.async(flags: .barrier) {
                 self.applications = scanned
                 self.persistApplicationsAsync(scanned)
                 DispatchQueue.main.async {
@@ -173,7 +173,8 @@ final class ApplicationIndexer {
 
                 if fileSystem.fileExists(atPath: item.path, isDirectory: &isDirectory),
                    isDirectory.boolValue,
-                   item.pathExtension == "app" {
+                   item.pathExtension == "app"
+                {
                     let appName = item.deletingPathExtension().lastPathComponent
                     results.append(ApplicationInfo(name: appName, bundlePath: item.path))
                 }

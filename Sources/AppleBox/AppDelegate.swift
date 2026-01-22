@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         category: "app"
     )
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         logger.info("AppleBox launched")
 
         // UI first: show/typing must never wait on indexing/persistence.
@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager?.start()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationWillTerminate(_: Notification) {
         logger.info("AppleBox terminating")
         clipboardManager?.flushPendingPersistence()
     }

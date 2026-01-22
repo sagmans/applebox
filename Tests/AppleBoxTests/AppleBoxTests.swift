@@ -1,5 +1,5 @@
-import XCTest
 @testable import AppleBox
+import XCTest
 
 final class AppleBoxTests: XCTestCase {
     func testPlaceholder() {

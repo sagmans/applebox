@@ -1,5 +1,5 @@
-import Foundation
 @testable import AppleBox
+import Foundation
 
 /// Mock implementation of FileSystemProtocol for testing
 final class MockFileSystem: FileSystemProtocol {
@@ -13,7 +13,7 @@ final class MockFileSystem: FileSystemProtocol {
 
     // MARK: - Configurable Properties
 
-    private var _mockHomeDirectory: URL = URL(fileURLWithPath: "/Users/testuser")
+    private var _mockHomeDirectory: URL = .init(fileURLWithPath: "/Users/testuser")
     var mockHomeDirectory: URL {
         _read { stateLock.lock(); defer { stateLock.unlock() }; yield _mockHomeDirectory }
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_mockHomeDirectory }
@@ -108,7 +108,7 @@ final class MockFileSystem: FileSystemProtocol {
     // MARK: - FileSystemProtocol Implementation
 
     var homeDirectoryForCurrentUser: URL {
-        return mockHomeDirectory
+        mockHomeDirectory
     }
 
     func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] {
@@ -129,7 +129,7 @@ final class MockFileSystem: FileSystemProtocol {
         return exists
     }
 
-    func contentsOfDirectory(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
+    func contentsOfDirectory(at url: URL, includingPropertiesForKeys _: [URLResourceKey]?, options _: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         contentsOfDirectoryCalls.append(url)
         if let error = contentsOfDirectoryError {
             throw error
@@ -137,7 +137,7 @@ final class MockFileSystem: FileSystemProtocol {
         return directoryContents[url] ?? []
     }
 
-    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
+    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes _: [FileAttributeKey: Any]?) throws {
         createDirectoryCalls.append((url: url, createIntermediates: createIntermediates))
         if let error = createDirectoryError {
             throw error
@@ -152,10 +152,10 @@ final class MockFileSystem: FileSystemProtocol {
         return fileContents[path]
     }
 
-    func createFile(atPath path: String, contents data: Data?, attributes attr: [FileAttributeKey: Any]?) -> Bool {
+    func createFile(atPath path: String, contents data: Data?, attributes _: [FileAttributeKey: Any]?) -> Bool {
         createFileCalls.append((path: path, data: data))
         // Store the data for later retrieval
-        if let data = data {
+        if let data {
             fileContents[path] = data
         }
         existingFiles[path] = true
@@ -163,7 +163,7 @@ final class MockFileSystem: FileSystemProtocol {
         return true
     }
 
-    func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+    func write(_ data: Data, to url: URL, options _: Data.WritingOptions) throws {
         // Keep tracking consistent with createFile, since production code may switch to Data.write.
         createFileCalls.append((path: url.path, data: data))
         fileContents[url.path] = data
@@ -188,7 +188,7 @@ final class MockFileSystem: FileSystemProtocol {
     func addFile(at path: String, contents: Data? = nil, isDirectory: Bool = false) {
         existingFiles[path] = true
         directoryFlags[path] = isDirectory
-        if let contents = contents {
+        if let contents {
             fileContents[path] = contents
         }
     }

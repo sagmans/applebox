@@ -37,7 +37,7 @@ public extension FileSystemProtocol {
         try createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: nil)
     }
 
-    public func write(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
+    func write(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
         try data.write(to: url, options: options)
     }
 }
