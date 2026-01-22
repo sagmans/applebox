@@ -1,4 +1,4 @@
-.PHONY: build test bundle run stop status install uninstall clean \
+.PHONY: build test format format-check lint bundle run stop status install uninstall clean \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -45,6 +45,9 @@ help:
 	@echo "$(GREEN)Development:$(NC)"
 	@echo "  make build        - Build release binary"
 	@echo "  make test         - Run test suite"
+	@echo "  make format       - Auto-format Sources/ and Tests/ (SwiftFormat)"
+	@echo "  make format-check - Fail if formatting is needed (SwiftFormat --lint)"
+	@echo "  make lint         - Run SwiftLint"
 	@echo "  make bundle       - Create .app bundle"
 	@echo "  make run          - Build, bundle, and run app"
 	@echo "  make stop         - Stop running app"
@@ -99,6 +102,31 @@ test:
 	@echo "$(BLUE)Running tests...$(NC)"
 	@swift test
 	@echo "$(GREEN)All tests passed$(NC)"
+
+# ==============================================================================
+# Code Style
+# ==============================================================================
+
+format:
+	@echo "$(BLUE)Formatting Swift sources (SwiftFormat)...$(NC)"
+	swiftformat Sources Tests
+	@echo "$(GREEN)Formatting complete$(NC)"
+
+format-check:
+	@echo "$(BLUE)Checking formatting (SwiftFormat --lint)...$(NC)"
+	@if [ "$$GITHUB_ACTIONS" = "true" ]; then \
+		swiftformat Sources Tests --lint --reporter github-actions-log; \
+	else \
+		swiftformat Sources Tests --lint; \
+	fi
+	@echo "$(GREEN)Formatting OK$(NC)"
+
+lint:
+	@echo "$(BLUE)Linting Swift sources (SwiftLint)...$(NC)"
+	@REPORTER=xcode; \
+	if [ "$$GITHUB_ACTIONS" = "true" ]; then REPORTER=github-actions-logging; fi; \
+	swiftlint lint --config .swiftlint.yml --force-exclude --reporter $$REPORTER
+	@echo "$(GREEN)Lint OK$(NC)"
 
 bundle: build
 	@echo "$(BLUE)Creating app bundle...$(NC)"

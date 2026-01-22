@@ -11,14 +11,14 @@ final class HotkeyManager {
     private enum HotkeyId: UInt32 {
         case application = 1
         case clipboard = 2
-        case applicationAlt = 3  // Cmd+F1 alternative
-        case clipboardAlt = 4    // Cmd+F2 alternative
+        case applicationAlt = 3 // Cmd+F1 alternative
+        case clipboardAlt = 4 // Cmd+F2 alternative
     }
 
     private let callback: (HotkeyMode) -> Void
 
     // Carbon hotkey registration (preferred).
-    private static let hotKeySignature: OSType = 0x41424F58 // 'ABOX'
+    private static let hotKeySignature: OSType = 0x4142_4F58 // 'ABOX'
     private var eventHandler: EventHandlerRef?
     private var registeredHotKeys: [HotkeyId: EventHotKeyRef?] = [:]
 
@@ -191,10 +191,10 @@ final class HotkeyManager {
                 logger.debug("Fallback key event: opt+space")
                 callback(.clipboard)
             }
-        } else if cmdPressed && event.keyCode == 122 { // F1
+        } else if cmdPressed, event.keyCode == 122 { // F1
             logger.debug("Fallback key event: cmd+F1")
             callback(.application)
-        } else if cmdPressed && event.keyCode == 120 { // F2
+        } else if cmdPressed, event.keyCode == 120 { // F2
             logger.debug("Fallback key event: cmd+F2")
             callback(.clipboard)
         }

@@ -1,0 +1,31 @@
+name: Code Style
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  style:
+    name: SwiftFormat + SwiftLint
+    runs-on: macos-26
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SwiftFormat
+        run: brew install swiftformat
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Check formatting
+        run: make format-check
+
+      - name: Run linter
+        run: make lint

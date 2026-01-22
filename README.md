@@ -1,6 +1,6 @@
 # AppleBox - Minimal macOS Launcher
 
-[![Tests](https://github.com/assagman/applebox/actions/workflows/test.yml/badge.svg)](https://github.com/sercansocmaz/applebox/actions/workflows/test.yml)
+[![Tests](https://github.com/assagman/applebox/actions/workflows/test.yml/badge.svg)](https://github.com/assagman/applebox/actions/workflows/test.yml)
 ![Coverage](https://img.shields.io/badge/coverage-66%25-green)
 
 A minimal, native macOS application designed to replace Spotlight with fast app search and clipboard history.

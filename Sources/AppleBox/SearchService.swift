@@ -14,7 +14,7 @@ enum FuzzyMatcher {
     /// Returns `0` if `query` is not a subsequence of `candidate`.
     @inlinable
     static func score(query: String, candidate: String) -> Int {
-        return matchWithIndices(query: query, candidate: candidate).score
+        matchWithIndices(query: query, candidate: candidate).score
     }
 
     /// fzf-style fuzzy matching with score and match indices.
@@ -50,23 +50,23 @@ enum FuzzyMatcher {
     ) -> FuzzyMatchResult {
         let queryCount = queryBytes.count
         let candidateCount = candidateBytes.count
-        
+
         guard queryCount > 0, candidateCount > 0 else {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
-        
+
         // Quick rejection: query longer than candidate
         guard queryCount <= candidateCount else {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
-        
+
         // ASCII lowercase: a-z = 97-122, A-Z = 65-90
         // To lowercase: if 65 <= c <= 90, add 32
         @inline(__always)
         func toLower(_ c: UInt8) -> UInt8 {
-            return (c >= 65 && c <= 90) ? c + 32 : c
+            (c >= 65 && c <= 90) ? c + 32 : c
         }
-        
+
         // PHASE 1: Try to find an exact contiguous substring match (case-insensitive).
         // This ensures queries like "[main]" match the exact substring rather than
         // scattered characters across the candidate.
@@ -79,7 +79,7 @@ enum FuzzyMatcher {
         ) {
             return substringResult
         }
-        
+
         // PHASE 2: Fall back to greedy subsequence matching.
         return fuzzySubsequenceMatch(
             queryBytes: queryBytes,
@@ -89,7 +89,7 @@ enum FuzzyMatcher {
             toLower: toLower
         )
     }
-    
+
     /// Finds the earliest exact contiguous substring match (case-insensitive).
     /// Returns nil if no exact substring match exists.
     @inlinable
@@ -101,58 +101,58 @@ enum FuzzyMatcher {
         toLower: (UInt8) -> UInt8
     ) -> FuzzyMatchResult? {
         let searchLimit = candidateCount - queryCount
-        
+
         // Scan for the first occurrence of the query as a contiguous substring
-        outer: for startIdx in 0...searchLimit {
+        outer: for startIdx in 0 ... searchLimit {
             // Check if all query bytes match starting at startIdx
-            for qIdx in 0..<queryCount {
+            for qIdx in 0 ..< queryCount {
                 let qChar = toLower(queryBytes[qIdx])
                 let cChar = toLower(candidateBytes[startIdx + qIdx])
                 if qChar != cChar {
                     continue outer
                 }
             }
-            
+
             // Found exact substring match at startIdx
             // Build contiguous indices
             var matchedIndices: [Int] = []
             matchedIndices.reserveCapacity(queryCount)
-            for i in 0..<queryCount {
+            for i in 0 ..< queryCount {
                 matchedIndices.append(startIdx + i)
             }
-            
+
             // Calculate score for the contiguous match
             // Use a large base score to ensure substring matches outrank fuzzy-only matches
             let substringBaseScore = 1_000_000
-            
+
             // Add standard scoring bonuses
-            var bonusScore = 10 * queryCount  // Base per-character score
-            
+            var bonusScore = 10 * queryCount // Base per-character score
+
             // Consecutive bonus: all characters are consecutive
             // Formula: 5 * (1 + 2 + ... + (n-1)) = 5 * (n-1)*n/2
             if queryCount > 1 {
                 bonusScore += 5 * (queryCount - 1) * queryCount / 2
             }
-            
+
             // Start of string bonus
             if startIdx == 0 {
                 bonusScore += 20
             }
-            
+
             // Word boundary bonus (after space, dash, underscore)
             if startIdx > 0 {
                 let prevChar = candidateBytes[startIdx - 1]
-                if prevChar == 32 || prevChar == 45 || prevChar == 95 {  // ' ', '-', '_'
+                if prevChar == 32 || prevChar == 45 || prevChar == 95 { // ' ', '-', '_'
                     bonusScore += 15
                 }
             }
-            
+
             return FuzzyMatchResult(score: substringBaseScore + bonusScore, matchedIndices: matchedIndices)
         }
-        
+
         return nil
     }
-    
+
     /// Greedy subsequence matching (original algorithm).
     @inlinable
     static func fuzzySubsequenceMatch(
@@ -169,49 +169,49 @@ enum FuzzyMatcher {
         var previousCharWasMatch = false
         var matchedIndices: [Int] = []
         matchedIndices.reserveCapacity(queryCount)
-        
-        while queryIdx < queryCount && candidateIdx < candidateCount {
+
+        while queryIdx < queryCount, candidateIdx < candidateCount {
             let qChar = toLower(queryBytes[queryIdx])
             let cChar = toLower(candidateBytes[candidateIdx])
-            
+
             if qChar == cChar {
                 matchedIndices.append(candidateIdx)
                 score += 10
-                
+
                 if previousCharWasMatch {
                     consecutiveMatches += 1
                     score += 5 * consecutiveMatches
                 } else {
                     consecutiveMatches = 0
                 }
-                
+
                 // Start of string bonus
                 if candidateIdx == 0 {
                     score += 20
                 }
-                
+
                 // Word boundary bonus (after space, dash, underscore)
                 if candidateIdx > 0 {
                     let prevChar = candidateBytes[candidateIdx - 1]
-                    if prevChar == 32 || prevChar == 45 || prevChar == 95 {  // ' ', '-', '_'
+                    if prevChar == 32 || prevChar == 45 || prevChar == 95 { // ' ', '-', '_'
                         score += 15
                     }
                 }
-                
+
                 queryIdx += 1
                 previousCharWasMatch = true
             } else {
                 previousCharWasMatch = false
             }
-            
+
             candidateIdx += 1
         }
-        
+
         // Check if all query characters were matched
         if queryIdx < queryCount {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
-        
+
         return FuzzyMatchResult(score: score, matchedIndices: matchedIndices)
     }
 }
@@ -274,9 +274,10 @@ final class SearchService {
         }
 
         // Use cached candidates if query is a refinement (prefix match)
-        if !cachedQuery.isEmpty, !cachedCandidates.isEmpty, 
+        if !cachedQuery.isEmpty, !cachedCandidates.isEmpty,
            queryBytes.count >= cachedQuery.count,
-           queryBytes.prefix(cachedQuery.count).elementsEqual(cachedQuery) {
+           queryBytes.prefix(cachedQuery.count).elementsEqual(cachedQuery)
+        {
             candidates = cachedCandidates
         } else {
             candidates = allApps
@@ -310,7 +311,7 @@ final class SearchService {
         }
 
         cachedQuery = queryBytes
-        cachedCandidates = results.map { $0.application }
+        cachedCandidates = results.map(\.application)
 
         return results
     }

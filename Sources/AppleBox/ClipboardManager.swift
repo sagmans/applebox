@@ -16,15 +16,15 @@ struct ClipboardItem: Codable {
 
     init(content: String) {
         self.content = content
-        self.timestamp = Date()
-        self.contentType = .text
-        self.imageData = nil
+        timestamp = Date()
+        contentType = .text
+        imageData = nil
     }
 
     init(imageData: Data) {
-        self.content = "[Image]"
-        self.timestamp = Date()
-        self.contentType = .image
+        content = "[Image]"
+        timestamp = Date()
+        contentType = .image
         self.imageData = imageData.base64EncodedString()
     }
 
@@ -60,7 +60,7 @@ final class ClipboardManager {
 
     /// Drain any queued persistence work. Useful for deterministic tests and app shutdown.
     func flushPendingPersistence() {
-        persistenceQueue.sync { }
+        persistenceQueue.sync {}
     }
 
     init(
@@ -110,7 +110,7 @@ final class ClipboardManager {
     }
 
     func searchHistory(query: String) -> [ClipboardItem] {
-        searchHistoryWithMatches(query: query).map { $0.item }
+        searchHistoryWithMatches(query: query).map(\.item)
     }
 
     /// Search history returning full match results (score + indices) to avoid duplicate fuzzy matching.
@@ -136,7 +136,7 @@ final class ClipboardManager {
                 // Preserve recency (history is already most-recent-first)
                 return $0.index < $1.index
             }
-            .map { $0.match }
+            .map(\.match)
     }
 
     // MARK: - Private Methods
@@ -232,11 +232,11 @@ final class ClipboardManager {
     private func loadHistoryAsync() {
         persistenceQueue.async { [weak self] in
             guard let self else { return }
-            let loaded = self.loadHistoryFromDisk()
-            self.historyQueue.sync {
+            let loaded = loadHistoryFromDisk()
+            historyQueue.sync {
                 self.history = loaded
             }
-            self.postHistoryUpdated()
+            postHistoryUpdated()
         }
     }
 

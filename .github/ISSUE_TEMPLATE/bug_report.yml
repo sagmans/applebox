@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug"]
+assignees:
+  - assagman
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below.
+        **Important:** Redact any clipboard contents or secrets before pasting output.
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: e.g. macOS 26.3 arm64 (run `sw_vers && uname -m`)
+      placeholder: "macOS 26.3 arm64"
+    validations:
+      required: true
+
+  - type: input
+    id: applebox-version
+    attributes:
+      label: AppleBox version
+      description: Release version or git commit SHA
+      placeholder: "vX.Y.Z or abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      description: How did you install AppleBox?
+      options:
+        - Release (zip/dmg)
+        - Homebrew (cask)
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of the app is affected?
+      options:
+        - App search
+        - Clipboard history
+        - Hotkeys
+        - Window/UI
+        - Indexing
+        - Persistence
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue
+      placeholder: |
+        1. Launch AppleBox
+        2. Press Cmd+Space
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs actual behavior
+      description: What did you expect to happen? What actually happened?
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error messages
+      description: |
+        Paste relevant logs. To capture AppleBox logs run:
+        `log stream --style syslog --predicate 'subsystem == "com.assagman.applebox"' --info`
+        If built from source, include `swift run` output.
+      render: text
+    validations:
+      required: true

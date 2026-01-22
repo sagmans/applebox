@@ -1,0 +1,12 @@
+# SwiftFormat configuration
+# https://github.com/nicklockwood/SwiftFormat
+
+--swiftversion 6.0
+--indent 4
+--indentstrings false
+--self-required debug,info,notice,warning,error,fault
+
+# Don't format build artifacts / vendored deps
+--exclude .build
+--exclude .swiftpm
+--exclude DerivedData

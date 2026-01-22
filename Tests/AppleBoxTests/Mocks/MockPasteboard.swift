@@ -31,7 +31,7 @@ final class MockPasteboard: PasteboardProtocol {
     // MARK: - PasteboardProtocol Implementation
 
     var changeCount: Int {
-        return mockChangeCount
+        mockChangeCount
     }
 
     func string(forType dataType: NSPasteboard.PasteboardType) -> String? {

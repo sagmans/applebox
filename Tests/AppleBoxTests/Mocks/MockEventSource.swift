@@ -1,5 +1,5 @@
-import CoreGraphics
 @testable import AppleBox
+import CoreGraphics
 
 /// Mock implementation of EventSourceProtocol for testing
 final class MockEventSource: EventSourceProtocol {
@@ -35,31 +35,31 @@ final class MockEventSource: EventSourceProtocol {
 
     /// Returns the number of keyboard events posted
     var keyboardEventCount: Int {
-        return postedKeyboardEvents.count
+        postedKeyboardEvents.count
     }
 
     /// Returns the last keyboard event posted
     var lastKeyboardEvent: KeyboardEvent? {
-        return postedKeyboardEvents.last
+        postedKeyboardEvents.last
     }
 
     /// Returns all key down events
     var keyDownEvents: [KeyboardEvent] {
-        return postedKeyboardEvents.filter { $0.keyDown }
+        postedKeyboardEvents.filter(\.keyDown)
     }
 
     /// Returns all key up events
     var keyUpEvents: [KeyboardEvent] {
-        return postedKeyboardEvents.filter { !$0.keyDown }
+        postedKeyboardEvents.filter { !$0.keyDown }
     }
 
     /// Checks if a specific key sequence was posted (key down followed by key up)
     func wasKeyPressed(keyCode: CGKeyCode, withFlags flags: CGEventFlags) -> Bool {
-        let hasKeyDown = postedKeyboardEvents.contains { 
-            $0.keyCode == keyCode && $0.keyDown && $0.flags == flags 
+        let hasKeyDown = postedKeyboardEvents.contains {
+            $0.keyCode == keyCode && $0.keyDown && $0.flags == flags
         }
-        let hasKeyUp = postedKeyboardEvents.contains { 
-            $0.keyCode == keyCode && !$0.keyDown && $0.flags == flags 
+        let hasKeyUp = postedKeyboardEvents.contains {
+            $0.keyCode == keyCode && !$0.keyDown && $0.flags == flags
         }
         return hasKeyDown && hasKeyUp
     }

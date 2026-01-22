@@ -1,10 +1,9 @@
-import XCTest
 import AppKit
 @testable import AppleBox
+import XCTest
 
 /// Accessibility tests verifying the UI is accessible
 final class AccessibilityTests: XCTestCase {
-
     // MARK: - Test Fixtures
 
     var mockFileSystem: MockFileSystem!
@@ -144,12 +143,12 @@ final class AccessibilityTests: XCTestCase {
         // (search button, text field, clear button), so it itself may not be an element,
         // but it should have accessibility children
         XCTAssertNotNil(searchField, "Search field should exist")
-        
+
         // Verify the search field participates in accessibility hierarchy
         // Either it is an element, or it contains accessible children
         let accessibilityChildren = searchField?.accessibilityChildren()
-        let isElementOrHasChildren = (searchField?.isAccessibilityElement() ?? false) || 
-                                      (accessibilityChildren?.isEmpty == false)
+        let isElementOrHasChildren = (searchField?.isAccessibilityElement() ?? false) ||
+            (accessibilityChildren?.isEmpty == false)
         XCTAssertTrue(isElementOrHasChildren, "Search field should be accessible (either as element or via children)")
     }
 
@@ -365,7 +364,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(resultCount, 2, "Should have at least 2 results")
 
         // When: Navigate through all rows
-        for row in 0..<resultCount {
+        for row in 0 ..< resultCount {
             windowManager.selectRowForTesting(row)
             XCTAssertEqual(windowManager.getSelectedRowIndex(), row, "Selection should be at row \(row)")
         }
@@ -504,7 +503,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNotNil(windowManager.getWindow(), "Window should be discoverable")
         XCTAssertNotNil(windowManager.getSearchField(), "Search field should be discoverable")
         XCTAssertNotNil(windowManager.getTableView(), "Table view should be discoverable")
-        
+
         // If we have results, cells should be discoverable too
         if windowManager.getResultCount() > 0 {
             XCTAssertNotNil(windowManager.getCellViewForTesting(at: 0), "First cell should be discoverable")
