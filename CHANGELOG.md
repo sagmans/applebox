@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub issue templates (bug report, feature request, docs improvement, chore)
+
+### Fixed
+
+- README GitHub Actions tests badge link
+- Info.plist bundle version fields now correctly set to 1.1.2
+
 ## [1.1.1] - 2026-01-17
 
 ### Added
