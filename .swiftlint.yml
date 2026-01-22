@@ -1,0 +1,33 @@
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+  - .swiftpm
+  - DerivedData
+
+# Start pragmatic: keep lint signal, but don't fail the build on huge-file metrics.
+disabled_rules:
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - identifier_name
+  - large_tuple
+  - line_length
+  - trailing_comma
+  - for_where
+  - todo
+
+# Some default rules are noisy for Swift packages / test helpers
+  - compiler_protocol_init
+  - opening_brace
+  - redundant_discardable_let
+  - force_cast
+  - force_try
+  - non_optional_string_data_conversion
+
+# Prefer SwiftFormat for whitespace/indentation.
+  - trailing_whitespace
+
