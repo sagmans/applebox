@@ -134,6 +134,8 @@ bundle: build
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP_BUNDLE)/Contents/MacOS/"
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/"
 	@cp Resources/AppIcon.icns "$(APP_BUNDLE)/Contents/Resources/"
+	@# Touch app bundle to refresh icon cache
+	@touch "$(APP_BUNDLE)"
 	@# Copy entitlements if exists (for reference, not embedded in bundle)
 	@if [ -f "$(ENTITLEMENTS)" ]; then \
 		cp "$(ENTITLEMENTS)" "$(APP_BUNDLE)/Contents/Resources/"; \
@@ -496,6 +498,8 @@ dmg: staple
 	@# Copy app and create Applications symlink
 	@cp -R "$(APP_BUNDLE)" "$(BUILD_DIR)/dmg-staging/"
 	@ln -sf /Applications "$(BUILD_DIR)/dmg-staging/Applications"
+	@# Add volume icon for DMG (shows in Finder when mounted)
+	@cp Resources/AppIcon.icns "$(BUILD_DIR)/dmg-staging/.VolumeIcon.icns"
 	@# Create DMG
 	@hdiutil create -volname "$(APP_NAME)" \
 		-srcfolder "$(BUILD_DIR)/dmg-staging" \

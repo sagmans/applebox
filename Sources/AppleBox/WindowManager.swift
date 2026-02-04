@@ -334,6 +334,7 @@ class WindowManager: NSObject {
         observeAccessibilityChanges()
         observeAsyncUpdates()
         observeWorkspaceActivity()
+        observeWindowMovement()
     }
 
     deinit {
@@ -365,6 +366,32 @@ class WindowManager: NSObject {
         ) { [weak self] _ in
             self?.applyAccessibilitySettings()
         }
+    }
+
+    /// Observes main window movement to keep sidecar attached
+    private func observeWindowMovement() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateSidecarPosition()
+        }
+    }
+
+    /// Updates sidecar position to stay attached to main window
+    private func updateSidecarPosition() {
+        guard isSidecarVisible,
+              let mainWindow = window,
+              let sidecar = sidecarWindow else { return }
+
+        let gap: CGFloat = 8
+        let mainFrame = mainWindow.frame
+        let sidecarOrigin = NSPoint(
+            x: mainFrame.maxX + gap,
+            y: mainFrame.origin.y
+        )
+        sidecar.setFrameOrigin(sidecarOrigin)
     }
 
     private func observeAsyncUpdates() {
