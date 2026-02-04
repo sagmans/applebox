@@ -41,8 +41,14 @@ final class ApplicationIndexer {
         // System Applications
         paths.append(URL(fileURLWithPath: "/System/Applications"))
 
+        // System Utilities (Activity Monitor, Disk Utility, Terminal, etc.)
+        paths.append(URL(fileURLWithPath: "/System/Applications/Utilities"))
+
         // Main Applications folder
         paths.append(URL(fileURLWithPath: "/Applications"))
+
+        // Applications/Utilities (user-installed utilities)
+        paths.append(URL(fileURLWithPath: "/Applications/Utilities"))
 
         // User Applications folder
         let userApps = fileSystem.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
