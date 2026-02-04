@@ -2122,9 +2122,12 @@ extension WindowManager: NSTableViewDelegate {
 
 // NSWindowDelegate to handle window events
 extension WindowManager: NSWindowDelegate {
-    func windowDidResignKey(_: Notification) {
-        // Optional: hide window when losing focus
-        // hide()
+    func windowDidResignKey(_ notification: Notification) {
+        // Hide when main window loses focus (clicking outside)
+        // But not when sidecar gains focus (it's part of our UI)
+        guard notification.object as? NSWindow === window else { return }
+        guard sidecarWindow?.isKeyWindow != true else { return }
+        hide()
     }
 }
 
