@@ -55,7 +55,7 @@ final class ClipboardManager {
 
     private let persistenceQueue = DispatchQueue(label: "applebox.clipboard.persistence", qos: .utility)
 
-    // File location for persistent storage
+    /// File location for persistent storage
     private let fileName = "clipboard_history.json"
 
     /// Drain any queued persistence work. Useful for deterministic tests and app shutdown.

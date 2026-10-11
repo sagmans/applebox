@@ -5,7 +5,7 @@ import XCTest
 final class FuzzyMatcherTests: XCTestCase {
     // MARK: - Exact Substring Priority Tests
 
-    func testExactSubstringPreferredForBracketedQuery() {
+    func testExactSubstringPreferredForBracketedQuery() throws {
         // Candidate has multiple '[' characters scattered, plus an exact "[main]" substring
         let candidate = "[13:52:52] [~/source/me/dotf][main] (~6, ?1)"
         let query = "[main]"
@@ -28,7 +28,7 @@ final class FuzzyMatcherTests: XCTestCase {
         }
 
         // Verify the matched substring is actually "[main]"
-        let startIdx = result.matchedIndices.first!
+        let startIdx = try XCTUnwrap(result.matchedIndices.first)
         let matchedSubstring = String(candidate.dropFirst(startIdx).prefix(query.count))
         XCTAssertEqual(matchedSubstring, "[main]", "Should match the exact '[main]' substring")
     }
@@ -85,7 +85,7 @@ final class FuzzyMatcherTests: XCTestCase {
         }
     }
 
-    func testEarliestSubstringOccurrenceChosen() {
+    func testEarliestSubstringOccurrenceChosen() throws {
         // Candidate has "[main]" appearing twice
         let candidate = "first [main] and second [main] here"
         let query = "[main]"
@@ -95,8 +95,8 @@ final class FuzzyMatcherTests: XCTestCase {
         XCTAssertGreaterThan(result.score, 0, "Should match")
 
         // Should pick the first occurrence
-        let startIdx = result.matchedIndices.first!
-        let expectedStart = candidate.range(of: "[main]")!.lowerBound
+        let startIdx = try XCTUnwrap(result.matchedIndices.first)
+        let expectedStart = try XCTUnwrap(candidate.range(of: "[main]")?.lowerBound)
         let expectedStartInt = candidate.distance(from: candidate.startIndex, to: expectedStart)
 
         XCTAssertEqual(startIdx, expectedStartInt, "Should match the earliest occurrence")
@@ -227,7 +227,7 @@ final class FuzzyMatcherTests: XCTestCase {
 
     // MARK: - Real-World Scenarios
 
-    func testTerminalPromptWithBranchName() {
+    func testTerminalPromptWithBranchName() throws {
         // Simulates the exact scenario from the bug report
         let candidate = "[13:52:52] [~/source/me/dotf][main] (~6, ?1)\n$ chmod +x benchmark.sh"
         let query = "[main]"
@@ -237,8 +237,8 @@ final class FuzzyMatcherTests: XCTestCase {
         XCTAssertGreaterThan(result.score, 0)
 
         // Extract the matched substring
-        let startIdx = result.matchedIndices.first!
-        let endIdx = result.matchedIndices.last!
+        let startIdx = try XCTUnwrap(result.matchedIndices.first)
+        let endIdx = try XCTUnwrap(result.matchedIndices.last)
         let startStringIdx = candidate.index(candidate.startIndex, offsetBy: startIdx)
         let endStringIdx = candidate.index(candidate.startIndex, offsetBy: endIdx + 1)
         let matchedSubstring = String(candidate[startStringIdx ..< endStringIdx])

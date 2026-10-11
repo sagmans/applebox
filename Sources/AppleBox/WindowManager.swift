@@ -11,7 +11,7 @@ enum SearchMode {
     case clipboard
 }
 
-// Result type for clipboard search
+/// Result type for clipboard search
 struct ClipboardSearchResult {
     let item: ClipboardItem
     let relevanceScore: Int
@@ -70,7 +70,9 @@ final class AppIconCache {
 
     private func scheduleLoadIfNeeded(bundlePath: String, notify: Bool) {
         let shouldStart = inFlightQueue.sync { () -> Bool in
-            if inFlight.contains(bundlePath) { return false }
+            if inFlight.contains(bundlePath) {
+                return false
+            }
             inFlight.insert(bundlePath)
             return true
         }
@@ -228,7 +230,7 @@ final class RecentApplicationsStore {
     }
 }
 
-// Custom NSWindow that handles key events
+/// Custom NSWindow that handles key events
 class AppleBoxWindow: NSWindow {
     var escapeHandler: (() -> Void)?
     var arrowUpHandler: (() -> Void)?
@@ -1206,7 +1208,9 @@ class WindowManager: NSObject {
 
         let now = ProcessInfo.processInfo.systemUptime
         let minimumInterval: TimeInterval = 0.10
-        if now - lastResultsAnimationUptime < minimumInterval { return }
+        if now - lastResultsAnimationUptime < minimumInterval {
+            return
+        }
         lastResultsAnimationUptime = now
 
         let baseFrame = scrollView.frame
@@ -2147,7 +2151,7 @@ extension WindowManager: NSTableViewDelegate {
     }
 }
 
-// NSWindowDelegate to handle window events
+/// NSWindowDelegate to handle window events
 extension WindowManager: NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         // Hide when main window loses focus (clicking outside)
@@ -2158,7 +2162,7 @@ extension WindowManager: NSWindowDelegate {
     }
 }
 
-// NSSearchFieldDelegate to handle arrow keys in search field
+/// NSSearchFieldDelegate to handle arrow keys in search field
 extension WindowManager: NSSearchFieldDelegate {
     func control(_: NSControl, textView _: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.moveUp(_:)) {

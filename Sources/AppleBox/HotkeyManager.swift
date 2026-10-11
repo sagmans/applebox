@@ -22,7 +22,7 @@ final class HotkeyManager {
     private var eventHandler: EventHandlerRef?
     private var registeredHotKeys: [HotkeyId: EventHotKeyRef?] = [:]
 
-    // NSEvent fallback (requires Input Monitoring for keyDown).
+    /// NSEvent fallback (requires Input Monitoring for keyDown).
     private var eventMonitor: EventMonitor?
 
     private let logger = Logger(
@@ -53,7 +53,9 @@ final class HotkeyManager {
     // MARK: - Carbon HotKeys
 
     private func installHotkeyHandlerIfNeeded() -> Bool {
-        if eventHandler != nil { return true }
+        if eventHandler != nil {
+            return true
+        }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
@@ -135,7 +137,9 @@ final class HotkeyManager {
     }
 
     private func registerCarbonHotkey(id: HotkeyId, keyCode: UInt32, modifiers: UInt32) -> Bool {
-        if registeredHotKeys[id] != nil { return true }
+        if registeredHotKeys[id] != nil {
+            return true
+        }
 
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: HotkeyManager.hotKeySignature, id: id.rawValue)
@@ -201,7 +205,7 @@ final class HotkeyManager {
     }
 }
 
-// EventMonitor class for global event monitoring
+/// EventMonitor class for global event monitoring
 final class EventMonitor {
     private var monitor: Any?
     private let mask: NSEvent.EventTypeMask
