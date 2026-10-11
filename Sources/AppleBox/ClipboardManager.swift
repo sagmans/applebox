@@ -156,7 +156,9 @@ final class ClipboardManager {
         monitoringTimer = nil
     }
 
-    private func checkForChanges() {
+    /// Polls the pasteboard once. The monitoring timer calls this every 0.5 s;
+    /// tests call it directly so they do not race the timer.
+    func checkForChanges() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 

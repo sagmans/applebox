@@ -11,10 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - GitHub issue templates (bug report, feature request, docs improvement, chore)
 
+### Changed
+
+- CI installs exact, checksum-verified SwiftFormat 0.63.1 and SwiftLint 0.65.1 instead of the latest Homebrew release, so style checks no longer drift
+
 ### Fixed
 
 - README GitHub Actions tests badge link
 - Info.plist bundle version fields now correctly set to 1.1.2
+- Clipboard accessibility label test no longer races the 0.5 s clipboard monitor timer
 
 ## [1.1.1] - 2026-01-17
 
