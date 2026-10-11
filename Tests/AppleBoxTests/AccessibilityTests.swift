@@ -247,7 +247,8 @@ final class AccessibilityTests: XCTestCase {
 
         // Add clipboard history
         mockPasteboard.simulateExternalChange(content: "Test clipboard item")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Test clipboard item")
 
         // Switch to clipboard mode
         windowManager.toggle(mode: .clipboard)
@@ -268,7 +269,8 @@ final class AccessibilityTests: XCTestCase {
 
         // Add clipboard history
         mockPasteboard.simulateExternalChange(content: "Test clipboard content")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Test clipboard content")
 
         // Switch to clipboard mode
         windowManager.toggle(mode: .clipboard)
@@ -289,7 +291,8 @@ final class AccessibilityTests: XCTestCase {
 
         // Add clipboard history
         mockPasteboard.simulateExternalChange(content: "Clipboard test")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Clipboard test")
 
         // Switch to clipboard mode
         windowManager.toggle(mode: .clipboard)

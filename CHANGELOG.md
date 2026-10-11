@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README GitHub Actions tests badge link
 - Info.plist bundle version fields now correctly set to 1.1.2
 - Clipboard accessibility label test no longer races the 0.5 s clipboard monitor timer
+- All clipboard tests poll the pasteboard directly instead of waiting a fixed 0.6 s for the monitor timer, so they no longer flake on loaded runners
 
 ## [1.1.1] - 2026-01-17
 
