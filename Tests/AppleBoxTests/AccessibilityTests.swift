@@ -432,7 +432,10 @@ final class AccessibilityTests: XCTestCase {
 
         // Add clipboard history with meaningful content
         mockPasteboard.simulateExternalChange(content: "Important meeting notes")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        // Poll once instead of waiting for the 0.5 s monitor timer, which can fire
+        // late on a loaded runner and leave the history empty.
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Important meeting notes")
 
         // Switch to clipboard mode
         windowManager.toggle(mode: .clipboard)
