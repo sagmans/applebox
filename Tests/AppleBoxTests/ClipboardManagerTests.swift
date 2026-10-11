@@ -34,12 +34,18 @@ final class ClipboardManagerTests: XCTestCase {
         ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
     }
 
-    /// Simulates a clipboard change and waits for the timer to pick it up
-    private func simulateClipboardChange(content: String, in manager: ClipboardManager) {
+    /// Simulates a clipboard change and polls the pasteboard once.
+    /// Calling `checkForChanges()` directly avoids racing the 0.5 s monitor
+    /// timer, which can fire late on a loaded runner.
+    private func simulateClipboardChange(
+        content: String,
+        in manager: ClipboardManager,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         mockPasteboard.simulateExternalChange(content: content)
-        // Manually trigger change detection by running the run loop briefly
-        // Since we can't directly trigger the timer, we'll use a different approach
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
+        XCTAssertEqual(manager.getHistory().first?.content, content, file: file, line: line)
         manager.flushPendingPersistence()
     }
 
@@ -98,8 +104,8 @@ final class ClipboardManagerTests: XCTestCase {
         let initialHistory = manager.getHistory()
         XCTAssertEqual(initialHistory.count, 0, "History should start empty")
 
-        // When - run loop without changing changeCount
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        // When - poll without changing changeCount
+        manager.checkForChanges()
 
         // Then - no new content should be captured
         let historyAfterWait = manager.getHistory()
@@ -322,7 +328,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         // When - clipboard change with empty string
         mockPasteboard.simulateExternalChange(content: "")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
 
         // Then
         let history = manager.getHistory()
@@ -335,7 +341,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         // When - clipboard change with nil (simulating non-text content like images)
         mockPasteboard.simulateExternalChange(content: nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
 
         // Then
         let history = manager.getHistory()

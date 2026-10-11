@@ -79,9 +79,12 @@ final class SearchModeSwitchingTests: XCTestCase {
         mockFileSystem.addDirectory(at: userAppsURL, contents: [])
     }
 
-    private func addClipboardHistoryItem(_ content: String) {
+    /// Polls the pasteboard directly instead of waiting for the 0.5 s monitor
+    /// timer, which can fire late on a loaded runner.
+    private func addClipboardHistoryItem(_ content: String, file: StaticString = #filePath, line: UInt = #line) {
         mockPasteboard.simulateExternalChange(content: content)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, content, file: file, line: line)
     }
 
     // MARK: - Application Mode

@@ -39,12 +39,20 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         )
     }
 
-    /// Simulates a clipboard change and waits for the timer to pick it up
-    private func simulateClipboardChange(content: String, in manager: ClipboardManager, pasteboard: MockPasteboard? = nil) {
+    /// Simulates a clipboard change and polls the pasteboard once.
+    /// Calling `checkForChanges()` directly avoids racing the 0.5 s monitor
+    /// timer, which can fire late on a loaded runner.
+    private func simulateClipboardChange(
+        content: String,
+        in manager: ClipboardManager,
+        pasteboard: MockPasteboard? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         let pb = pasteboard ?? mockPasteboard!
         pb.simulateExternalChange(content: content)
-        // Wait for timer-based change detection
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
+        XCTAssertEqual(manager.getHistory().first?.content, content, file: file, line: line)
         // Persistence happens on a background queue; flush to keep tests deterministic.
         manager.flushPendingPersistence()
     }
@@ -110,7 +118,7 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
 
         // When - Clipboard is set to empty content
         mockPasteboard.simulateExternalChange(content: "")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
 
         // Then - Empty content is ignored
         let history = manager.getHistory()
@@ -123,7 +131,7 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
 
         // When - Clipboard has non-text content (nil string)
         mockPasteboard.simulateExternalChange(content: nil)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
+        manager.checkForChanges()
 
         // Then - Non-text content is ignored
         let history = manager.getHistory()
