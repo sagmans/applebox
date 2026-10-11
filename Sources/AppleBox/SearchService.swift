@@ -60,10 +60,10 @@ enum FuzzyMatcher {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
         }
 
-        // ASCII lowercase: a-z = 97-122, A-Z = 65-90
-        // To lowercase: if 65 <= c <= 90, add 32
         @inline(__always)
         func toLower(_ c: UInt8) -> UInt8 {
+            // ASCII lowercase: a-z = 97-122, A-Z = 65-90
+            // To lowercase: if 65 <= c <= 90, add 32
             (c >= 65 && c <= 90) ? c + 32 : c
         }
 
@@ -216,7 +216,7 @@ enum FuzzyMatcher {
     }
 }
 
-// Represents a search result with a relevance score and match indices
+/// Represents a search result with a relevance score and match indices
 struct SearchResult {
     let application: ApplicationInfo
     let score: Int
@@ -258,7 +258,9 @@ final class SearchService {
             return []
         }
 
-        if isCancelled() { return [] }
+        if isCancelled() {
+            return []
+        }
 
         // Pre-compute lowercased query bytes once
         let queryBytes = ContiguousArray(trimmedQuery.lowercased().utf8)
@@ -283,13 +285,17 @@ final class SearchService {
             candidates = allApps
         }
 
-        if isCancelled() { return [] }
+        if isCancelled() {
+            return []
+        }
 
         var results: [SearchResult] = []
         results.reserveCapacity(min(candidates.count, 50))
 
         for app in candidates {
-            if isCancelled() { return [] }
+            if isCancelled() {
+                return []
+            }
 
             let match = FuzzyMatcher.matchWithIndicesUTF8(
                 queryBytes: queryBytes,
@@ -301,7 +307,9 @@ final class SearchService {
             }
         }
 
-        if isCancelled() { return [] }
+        if isCancelled() {
+            return []
+        }
 
         results.sort {
             if $0.score != $1.score {

@@ -648,8 +648,8 @@ final class WindowManagerTests: XCTestCase {
 
         // Verify they point to "[main]"
         let content = results[0].item.content
-        let startIdx = content.index(content.startIndex, offsetBy: indices.first!)
-        let endIdx = content.index(content.startIndex, offsetBy: indices.last! + 1)
+        let startIdx = try content.index(content.startIndex, offsetBy: XCTUnwrap(indices.first))
+        let endIdx = try content.index(content.startIndex, offsetBy: XCTUnwrap(indices.last) + 1)
         let matchedSubstring = String(content[startIdx ..< endIdx])
         XCTAssertEqual(matchedSubstring, "[main]")
     }
@@ -702,8 +702,8 @@ final class WindowManagerTests: XCTestCase {
 
         // Verify the indices point to the first "[main]" occurrence
         let content = results[0].item.content
-        let startIdx = content.index(content.startIndex, offsetBy: indices.first!)
-        let endIdx = content.index(content.startIndex, offsetBy: indices.last! + 1)
+        let startIdx = try content.index(content.startIndex, offsetBy: XCTUnwrap(indices.first))
+        let endIdx = try content.index(content.startIndex, offsetBy: XCTUnwrap(indices.last) + 1)
         let matchedSubstring = String(content[startIdx ..< endIdx])
         XCTAssertEqual(matchedSubstring, "[main]", "Highlighted indices should point to '[main]'")
     }

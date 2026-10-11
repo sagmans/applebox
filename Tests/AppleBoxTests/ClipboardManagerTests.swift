@@ -418,7 +418,7 @@ final class ClipboardManagerTests: XCTestCase {
         }
     }
 
-    func testMatchedIndicesPointToCorrectSubstring() {
+    func testMatchedIndicesPointToCorrectSubstring() throws {
         // Given
         let item = ClipboardItem(content: "[13:52:52] [~/source/me/dotf][main] (~6, ?1)")
         let existingData = encodeHistory([item])
@@ -436,8 +436,8 @@ final class ClipboardManagerTests: XCTestCase {
 
         // Extract the matched substring using indices
         let content = results[0].item.content
-        let startIdx = indices.first!
-        let endIdx = indices.last!
+        let startIdx = try XCTUnwrap(indices.first)
+        let endIdx = try XCTUnwrap(indices.last)
         let startStringIdx = content.index(content.startIndex, offsetBy: startIdx)
         let endStringIdx = content.index(content.startIndex, offsetBy: endIdx + 1)
         let matchedSubstring = String(content[startStringIdx ..< endStringIdx])
