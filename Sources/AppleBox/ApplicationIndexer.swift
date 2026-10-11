@@ -34,7 +34,7 @@ final class ApplicationIndexer {
 
     private let cacheFileName = "applications_cache.json"
 
-    // Paths to scan for applications
+    /// Paths to scan for applications
     private var searchPaths: [URL] {
         var paths: [URL] = []
 
