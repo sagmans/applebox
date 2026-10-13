@@ -67,12 +67,12 @@ AppleBox/
 │   └── AccessibilityTests.swift
 │
 ├── .githooks/
-│   ├── _lib/run-hook.sh     # Runs global hooks, then project hooks
+│   ├── _lib/darwin.sh       # macOS guard (shared helpers come from $HOOK_HELPERS)
 │   ├── pre-commit.d/        # Format and lint checks
 │   └── pre-push.d/          # Build and test checks
 │
 └── scripts/
-    ├── setup-hooks.sh       # Git hooks configuration
+    ├── setup-hooks.sh       # Removes stale core.hooksPath (v2 hooks need none)
     ├── coverage-report.sh   # Local coverage reporting
     └── coverage-badge.py    # Coverage badge generation
 ```
@@ -454,9 +454,10 @@ Run once per clone:
 
 ```bash
 make hooks   # same as ./scripts/setup-hooks.sh
+githooks-trust
 ```
 
-With the per-machine `project-git-hooks` installer present, this points the repository-local `core.hooksPath` at an absolute router in the Git directory, so even branches without `.githooks` keep running your global hooks. Without it, the script falls back to `core.hooksPath=.githooks`. Either way, `.githooks/_lib/run-hook.sh` runs your global hook of the same name first (for example sign-off and signature checks), then the project hooks in `.githooks/<hook>.d/`.
+The global git hooks (dotf, local-hooks standard v2) are the entry point: each runs its own check (sign-off, message structure, signed push), then every script in `.githooks/<hook>.d/`. `make hooks` only removes an old local `core.hooksPath`. The repository must not set one, because it would hide the global guards. `githooks-trust` lets you review the hooks; it's needed once per worktree and again after `.githooks` changes, and until then the project hooks are skipped with a notice. `pre-push` checks each pushed commit, not just HEAD.
 
 ### What the Hooks Run
 
@@ -473,9 +474,7 @@ Do not use `git commit --no-verify` or `git push --no-verify`: nothing else chec
 
 ### Disabling Hooks
 
-```bash
-git config --local --unset core.hooksPath
-```
+Project hooks only run after `githooks-trust`; there is no supported way to disable the global guards.
 
 ---
 
@@ -587,15 +586,11 @@ ClipboardManager tests use `RunLoop.current.run(until:)` to wait for timers. Thi
 
 ### Pre-Commit Hook Not Running
 
-Ensure hooks are set up:
+Ensure no local override hides the global hooks, and that the hooks are trusted:
 
 ```bash
 ./scripts/setup-hooks.sh
-```
-
-Check git config:
-
-```bash
-git config core.hooksPath
-# Should output the router (.../project-hooks) or .githooks
+githooks-trust
+git config --show-origin --get core.hooksPath
+# Should come from your global config (~/.git-hooks), never from .git/config
 ```
