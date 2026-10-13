@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "AppleBox", targets: ["AppleBox"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.15.0"),
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.19.6"),
     ],
     targets: [
         .executableTarget(

@@ -100,6 +100,22 @@ final class SnapshotTests: XCTestCase {
 
     // MARK: - Helper Methods
 
+    /// Pins every scroll view in `view`'s subtree to hidden overlay scrollers.
+    ///
+    /// AppKit picks the scroller style from the "Show scroll bars" setting and the
+    /// attached pointing devices, and it can change while the suite runs. A legacy
+    /// scroller takes width from the list, so overflowing rows render narrower and
+    /// the snapshot depends on the machine and on test order. The references were
+    /// recorded with overlay scrollers and no visible knob; pinning that keeps the
+    /// comparison about the app's own drawing.
+    private func pinOverlayScrollers(in view: NSView) {
+        if let scrollView = view as? NSScrollView {
+            scrollView.scrollerStyle = .overlay
+            scrollView.verticalScroller?.isHidden = true
+        }
+        view.subviews.forEach { pinOverlayScrollers(in: $0) }
+    }
+
     /// Creates sample ApplicationInfo for testing
     private func createSampleApps() -> [ApplicationInfo] {
         [
@@ -248,6 +264,10 @@ final class SnapshotTests: XCTestCase {
             XCTFail("Content view should exist")
             return
         }
+
+        // 15 rows overflow the list, the only case here where a scroller can
+        // take width; pin it before layout so row widths match the reference.
+        pinOverlayScrollers(in: contentView)
 
         // Ensure the view has proper layout
         contentView.layoutSubtreeIfNeeded()
