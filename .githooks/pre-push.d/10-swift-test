@@ -1,9 +1,17 @@
 #!/bin/sh
-# A full build and the test suite take too long for every commit, so they
-# gate the push instead; this replaces the former Tests CI job.
+# Build and test replace the removed test.yml macOS CI job (billed at 10x),
+# run against each pushed commit, not just HEAD.
 set -eu
-cd "$(git rev-parse --show-toplevel)"
-. .githooks/_lib/darwin.sh
+# shellcheck disable=SC1090,SC1091  # dotf dispatcher helpers
+. "${HOOK_HELPERS:?run by the dotf hook dispatcher}"
+. "$(dirname -- "$0")/../_lib/darwin.sh"
 require_darwin "pre-push swift build/test"
-swift build
-swift test
+
+# for loop, not `| while`: a failure must exit this script (fail closed).
+shas=$(pushed_shas <"$HOOK_STDIN_FILE") || exit 1
+shas=$(printf '%s\n' "$shas" | sort -u)
+# shellcheck disable=SC2086  # one SHA per word
+for sha in $shas; do
+	echo "pre-push: swift build + test at $(git rev-parse --short "$sha")"
+	at_sha "$sha" sh -c 'swift build && swift test' || exit 1
+done

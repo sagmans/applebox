@@ -3,7 +3,7 @@
 # review; this replaces the former Code Style CI job.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-. .githooks/_lib/darwin.sh
+. "$(dirname -- "$0")/../_lib/darwin.sh"
 require_darwin "pre-commit swift style"
 make format-check
 make lint
