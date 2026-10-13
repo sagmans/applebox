@@ -12,8 +12,7 @@ This document provides a comprehensive guide to the testing architecture, patter
 - [Writing New Unit Tests](#writing-new-unit-tests)
 - [Writing New Mocks](#writing-new-mocks)
 - [Snapshot Testing](#snapshot-testing)
-- [CI/CD Pipeline](#cicd-pipeline)
-- [Pre-Commit Hooks](#pre-commit-hooks)
+- [Local Checks (Git Hooks)](#local-checks-git-hooks)
 - [Code Coverage](#code-coverage)
 
 ---
@@ -68,10 +67,9 @@ AppleBox/
 │   └── AccessibilityTests.swift
 │
 ├── .githooks/
-│   └── pre-commit           # Pre-commit test hook
-│
-├── .github/workflows/
-│   └── test.yml             # GitHub Actions CI pipeline
+│   ├── _lib/run-hook.sh     # Runs global hooks, then project hooks
+│   ├── pre-commit.d/        # Format and lint checks
+│   └── pre-push.d/          # Build and test checks
 │
 └── scripts/
     ├── setup-hooks.sh       # Git hooks configuration
@@ -446,81 +444,37 @@ To update reference images when intentional changes are made:
 
 ---
 
-## CI/CD Pipeline
+## Local Checks (Git Hooks)
 
-AppleBox uses GitHub Actions for continuous integration.
-
-### Workflow File
-
-The CI pipeline is defined in `.github/workflows/test.yml`:
-
-```yaml
-name: Tests
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: swift build -v
-      - run: swift test -v --enable-code-coverage
-      # ... coverage reporting
-```
-
-### What CI Checks
-
-- **Build**: Verifies the project compiles without errors
-- **Tests**: Runs all test suites and fails if any test fails
-- **Coverage**: Generates code coverage reports
-
-### CI Status
-
-Check the CI status badge in README.md or view workflow runs at:
-`https://github.com/{owner}/{repo}/actions`
-
----
-
-## Pre-Commit Hooks
-
-Pre-commit hooks run tests automatically before each commit, preventing broken code from being committed.
+AppleBox has no push or pull-request CI. Every check runs on the developer's Mac through tracked git hooks, which saves macOS Actions minutes (billed at 10x).
 
 ### Setting Up Hooks
 
-Run the setup script once after cloning:
+Run once per clone:
 
 ```bash
-./scripts/setup-hooks.sh
+make hooks   # same as ./scripts/setup-hooks.sh
 ```
 
-This configures git to use hooks in the `.githooks/` directory.
+With the per-machine `project-git-hooks` installer present, this points the repository-local `core.hooksPath` at an absolute router in the Git directory, so even branches without `.githooks` keep running your global hooks. Without it, the script falls back to `core.hooksPath=.githooks`. Either way, `.githooks/_lib/run-hook.sh` runs your global hook of the same name first (for example sign-off and signature checks), then the project hooks in `.githooks/<hook>.d/`.
 
-### What the Hook Does
+### What the Hooks Run
 
-1. **Build Check**: Runs `swift build` to catch compilation errors
-2. **Test Check**: Runs `swift test` to verify all tests pass
+| Hook | Checks |
+|------|--------|
+| `pre-commit` | `make format-check`, `make lint` |
+| `pre-push` | `swift build`, `swift test` |
 
-If either check fails, the commit is blocked.
+The Swift checks need macOS; on other systems they print a skip notice and pass.
 
-### Bypassing Hooks (Not Recommended)
+### Bypassing Hooks
 
-In rare cases, you can skip the hook:
-
-```bash
-git commit --no-verify
-```
+Do not use `git commit --no-verify` or `git push --no-verify`: nothing else checks the code before review.
 
 ### Disabling Hooks
 
-To remove the hook configuration:
-
 ```bash
-git config --unset core.hooksPath
+git config --local --unset core.hooksPath
 ```
 
 ---
@@ -643,5 +597,5 @@ Check git config:
 
 ```bash
 git config core.hooksPath
-# Should output: .githooks
+# Should output the router (.../project-hooks) or .githooks
 ```

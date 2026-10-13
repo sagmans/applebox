@@ -1,0 +1,9 @@
+#!/bin/sh
+# A full build and the test suite take too long for every commit, so they
+# gate the push instead; this replaces the former Tests CI job.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+. .githooks/_lib/darwin.sh
+require_darwin "pre-push swift build/test"
+swift build
+swift test

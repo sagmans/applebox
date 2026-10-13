@@ -1,4 +1,4 @@
-.PHONY: build test format format-check lint bundle run stop status install uninstall clean \
+.PHONY: build test format format-check lint hooks bundle run stop status install uninstall clean \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -48,6 +48,7 @@ help:
 	@echo "  make format       - Auto-format Sources/ and Tests/ (SwiftFormat)"
 	@echo "  make format-check - Fail if formatting is needed (SwiftFormat --lint)"
 	@echo "  make lint         - Run SwiftLint"
+	@echo "  make hooks        - Enable tracked git hooks (run once per clone)"
 	@echo "  make bundle       - Create .app bundle"
 	@echo "  make run          - Build, bundle, and run app"
 	@echo "  make stop         - Stop running app"
@@ -120,6 +121,9 @@ format-check:
 		swiftformat Sources Tests --lint; \
 	fi
 	@echo "$(GREEN)Formatting OK$(NC)"
+
+hooks:
+	@./scripts/setup-hooks.sh
 
 lint:
 	@echo "$(BLUE)Linting Swift sources (SwiftLint)...$(NC)"

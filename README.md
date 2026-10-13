@@ -1,6 +1,5 @@
 # AppleBox - Minimal macOS Launcher
 
-[![Tests](https://github.com/assagman/applebox/actions/workflows/test.yml/badge.svg)](https://github.com/assagman/applebox/actions/workflows/test.yml)
 ![Coverage](https://img.shields.io/badge/coverage-66%25-green)
 
 A minimal, native macOS application designed to replace Spotlight with fast app search and clipboard history.
@@ -63,20 +62,13 @@ xcrun llvm-cov report \
 
 ### Setting Up Git Hooks
 
-To enable pre-commit hooks that run tests before each commit:
+All checks run locally; there is no push or pull-request CI. Enable the tracked hooks once per clone:
 
 ```bash
-./scripts/setup-hooks.sh
+make hooks
 ```
 
-This configures git to use the hooks in `.githooks/`. The pre-commit hook will:
-1. Run `swift build` to check for compilation errors
-2. Run `swift test` to verify all tests pass
-
-If any check fails, the commit is blocked. To skip the check temporarily:
-```bash
-git commit --no-verify
-```
+Your global git hooks run first, then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test` (macOS only). Do not bypass them with `--no-verify`.
 
 To disable hooks:
 ```bash
