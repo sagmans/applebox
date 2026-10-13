@@ -456,7 +456,7 @@ Run once per clone:
 make hooks   # same as ./scripts/setup-hooks.sh
 ```
 
-This sets the repository-local `core.hooksPath=.githooks`. The runner in `.githooks/_lib/run-hook.sh` runs your global hook of the same name first (for example sign-off and signature checks), then the project hooks in `.githooks/<hook>.d/`.
+With the per-machine `project-git-hooks` installer present, this points the repository-local `core.hooksPath` at an absolute router in the Git directory, so even branches without `.githooks` keep running your global hooks. Without it, the script falls back to `core.hooksPath=.githooks`. Either way, `.githooks/_lib/run-hook.sh` runs your global hook of the same name first (for example sign-off and signature checks), then the project hooks in `.githooks/<hook>.d/`.
 
 ### What the Hooks Run
 
@@ -597,5 +597,5 @@ Check git config:
 
 ```bash
 git config core.hooksPath
-# Should output: .githooks
+# Should output the router (.../project-hooks) or .githooks
 ```
