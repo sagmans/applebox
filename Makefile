@@ -123,7 +123,7 @@ format-check:
 	@echo "$(GREEN)Formatting OK$(NC)"
 
 hooks:
-	@./scripts/setup-hooks.sh
+	@./scripts/setup-hooks
 
 lint:
 	@echo "$(BLUE)Linting Swift sources (SwiftLint)...$(NC)"

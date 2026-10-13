@@ -2,8 +2,8 @@
 # Build and test replace the removed test.yml macOS CI job (billed at 10x),
 # run against each pushed commit, not just HEAD.
 set -eu
-# shellcheck disable=SC1090,SC1091  # dotf dispatcher helpers
-. "${HOOK_HELPERS:?run by the dotf hook dispatcher}"
+# shellcheck disable=SC1090,SC1091  # path exported by .githooks/lib/run-local.sh
+. "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
 . "$(dirname -- "$0")/../_lib/darwin.sh"
 require_darwin "pre-push swift build/test"
 
