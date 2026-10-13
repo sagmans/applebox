@@ -62,16 +62,13 @@ xcrun llvm-cov report \
 
 ### Setting Up Git Hooks
 
-All checks run locally; there is no push or pull-request CI. The global git hooks (dotf, local-hooks standard v2) run `.githooks/<hook>.d/*` after their own sign-off and signature checks. Once per clone, remove any old local `core.hooksPath`, then review and trust the hooks (again whenever `.githooks` changes):
+All checks run locally; there is no push or pull-request CI. Once per clone:
 
 ```bash
-make hooks
-githooks-trust
+make hooks   # same as ./scripts/setup-hooks
 ```
 
-The global checks run first, then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test` (macOS only). Do not bypass them with `--no-verify`.
-
-The repository must not set `core.hooksPath`; that would hide the global guards.
+The generic checks run first (sign-off, message structure, secret scan, signed push), then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test` (macOS only). All checks must pass before a push; do not bypass them with `--no-verify`.
 
 ## Features
 

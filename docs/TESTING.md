@@ -67,12 +67,13 @@ AppleBox/
 │   └── AccessibilityTests.swift
 │
 ├── .githooks/
+│   ├── lib/                 # generic checks (copied from the dotf template)
 │   ├── _lib/darwin.sh       # macOS guard (shared helpers come from $HOOK_HELPERS)
 │   ├── pre-commit.d/        # Format and lint checks
 │   └── pre-push.d/          # Build and test checks
 │
 └── scripts/
-    ├── setup-hooks.sh       # Removes stale core.hooksPath (v2 hooks need none)
+    ├── setup-hooks          # Sets core.hooksPath=.githooks for this clone
     ├── coverage-report.sh   # Local coverage reporting
     └── coverage-badge.py    # Coverage badge generation
 ```
@@ -453,18 +454,17 @@ AppleBox has no push or pull-request CI. Every check runs on the developer's Mac
 Run once per clone:
 
 ```bash
-make hooks   # same as ./scripts/setup-hooks.sh
-githooks-trust
+make hooks   # same as ./scripts/setup-hooks
 ```
 
-The global git hooks (dotf, local-hooks standard v2) are the entry point: each runs its own check (sign-off, message structure, signed push), then every script in `.githooks/<hook>.d/`. `make hooks` only removes an old local `core.hooksPath`. The repository must not set one, because it would hide the global guards. `githooks-trust` lets you review the hooks; it's needed once per worktree and again after `.githooks` changes, and until then the project hooks are skipped with a notice. `pre-push` checks each pushed commit, not just HEAD.
+`scripts/setup-hooks` sets the local `core.hooksPath=.githooks`; it needs nothing outside this repo. Each hook runs the generic checks first (sign-off, message structure, gitleaks secret scan, signed commits on push), then every script in `.githooks/<hook>.d/`. `pre-push` checks each pushed commit, not just HEAD.
 
 ### What the Hooks Run
 
 | Hook | Checks |
 |------|--------|
-| `pre-commit` | `make format-check`, `make lint` |
-| `pre-push` | `swift build`, `swift test` |
+| `pre-commit` | gitleaks (staged), `make format-check`, `make lint` |
+| `pre-push` | sign-off, signature, gitleaks, `swift build`, `swift test` |
 
 The Swift checks need macOS; on other systems they print a skip notice and pass.
 
@@ -474,7 +474,7 @@ Do not use `git commit --no-verify` or `git push --no-verify`: nothing else chec
 
 ### Disabling Hooks
 
-Project hooks only run after `githooks-trust`; there is no supported way to disable the global guards.
+All checks must pass before a push; there is no supported way to disable them.
 
 ---
 
@@ -586,11 +586,10 @@ ClipboardManager tests use `RunLoop.current.run(until:)` to wait for timers. Thi
 
 ### Pre-Commit Hook Not Running
 
-Ensure no local override hides the global hooks, and that the hooks are trusted:
+Make sure this clone points at the repo hooks:
 
 ```bash
-./scripts/setup-hooks.sh
-githooks-trust
+./scripts/setup-hooks
 git config --show-origin --get core.hooksPath
-# Should come from your global config (~/.git-hooks), never from .git/config
+# Should print .githooks from .git/config
 ```
