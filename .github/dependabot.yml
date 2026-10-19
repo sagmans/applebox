@@ -1,6 +1,26 @@
+# Dependabot policy. SwiftPM has no release-age gate, so the cooldown is the
+# only supply-chain window: a release must survive a week of public scrutiny
+# before a bot pull request proposes it.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Package.resolved pins the test-only snapshot stack and its transitive
+  # packages; without this entry those pins never move.
+  - package-ecosystem: "swift"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      # Every pin hangs off one test dependency tree, so one pull request keeps
+      # the resolved set consistent and one `swift test` run checks it; a major
+      # bump stays separate because it is an API change.
+      swift-packages:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
