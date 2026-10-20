@@ -7,6 +7,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Same week as the Swift entry, so a compromised or retagged action can be
+    # caught upstream before its SHA lands here; GitHub Actions supports
+    # default-days only.
+    cooldown:
+      default-days: 7
 
   # Package.resolved pins the test-only snapshot stack and its transitive
   # packages; without this entry those pins never move.
