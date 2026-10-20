@@ -7,9 +7,12 @@
 # and release notes depend on.
 # Escape sequences are rejected because a caller passing 'subject\nbody' to
 # `git commit -m` writes one long line with literal escapes instead of lines.
-# Safety net: the Signed-off-by trailer that prepare-commit-msg injects.
+# Safety net: the owner's Signed-off-by that prepare-commit-msg injects must be
+# the one and only trailer (see trailer_violations in lib/helpers.sh).
 
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=../helpers.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/../helpers.sh"
 
 COMMIT_MSG_FILE="$1"
 ESCAPE_RE='\\[nrtv]'
@@ -115,13 +118,15 @@ if [ "$reused" -eq 0 ]; then
     fi
 fi
 
-if ! grep -q '^Signed-off-by: ' <<<"$MESSAGE"; then
-    add_violation "missing 'Signed-off-by' line: run scripts/setup-hooks, or commit with -s"
-fi
-
-duplicates="$(grep '^Signed-off-by: ' <<<"$MESSAGE" | sort | uniq -d || true)"
-if [ -n "$duplicates" ]; then
-    add_violation "duplicate 'Signed-off-by' lines: $(tr '\n' ' ' <<<"$duplicates")"
+# The raw file, not $MESSAGE: git's trailer parser drops the comment and
+# scissors lines itself, while $MESSAGE still holds a `commit -v` diff whose
+# last hunk would be read as the trailer block.
+if ! trailer_report="$(trailer_violations <"$COMMIT_MSG_FILE")"; then
+    while IFS= read -r reason; do
+        if [ -n "$reason" ]; then
+            add_violation "$reason"
+        fi
+    done <<<"$trailer_report"
 fi
 
 if [ "$body_escape" -eq 1 ]; then
@@ -129,7 +134,7 @@ if [ "$body_escape" -eq 1 ]; then
 fi
 
 if [ -n "$VIOLATIONS" ]; then
-    echo >&2 "❌ Commit rejected — message structure invalid:"
+    echo >&2 "❌ Commit rejected — message structure or trailers invalid:"
     printf '%s' "$VIOLATIONS" >&2
     cat >&2 <<'GUIDANCE'
    Expected: a subject line, a blank line, then a body. Pass the body with a
