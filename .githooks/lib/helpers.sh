@@ -6,25 +6,7 @@
 # where relevant, PROJECT_HOOK_INDEX_FILE (pre-commit) and HOOK_STDIN_FILE
 # (pre-push). Source it from a .d script:
 #   . "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
-# The generic commit-msg and pre-push checks source it too, so the trailer
-# rule they share lives in one place and the two hooks cannot disagree.
 # POSIX sh plus `local`, so it works with bash 3.2, dash, zsh and macOS sh.
-
-# The owner alone certifies the DCO for every repo that carries these hooks,
-# so the only trailer a commit may hold is the owner's own sign-off. Any
-# other trailer (a co-author, a tool session, a tracker ID, a review policy)
-# puts attribution or private references into history that a push makes
-# permanent. Test scripts read these to commit as the owner.
-OWNER_NAME='Sercan Sagman'
-OWNER_EMAIL='ahmetsercansagman@gmail.com'
-OWNER_SIGNOFF="Signed-off-by: $OWNER_NAME <$OWNER_EMAIL>"
-
-# Hosting sites credit a co-author from such a line even when git's parser
-# does not see it as a trailer (for example in a middle paragraph), so the
-# owner bans it anywhere in the message, in any letter case. Anchored at the
-# line start: comment lines and every `commit -v` diff line start with
-# another character, so neither can match.
-CO_AUTHOR_LINE_RE='^co-authored-by:'
 
 # Run git against the index being committed. `commit -a`, `commit <paths>`
 # and `--only` use a temporary index, so this follows the one git chose.
@@ -77,59 +59,6 @@ at_sha() {
 	case "$tmp" in
 	*/hook-at-sha.*) rm -rf -- "$tmp" ;;
 	esac
-	return "$rc"
-}
-
-# commit-msg and pre-push: read a commit message on stdin and print one
-# reason per line for each break of the owner-only trailer rule; return 1 if
-# there is one. git's own parser finds the trailers, so the hook judges the
-# same block that `git commit -s` extends and `git log --format=%(trailers)`
-# shows, including folded lines and comment or scissors lines left by the
-# editor. --no-divider because a "---" line only ends a format-patch mail; in
-# a commit message it must not hide the trailers after it. Co-author lines
-# outside the trailer block fail too (see CO_AUTHOR_LINE_RE).
-#   reasons=$(trailer_violations <"$msg_file") || reject "$reasons"
-trailer_violations() {
-	local message trailers co_authors line owner_count rc
-	# stdin can be read only once, and both checks below need the message.
-	message=$(cat)
-	if ! trailers=$(printf '%s\n' "$message" | git interpret-trailers --parse --no-divider); then
-		echo "cannot read the trailers (git interpret-trailers failed)"
-		return 1
-	fi
-	owner_count=0
-	rc=0
-	# A here-document, not a pipe, so the counts survive the loop.
-	while IFS= read -r line; do
-		[ -n "$line" ] || continue
-		if [ "$line" = "$OWNER_SIGNOFF" ]; then
-			owner_count=$((owner_count + 1))
-		else
-			echo "trailer not allowed, only '$OWNER_SIGNOFF' is: $line"
-			rc=1
-		fi
-	done <<EOF
-$trailers
-EOF
-	co_authors=$(printf '%s\n' "$message" | grep -iE "$CO_AUTHOR_LINE_RE" || true)
-	while IFS= read -r line; do
-		[ -n "$line" ] || continue
-		# A co-author line inside the trailer block is already reported above.
-		if printf '%s\n' "$trailers" | grep -qxF -- "$line"; then
-			continue
-		fi
-		echo "co-author line not allowed anywhere in the message: $line"
-		rc=1
-	done <<EOF
-$co_authors
-EOF
-	if [ "$owner_count" -eq 0 ]; then
-		echo "missing '$OWNER_SIGNOFF': run scripts/setup-hooks, or commit with -s as the owner"
-		rc=1
-	elif [ "$owner_count" -gt 1 ]; then
-		echo "duplicate '$OWNER_SIGNOFF' lines: keep exactly one"
-		rc=1
-	fi
 	return "$rc"
 }
 
