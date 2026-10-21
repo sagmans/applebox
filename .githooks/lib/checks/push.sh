@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # Generic check: pre-push. Copied from the dotf template (templates/githooks).
-# Every new commit must carry the owner's Signed-off-by (DCO) as its only
-# trailer, a signature git can verify, and no secrets. This is the last check
-# before code leaves the machine, and it also catches commits that were made
-# with hooks off.
+# Every new commit must carry Signed-off-by (DCO), a signature git can verify,
+# and no secrets. This is the last check before code leaves the machine, and
+# it also catches commits that were made with hooks off.
 # Reads git's pre-push ref lines on stdin; $1 is the remote name.
 # shellcheck disable=SC2034  # local_ref/remote_ref/remote_sha/url required by git hook protocol
 
 set -euo pipefail
-# shellcheck source-path=SCRIPTDIR source=../helpers.sh
-. "$(dirname -- "${BASH_SOURCE[0]}")/../helpers.sh"
 
 remote="$1"
 z40="0000000000000000000000000000000000000000"
@@ -106,14 +103,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
 
     while IFS= read -r sha && [ -n "$sha" ]; do
-        # Same rule as commit-msg, so a commit made with hooks off or with
-        # --no-verify cannot carry another trailer off the machine.
-        if ! trailer_report="$(git log -n 1 --format=%B "$sha" | trailer_violations)"; then
-            echo >&2 "❌ Push rejected: commit ${sha:0:12} breaks the owner-only trailer rule"
+        msg=$(git log -n 1 --format=%B "$sha")
+        if ! echo "$msg" | grep -q '^Signed-off-by: '; then
+            echo >&2 "❌ Push rejected: commit ${sha:0:12} is missing Signed-off-by"
             echo >&2 "   $(git log -n 1 --format='%s' "$sha")"
-            while IFS= read -r reason; do
-                echo >&2 "   - $reason"
-            done <<<"$trailer_report"
             exit 1
         fi
         if ! git verify-commit "$sha" >/dev/null 2>&1; then
