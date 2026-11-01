@@ -9,4 +9,5 @@ After cloning, run `scripts/setup-hooks` once. It sets `core.hooksPath=.githooks
 All checks must pass before a push. Never bypass them with `--no-verify`. The generic files in `.githooks/` and `scripts/setup-hooks` are copies of the dotf template (`templates/githooks/`); change them there, not here.
 
 - `pre-commit`: `make format-check`, `make lint`
-- `pre-push`: `swift build`, `swift test` on each pushed commit (macOS only; skipped with a notice elsewhere)
+- `pre-push`: `swift build`, `swift test` on each pushed commit
+- Both repo checks need macOS. On another host they fail with a clear reason; they do not skip.

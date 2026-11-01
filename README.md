@@ -68,7 +68,7 @@ All checks run locally; there is no push or pull-request CI. Once per clone:
 make hooks   # same as ./scripts/setup-hooks
 ```
 
-The generic checks run first (sign-off, message structure, secret scan, signed push), then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test` (macOS only). All checks must pass before a push; do not bypass them with `--no-verify`.
+The generic checks run first (sign-off, message structure, secret scan, signed push), then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test`. These repo checks need macOS and fail on other hosts. All checks must pass before a push; do not bypass them with `--no-verify`.
 
 ## Features
 

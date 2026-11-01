@@ -68,9 +68,8 @@ AppleBox/
 │
 ├── .githooks/
 │   ├── lib/                 # generic checks (copied from the dotf template)
-│   ├── _lib/darwin.sh       # macOS guard (shared helpers come from $HOOK_HELPERS)
-│   ├── pre-commit.d/        # Format and lint checks
-│   └── pre-push.d/          # Build and test checks
+│   ├── pre-commit.d/        # Format and lint checks (macOS only, fail elsewhere)
+│   └── pre-push.d/          # Build and test checks (macOS only, fail elsewhere)
 │
 └── scripts/
     ├── setup-hooks          # Sets core.hooksPath=.githooks for this clone

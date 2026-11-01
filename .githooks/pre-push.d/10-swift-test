@@ -4,8 +4,19 @@
 set -eu
 # shellcheck disable=SC1090,SC1091  # path exported by .githooks/lib/run-local.sh
 . "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
-. "$(dirname -- "$0")/../_lib/darwin.sh"
-require_darwin "pre-push swift build/test"
+
+# AppleBox builds only with the macOS SDK (AppKit, Xcode Swift toolchain).
+# Build and test are required before code leaves the machine: on another
+# host the push fails with a clear reason instead of a skip.
+# (darwin_only from HOOK_HELPERS would skip with exit 0, so it is not used.)
+REQUIRED_OS='Darwin'
+CHECK_NAME='pre-push swift build/test'
+
+host_os=$(uname -s)
+if [ "$host_os" != "$REQUIRED_OS" ]; then
+	echo "❌ $CHECK_NAME: needs macOS (uname=$host_os); push from a Mac" >&2
+	exit 1
+fi
 
 # for loop, not `| while`: a failure must exit this script (fail closed).
 shas=$(pushed_shas <"$HOOK_STDIN_FILE") || exit 1

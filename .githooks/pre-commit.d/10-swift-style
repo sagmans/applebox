@@ -2,8 +2,20 @@
 # Formatting and lint drift is cheap to fix at commit time and noisy in
 # review; this replaces the former Code Style CI job.
 set -eu
+
+# swiftformat and swiftlint run against the macOS SDK toolchain, so the check
+# cannot pass anywhere else. It is a required check: on another host it fails
+# with a clear reason instead of a skip, so no commit lands unchecked.
+# (darwin_only from HOOK_HELPERS would skip with exit 0, so it is not used.)
+REQUIRED_OS='Darwin'
+CHECK_NAME='pre-commit swift style'
+
+host_os=$(uname -s)
+if [ "$host_os" != "$REQUIRED_OS" ]; then
+	echo "❌ $CHECK_NAME: needs macOS (uname=$host_os); commit from a Mac" >&2
+	exit 1
+fi
+
 cd "$(git rev-parse --show-toplevel)"
-. "$(dirname -- "$0")/../_lib/darwin.sh"
-require_darwin "pre-commit swift style"
 make format-check
 make lint
