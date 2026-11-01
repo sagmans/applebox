@@ -307,9 +307,9 @@ final class ClipboardManagerTests: XCTestCase {
         XCTAssertEqual(history.count, 0, "Should return empty history when no file exists")
     }
 
-    func testCorruptedHistoryFileHandledGracefully() {
+    func testCorruptedHistoryFileHandledGracefully() throws {
         // Given - corrupted JSON in history file
-        let corruptedData = "not valid json {{{".data(using: .utf8)!
+        let corruptedData = try XCTUnwrap("not valid json {{{".data(using: .utf8))
         mockFileSystem.addFile(at: storageURL.path, contents: corruptedData)
 
         // When - create manager (should not crash)

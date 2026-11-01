@@ -218,8 +218,7 @@ final class RecentApplicationsStore {
     }
 
     private func loadRecentsFromDisk() -> [String] {
-        guard fileSystem.fileExists(atPath: storageURL.path) else { return [] }
-        guard let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
+        guard fileSystem.fileExists(atPath: storageURL.path), let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
 
         do {
             let decoder = JSONDecoder()
@@ -402,10 +401,7 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard isWindowVisible else { return }
-            guard searchMode == .applications else { return }
-            guard let bundlePath = notification.userInfo?["bundlePath"] as? String else { return }
+            guard let self, isWindowVisible, searchMode == .applications, let bundlePath = notification.userInfo?["bundlePath"] as? String else { return }
 
             if let row = searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
                 tableView?.reloadData(
@@ -420,9 +416,7 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            guard isWindowVisible else { return }
-            guard searchMode == .clipboard else { return }
+            guard let self, isWindowVisible, searchMode == .clipboard else { return }
 
             scheduleSearch(query: searchField?.stringValue ?? "")
         }
@@ -432,9 +426,7 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            guard isWindowVisible else { return }
-            guard searchMode == .applications else { return }
+            guard let self, isWindowVisible, searchMode == .applications else { return }
 
             searchService?.resetCache()
             scheduleSearch(query: searchField?.stringValue ?? "")
@@ -455,15 +447,14 @@ class WindowManager: NSObject {
         recentApplicationsStore.seedIfEmpty(with: runningBundles)
 
         let handler: (Notification) -> Void = { [weak self] notification in
-            guard let self else { return }
-            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  let bundleURL = app.bundleURL else { return }
-            guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+            guard let self,
+                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleURL = app.bundleURL,
+                  app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
 
             recentApplicationsStore.recordLaunch(bundlePath: bundleURL.path)
 
-            guard isWindowVisible else { return }
-            guard searchMode == .applications else { return }
+            guard isWindowVisible, searchMode == .applications else { return }
             let query = searchField?.stringValue ?? ""
             guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
@@ -907,8 +898,7 @@ class WindowManager: NSObject {
 
     /// Shows the sidecar panel positioned to the right of the main window.
     func showSidecar() {
-        guard let mainWindow = window, let sidecar = sidecarWindow else { return }
-        guard searchMode == .clipboard else { return } // Only show in clipboard mode
+        guard let mainWindow = window, let sidecar = sidecarWindow, searchMode == .clipboard else { return } // Only show in clipboard mode
 
         let gap: CGFloat = 8
         let mainFrame = mainWindow.frame
@@ -951,12 +941,7 @@ class WindowManager: NSObject {
     /// - Shows sidecar when text overflows single-line row
     /// - Hides sidecar otherwise
     private func updateSidecarVisibility() {
-        guard searchMode == .clipboard else {
-            hideSidecar()
-            return
-        }
-
-        guard selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else {
+        guard searchMode == .clipboard, selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else {
             hideSidecar()
             return
         }
@@ -1052,9 +1037,7 @@ class WindowManager: NSObject {
     /// Updates sidecar highlights without rebuilding the view (preserves scroll position).
     /// Called after search results change but the selected item remains the same.
     private func refreshSidecarHighlightIfNeeded() {
-        guard searchMode == .clipboard else { return }
-        guard isSidecarVisible else { return }
-        guard selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else { return }
+        guard searchMode == .clipboard, isSidecarVisible, selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else { return }
 
         let result = clipboardResults[selectedRowIndex]
         let item = result.item
@@ -1184,8 +1167,7 @@ class WindowManager: NSObject {
     }
 
     private func updateApplicationResultsForEmptyQuery(animate: Bool) {
-        guard searchMode == .applications else { return }
-        guard let searchService else { return }
+        guard searchMode == .applications, let searchService else { return }
 
         let orderedApplications = recentApplicationsStore.orderedApplications(from: searchService.allApplications())
         searchResults = orderedApplications.map {
@@ -1378,8 +1360,7 @@ class WindowManager: NSObject {
     /// - Adds subtle inner glow and thin accent stroke when focused
     /// - Respects Reduce Motion for animations and Increase Contrast for visibility
     private func updateSearchFieldFocusState(focused: Bool) {
-        guard let headerPanel else { return }
-        guard let layer = headerPanel.layer else { return }
+        guard let headerPanel, let layer = headerPanel.layer else { return }
 
         let settings = getAccessibilitySettings()
         let shouldAnimate = !settings.reduceMotion
@@ -2156,8 +2137,7 @@ extension WindowManager: NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         // Hide when main window loses focus (clicking outside)
         // But not when sidecar gains focus (it's part of our UI)
-        guard notification.object as? NSWindow === window else { return }
-        guard sidecarWindow?.isKeyWindow != true else { return }
+        guard notification.object as? NSWindow === window, sidecarWindow?.isKeyWindow != true else { return }
         hide()
     }
 }

@@ -230,9 +230,9 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         XCTAssertTrue(createCall?.createIntermediates == true)
     }
 
-    func testPersistenceHandlesCorruptedFile() {
+    func testPersistenceHandlesCorruptedFile() throws {
         // Given - Corrupted history file exists
-        let corruptedData = "{{invalid json}}".data(using: .utf8)!
+        let corruptedData = try XCTUnwrap("{{invalid json}}".data(using: .utf8))
         mockFileSystem.addFile(at: storageURL.path, contents: corruptedData)
 
         // When - Manager is created

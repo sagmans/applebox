@@ -235,12 +235,10 @@ final class SearchServiceTests: XCTestCase {
         var previousName: String?
 
         for result in results {
-            if let prevScore = previousScore, let prevName = previousName {
-                if result.score == prevScore {
-                    // Same score - should be alphabetically after previous
-                    XCTAssertGreaterThanOrEqual(result.application.name, prevName,
-                                                "Same-score results should be alphabetically sorted")
-                }
+            if let prevScore = previousScore, let prevName = previousName, result.score == prevScore {
+                // Same score - should be alphabetically after previous
+                XCTAssertGreaterThanOrEqual(result.application.name, prevName,
+                                            "Same-score results should be alphabetically sorted")
             }
             previousScore = result.score
             previousName = result.application.name

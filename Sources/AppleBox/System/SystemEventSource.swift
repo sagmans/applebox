@@ -9,8 +9,7 @@ public final class SystemEventSource: EventSourceProtocol {
     }
 
     public func postKeyboardEvent(keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
-        guard let source else { return }
-        guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown) else { return }
+        guard let source, let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown) else { return }
         event.flags = flags
         event.post(tap: .cghidEventTap)
     }

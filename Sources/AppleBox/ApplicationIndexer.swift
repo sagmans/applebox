@@ -111,8 +111,7 @@ final class ApplicationIndexer {
     }
 
     private func loadCachedApplicationsFromDisk() -> [ApplicationInfo] {
-        guard fileSystem.fileExists(atPath: storageURL.path) else { return [] }
-        guard let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
+        guard fileSystem.fileExists(atPath: storageURL.path), let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
 
         do {
             let decoder = JSONDecoder()

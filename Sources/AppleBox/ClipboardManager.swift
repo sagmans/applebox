@@ -250,8 +250,7 @@ final class ClipboardManager {
     }
 
     private func loadHistoryFromDisk() -> [ClipboardItem] {
-        guard fileSystem.fileExists(atPath: storageURL.path) else { return [] }
-        guard let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
+        guard fileSystem.fileExists(atPath: storageURL.path), let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
 
         do {
             let decoder = JSONDecoder()
