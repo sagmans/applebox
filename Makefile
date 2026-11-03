@@ -1,4 +1,4 @@
-.PHONY: build test format format-check swiftformat-version lint hooks bundle run stop status install uninstall clean \
+.PHONY: build test format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -32,6 +32,13 @@ ENTITLEMENTS := Resources/AppleBox.entitlements
 # reformatted tree in one commit.
 SWIFTFORMAT_VERSION := 0.64.1
 SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/tag/$(SWIFTFORMAT_VERSION)
+
+# Exact SwiftLint release the tree is linted with. Each release can add or
+# change rules, so another local version fails lint on clean code or misses
+# findings. Bump this value, swiftlint_version in .swiftlint.yml, and any lint
+# fixes in one commit.
+SWIFTLINT_VERSION := 0.65.1
+SWIFTLINT_RELEASE_URL := https://github.com/realm/SwiftLint/releases/tag/$(SWIFTLINT_VERSION)
 
 # Colors for output
 RED := \033[0;31m
@@ -142,7 +149,19 @@ format-check: swiftformat-version
 hooks:
 	@./scripts/setup-hooks
 
-lint:
+# Runs before lint and fails closed with an install link, so the pre-commit
+# hook never accepts code checked by a SwiftLint release other than the pin.
+# The swiftlint_version key in .swiftlint.yml would also fail, but without a
+# clear fix, and a missing binary would only show "command not found".
+swiftlint-version:
+	@installed=$$(swiftlint version 2>/dev/null || echo "not installed"); \
+	if [ "$$installed" != "$(SWIFTLINT_VERSION)" ]; then \
+		echo "$(RED)SwiftLint $(SWIFTLINT_VERSION) required, found: $$installed$(NC)" >&2; \
+		echo "Install it from $(SWIFTLINT_RELEASE_URL)" >&2; \
+		exit 1; \
+	fi
+
+lint: swiftlint-version
 	@echo "$(BLUE)Linting Swift sources (SwiftLint)...$(NC)"
 	@REPORTER=xcode; \
 	if [ "$$GITHUB_ACTIONS" = "true" ]; then REPORTER=github-actions-logging; fi; \

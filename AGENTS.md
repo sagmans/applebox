@@ -12,3 +12,4 @@ All checks must pass before a push. Never bypass them with `--no-verify`. The ge
 - `pre-push`: `swift build`, `swift test` on each pushed commit
 - Both repo checks need macOS. On another host they fail with a clear reason; they do not skip.
 - `make format` and `make format-check` need the exact SwiftFormat release in `SWIFTFORMAT_VERSION` (Makefile). To move to a new release, change that value and `--minversion` in `.swiftformat`, run `make format`, and commit all of it together.
+- `make lint` needs the exact SwiftLint release in `SWIFTLINT_VERSION` (Makefile). To move to a new release, change that value and `swiftlint_version` in `.swiftlint.yml`, fix the new findings, and commit all of it together.

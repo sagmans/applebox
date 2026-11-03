@@ -1,3 +1,9 @@
+# Fails the lint run in every caller (editor plugins, direct runs) on any other
+# release, because each release can add or change rules. Range syntax such as
+# ">= x" rejects even the matching release, so keep an exact value. The
+# Makefile pins the same release (SWIFTLINT_VERSION); keep both in step.
+swiftlint_version: 0.65.1
+
 included:
   - Sources
   - Tests
