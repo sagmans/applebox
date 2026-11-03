@@ -27,3 +27,8 @@ template (`templates/githooks/`); change them there, not here.
   (Makefile). To move to a new release, change that value and
   `swiftlint_version` in `.swiftlint.yml`, fix the new findings, and commit all
   of it together.
+
+Commit messages follow `.githooks/GIT_CONVENTION.md`, which `commit-msg` and
+`pre-push` enforce. The generic checks need gitleaks, osv-scanner, semgrep,
+lizard and markdownlint-cli2, plus actionlint and zizmor when a push changes
+workflow files. A missing tool blocks the hook.
