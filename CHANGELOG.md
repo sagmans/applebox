@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - CI installs exact, checksum-verified SwiftFormat 0.63.1 and SwiftLint 0.65.1 instead of the latest Homebrew release, so style checks no longer drift
+- `make format` and `make format-check` (and so the pre-commit hook) require SwiftFormat 0.64.1 exactly, because the local hooks replaced CI and used whatever SwiftFormat release was installed
 
 ### Fixed
 

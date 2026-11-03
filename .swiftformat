@@ -1,6 +1,9 @@
 # SwiftFormat configuration
 # https://github.com/nicklockwood/SwiftFormat
 
+# Refuses older releases in every caller (editor plugins, direct runs). The
+# Makefile pins the exact release (SWIFTFORMAT_VERSION); keep both in step.
+--minversion 0.64.1
 --swiftversion 6.0
 --indent 4
 --indentstrings false

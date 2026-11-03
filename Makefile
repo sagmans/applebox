@@ -1,4 +1,4 @@
-.PHONY: build test format format-check lint hooks bundle run stop status install uninstall clean \
+.PHONY: build test format format-check swiftformat-version lint hooks bundle run stop status install uninstall clean \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -25,6 +25,13 @@ DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
 TEAM_ID := 6C96BU4M82
 NOTARIZE_PROFILE := AppleBox-Notarize
 ENTITLEMENTS := Resources/AppleBox.entitlements
+
+# Exact SwiftFormat release the tree is formatted with. Each release can add or
+# change rules, so another local version rewrites files or fails format-check
+# on clean code. Bump this value, --minversion in .swiftformat, and the
+# reformatted tree in one commit.
+SWIFTFORMAT_VERSION := 0.64.1
+SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/tag/$(SWIFTFORMAT_VERSION)
 
 # Colors for output
 RED := \033[0;31m
@@ -108,12 +115,22 @@ test:
 # Code Style
 # ==============================================================================
 
-format:
+# Runs before format and format-check and fails closed, so the pre-commit hook
+# never accepts or rewrites code with a SwiftFormat release other than the pin.
+swiftformat-version:
+	@installed=$$(swiftformat --version 2>/dev/null || echo "not installed"); \
+	if [ "$$installed" != "$(SWIFTFORMAT_VERSION)" ]; then \
+		echo "$(RED)SwiftFormat $(SWIFTFORMAT_VERSION) required, found: $$installed$(NC)" >&2; \
+		echo "Install it from $(SWIFTFORMAT_RELEASE_URL)" >&2; \
+		exit 1; \
+	fi
+
+format: swiftformat-version
 	@echo "$(BLUE)Formatting Swift sources (SwiftFormat)...$(NC)"
 	swiftformat Sources Tests
 	@echo "$(GREEN)Formatting complete$(NC)"
 
-format-check:
+format-check: swiftformat-version
 	@echo "$(BLUE)Checking formatting (SwiftFormat --lint)...$(NC)"
 	@if [ "$$GITHUB_ACTIONS" = "true" ]; then \
 		swiftformat Sources Tests --lint --reporter github-actions-log; \
