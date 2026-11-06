@@ -1,4 +1,4 @@
-.PHONY: build test format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
+.PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -113,7 +113,10 @@ build:
 	@swift build -c release
 	@echo "$(GREEN)Build complete$(NC)"
 
-test:
+python-policy:
+	@bash scripts/check-python-runtime.sh
+
+test: python-policy
 	@echo "$(BLUE)Running tests...$(NC)"
 	@swift test
 	@echo "$(GREEN)All tests passed$(NC)"

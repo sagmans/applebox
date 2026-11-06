@@ -24,5 +24,5 @@ shas=$(printf '%s\n' "$shas" | sort -u)
 # shellcheck disable=SC2086  # one SHA per word
 for sha in $shas; do
 	echo "pre-push: swift build + test at $(git rev-parse --short "$sha")"
-	at_sha "$sha" sh -c 'swift build && swift test' || exit 1
+	at_sha "$sha" sh -c 'swift build && make test' || exit 1
 done

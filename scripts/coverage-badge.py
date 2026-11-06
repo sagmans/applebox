@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --no-project --python-preference only-managed python
 """
 Generate coverage badge JSON for shields.io
 
 This script parses the LLVM coverage JSON and outputs a simple JSON
 file that can be used to create a dynamic badge.
 
-Usage: python3 scripts/coverage-badge.py
+Usage: ./scripts/coverage-badge.py
 
 Output format (coverage-badge.json):
 {
