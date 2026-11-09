@@ -304,7 +304,7 @@ class WindowManager: NSObject {
     // Sidecar text preview state (for scroll-preserving highlight updates)
     private weak var sidecarTextView: NSTextView?
     private weak var sidecarTextScrollView: NSScrollView?
-    private var sidecarDisplayedItemTimestamp: Date?
+    private var sidecarDisplayedItemID: UUID?
     private var sidecarHighlightedIndices: [Int] = []
 
     // Injected dependencies
@@ -418,7 +418,7 @@ class WindowManager: NSObject {
         ) { [weak self] _ in
             guard let self, isWindowVisible, searchMode == .clipboard else { return }
 
-            scheduleSearch(query: searchField?.stringValue ?? "")
+            scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
         }
 
         NotificationCenter.default.addObserver(
@@ -429,7 +429,7 @@ class WindowManager: NSObject {
             guard let self, isWindowVisible, searchMode == .applications else { return }
 
             searchService?.resetCache()
-            scheduleSearch(query: searchField?.stringValue ?? "")
+            scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
         }
     }
 
@@ -458,7 +458,7 @@ class WindowManager: NSObject {
             let query = searchField?.stringValue ?? ""
             guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-            updateApplicationResultsForEmptyQuery(animate: false)
+            updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: true)
         }
 
         let launchObserver = center.addObserver(
@@ -974,7 +974,7 @@ class WindowManager: NSObject {
         // Clear sidecar text state when rebuilding
         sidecarTextView = nil
         sidecarTextScrollView = nil
-        sidecarDisplayedItemTimestamp = nil
+        sidecarDisplayedItemID = nil
         sidecarHighlightedIndices = []
 
         guard let contentView = sidecarContentView else { return }
@@ -1024,7 +1024,7 @@ class WindowManager: NSObject {
             // Store references for scroll-preserving highlight updates
             sidecarTextView = textView
             sidecarTextScrollView = scrollView
-            sidecarDisplayedItemTimestamp = item.timestamp
+            sidecarDisplayedItemID = item.id
             sidecarHighlightedIndices = matchedIndices
         }
     }
@@ -1042,10 +1042,9 @@ class WindowManager: NSObject {
         let result = clipboardResults[selectedRowIndex]
         let item = result.item
 
-        // Only update if showing the same text item (fingerprint match)
+        // Keep the scroll position only when the same clip owns the preview.
         guard item.contentType == .text,
-              let displayedTimestamp = sidecarDisplayedItemTimestamp,
-              item.timestamp == displayedTimestamp,
+              item.id == sidecarDisplayedItemID,
               let textView = sidecarTextView,
               let textStorage = textView.textStorage,
               let scrollView = sidecarTextScrollView
@@ -1166,16 +1165,63 @@ class WindowManager: NSObject {
         }
     }
 
-    private func updateApplicationResultsForEmptyQuery(animate: Bool) {
+    /// Reordering can move a result without changing what the user selected.
+    private func refreshedRow<Result>(
+        from previous: [Result], to results: [Result], identifiedBy identity: KeyPath<Result, some Equatable>
+    ) -> Int? {
+        if previous.isEmpty {
+            return results.indices.first
+        }
+        guard previous.indices.contains(selectedRowIndex) else { return nil }
+
+        let selected = previous[selectedRowIndex][keyPath: identity]
+        return results.firstIndex { $0[keyPath: identity] == selected }
+    }
+
+    /// Keep the action index and the table selection in sync even after manual scrolling.
+    private func reloadRefreshedResults(selecting row: Int?) {
+        let previousRow = tableView?.selectedRow ?? -1
+        let wasVisible = tableView.map { table in
+            previousRow >= 0 && NSLocationInRange(previousRow, table.rows(in: table.visibleRect))
+        } ?? false
+
+        isNavigatingProgrammatically = true
+        isPerformingProgrammaticScroll = true
+        defer {
+            isNavigatingProgrammatically = false
+            isPerformingProgrammaticScroll = false
+        }
+
+        selectedRowIndex = row ?? -1
+        reloadResults(animate: false)
+        tableView?.selectRowIndexes(row.map(IndexSet.init(integer:)) ?? [], byExtendingSelection: false)
+        if wasVisible, let row {
+            tableView?.scrollRowToVisible(row)
+        }
+
+        if row == nil || !isSidecarVisible {
+            updateSidecarVisibility()
+        } else {
+            refreshSidecarHighlightIfNeeded()
+        }
+    }
+
+    private func updateApplicationResultsForEmptyQuery(animate: Bool, preservingSelection: Bool = false) {
         guard searchMode == .applications, let searchService else { return }
 
         let orderedApplications = recentApplicationsStore.orderedApplications(from: searchService.allApplications())
-        searchResults = orderedApplications.map {
+        let results = orderedApplications.map {
             SearchResult(application: $0, score: 0, matchedIndices: [])
         }
+        let row = preservingSelection ? refreshedRow(from: searchResults, to: results, identifiedBy: \.application.bundlePath) : nil
+        searchResults = results
         clipboardResults = []
-        selectedRowIndex = searchResults.isEmpty ? -1 : 0
+        if preservingSelection {
+            reloadRefreshedResults(selecting: row)
+            return
+        }
 
+        selectedRowIndex = results.isEmpty ? -1 : 0
         reloadResults(animate: animate)
         if !userHasOverriddenPinnedScrollSinceLastQueryChange {
             scrollResultsToTop(selectFirstRow: true)
@@ -1418,7 +1464,7 @@ class WindowManager: NSObject {
         }
     }
 
-    private func scheduleSearch(query: String) {
+    private func scheduleSearch(query: String, preservingSelection: Bool = false) {
         // Cancel any pending async search
         searchComputeWorkItem?.cancel()
         searchComputeWorkItem = nil
@@ -1428,7 +1474,7 @@ class WindowManager: NSObject {
         // Empty query in applications mode -> show recent apps
         if searchMode == .applications, trimmedQuery.isEmpty {
             searchService?.resetCache()
-            updateApplicationResultsForEmptyQuery(animate: false)
+            updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: preservingSelection)
             return
         }
 
@@ -1438,6 +1484,7 @@ class WindowManager: NSObject {
 
         // INSTANT SEARCH: Execute synchronously on main thread
         // The optimized FuzzyMatcher is fast enough (<1ms for 500 items)
+        let row: Int?
         switch searchMode {
         case .clipboard:
             let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
@@ -1445,18 +1492,24 @@ class WindowManager: NSObject {
                 ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
             }
 
+            row = preservingSelection ? refreshedRow(from: clipboardResults, to: results, identifiedBy: \.item.id) : nil
             searchResults = []
             clipboardResults = results
-            selectedRowIndex = results.isEmpty ? -1 : 0
 
         case .applications:
             let results = searchService?.search(trimmedQuery) ?? []
 
+            row = preservingSelection ? refreshedRow(from: searchResults, to: results, identifiedBy: \.application.bundlePath) : nil
             clipboardResults = []
             searchResults = results
-            selectedRowIndex = results.isEmpty ? -1 : 0
         }
 
+        if preservingSelection {
+            reloadRefreshedResults(selecting: row)
+            return
+        }
+
+        selectedRowIndex = getResultCount() == 0 ? -1 : 0
         reloadResults(animate: false)
         if !userHasOverriddenPinnedScrollSinceLastQueryChange {
             scrollResultsToTop(selectFirstRow: true)

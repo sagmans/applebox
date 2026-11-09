@@ -8,11 +8,17 @@ enum ClipboardContentType: String, Codable {
 }
 
 struct ClipboardItem: Codable {
+    /// Distinguish repeated copies without changing the on-disk history format.
+    let id = UUID()
     let content: String
     let timestamp: Date
     let contentType: ClipboardContentType
     /// Base64-encoded image data (PNG format) when contentType is .image
     let imageData: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case content, timestamp, contentType, imageData
+    }
 
     init(content: String) {
         self.content = content
