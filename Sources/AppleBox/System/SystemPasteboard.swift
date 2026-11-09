@@ -29,4 +29,13 @@ public final class SystemPasteboard: PasteboardProtocol {
     public func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool {
         pasteboard.setString(string, forType: dataType)
     }
+
+    public func replaceData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+        // Prepare the typed item before clearing the user's current clipboard.
+        let item = NSPasteboardItem()
+        guard item.setData(data, forType: dataType) else { return false }
+
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([item])
+    }
 }

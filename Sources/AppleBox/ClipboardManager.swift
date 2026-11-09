@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import OSLog
 
 /// Content type for clipboard items
@@ -13,7 +14,7 @@ struct ClipboardItem: Codable {
     let content: String
     let timestamp: Date
     let contentType: ClipboardContentType
-    /// Base64-encoded image data (PNG format) when contentType is .image
+    /// Keep the original bytes so replay does not change the image encoding.
     let imageData: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -42,9 +43,24 @@ struct ClipboardItem: Codable {
 
     /// Returns the decoded NSImage for image content types
     func getImage() -> NSImage? {
-        guard contentType == .image, let base64 = imageData,
-              let data = Data(base64Encoded: base64) else { return nil }
-        return NSImage(data: data)
+        imageBytes.flatMap(NSImage.init(data:))
+    }
+
+    /// Identify the original format because older history stores only the bytes.
+    func imageRepresentation() -> (data: Data, type: NSPasteboard.PasteboardType)? {
+        guard let data = imageBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetStatus(source) == .statusComplete,
+              let identifier = CGImageSourceGetType(source) else { return nil }
+
+        let type = NSPasteboard.PasteboardType(identifier as String)
+        guard type == .png || type == .tiff else { return nil }
+        return (data, type)
+    }
+
+    private var imageBytes: Data? {
+        guard contentType == .image, let imageData else { return nil }
+        return Data(base64Encoded: imageData)
     }
 }
 

@@ -1584,7 +1584,7 @@ class WindowManager: NSObject {
             }
 
             let item = clipboardResults[selectedRowIndex].item
-            copyToClipboard(item.content)
+            copyToClipboard(item)
         } else {
             guard selectedRowIndex >= 0, selectedRowIndex < searchResults.count else {
                 hide()
@@ -1602,7 +1602,7 @@ class WindowManager: NSObject {
         if searchMode == .clipboard {
             if clickedRow >= 0, clickedRow < clipboardResults.count {
                 let item = clipboardResults[clickedRow].item
-                copyToClipboard(item.content)
+                copyToClipboard(item)
             }
         } else {
             if clickedRow >= 0, clickedRow < searchResults.count {
@@ -1649,13 +1649,24 @@ class WindowManager: NSObject {
         }
     }
 
-    /// Copy text to the clipboard and paste it
-    /// - Parameter text: The text to copy
-    private func copyToClipboard(_ text: String) {
-        pasteboard.clearContents()
-        let didWrite = pasteboard.setString(text, forType: .string)
+    /// Replay the stored representation so display labels never become paste content.
+    private func copyToClipboard(_ item: ClipboardItem) {
+        let didWrite: Bool
+        switch item.contentType {
+        case .text:
+            pasteboard.clearContents()
+            didWrite = pasteboard.setString(item.content, forType: .string)
+        case .image:
+            guard let image = item.imageRepresentation() else {
+                logger.error("Cannot replay clipboard history image with invalid or unsupported data")
+                return
+            }
+            didWrite = pasteboard.replaceData(image.data, forType: image.type)
+        }
+
         // Report the write outcome without retaining the clipboard payload in logs.
         logger.debug("Clipboard history replay write succeeded: \(didWrite, privacy: .public)")
+        guard didWrite else { return }
 
         // Close the window after copying
         hide()

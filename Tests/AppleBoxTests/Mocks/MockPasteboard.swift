@@ -61,6 +61,11 @@ final class MockPasteboard: PasteboardProtocol {
         return true
     }
 
+    func replaceData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+        simulateExternalImageChange(imageData: data, type: dataType)
+        return true
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations

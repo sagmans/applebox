@@ -18,4 +18,7 @@ public protocol PasteboardProtocol {
     /// Sets the given string as the representation for the specified type
     @discardableResult
     func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool
+
+    /// Preserve the representation's type for consumers that expect image data.
+    func replaceData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool
 }
