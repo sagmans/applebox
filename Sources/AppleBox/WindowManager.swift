@@ -271,6 +271,8 @@ class WindowManager: NSObject {
     private var headerPanel: NSView?
     private var tableView: NSTableView?
     private var scrollView: NSScrollView?
+    private var emptyResultsLabel: NSTextField?
+    private let emptyAppResultsMessage = "No apps found"
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = []
@@ -1160,9 +1162,32 @@ class WindowManager: NSObject {
 
     private func reloadResults(animate: Bool) {
         tableView?.reloadData()
+        updateEmptyResultsLabel()
         if animate {
             animateResultsUpdateIfAppropriate()
         }
+    }
+
+    /// Explain an empty query result while leaving the search field in place.
+    private func updateEmptyResultsLabel() {
+        let showEmptyState = searchMode == .applications && searchResults.isEmpty &&
+            !lastSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let label = emptyResultsLabel {
+            label.isHidden = !showEmptyState
+            return
+        }
+
+        guard showEmptyState, let scrollView, let panel = scrollView.superview else { return }
+
+        let label = NSTextField(labelWithString: emptyAppResultsMessage)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(label, positioned: .above, relativeTo: scrollView)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+        ])
+        emptyResultsLabel = label
     }
 
     /// Reordering can move a result without changing what the user selected.
@@ -1587,7 +1612,7 @@ class WindowManager: NSObject {
             copyToClipboard(item)
         } else {
             guard selectedRowIndex >= 0, selectedRowIndex < searchResults.count else {
-                hide()
+                window?.makeFirstResponder(searchField)
                 return
             }
 
