@@ -1,0 +1,9 @@
+rules:
+  # Keep future network clients on the system's default trust evaluation.
+  - id: swift-disallow-trust-exceptions
+    languages: [swift]
+    severity: ERROR
+    message: Preserve the system's default TLS trust checks.
+    pattern-either:
+      - pattern: 'URLCredential(trust: $TRUST)'
+      - pattern: SecTrustSetExceptions(...)

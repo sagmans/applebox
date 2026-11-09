@@ -1,6 +1,6 @@
 #!/bin/sh
-# Build and test replace the removed test.yml macOS CI job (billed at 10x),
-# run against each pushed commit, not just HEAD.
+# Each pushed commit must be safe to check out and use, including the commits
+# between the remote tip and HEAD.
 set -eu
 # shellcheck disable=SC1090,SC1091  # path exported by .githooks/lib/run-local.sh
 . "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
@@ -23,6 +23,9 @@ shas=$(pushed_shas <"$HOOK_STDIN_FILE") || exit 1
 shas=$(printf '%s\n' "$shas" | sort -u)
 # shellcheck disable=SC2086  # one SHA per word
 for sha in $shas; do
-	echo "pre-push: swift build + test at $(git rev-parse --short "$sha")"
-	at_sha "$sha" sh -c 'swift build && make test' || exit 1
+	echo "pre-push: Swift checks at $(git rev-parse --short "$sha")"
+	at_sha "$sha" sh -c '
+		make format-check lint audit-swift-dependencies swift-sast &&
+		swift build && make test benchmark-search
+	' || exit 1
 done

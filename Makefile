@@ -1,4 +1,5 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
+        audit-swift-dependencies swift-sast benchmark-search \
         sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -39,6 +40,12 @@ SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/
 # fixes in one commit.
 SWIFTLINT_VERSION := 0.65.1
 SWIFTLINT_RELEASE_URL := https://github.com/realm/SwiftLint/releases/tag/$(SWIFTLINT_VERSION)
+SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift
+SEARCH_BENCHMARK := .build/applebox-search-benchmark
+SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
+	Sources/AppleBox/SearchService.swift Sources/AppleBox/ApplicationIndexer.swift \
+	Sources/AppleBox/Protocols/FileSystemProtocol.swift Sources/AppleBox/System/SystemFileManager.swift
+SWIFT_SCAN_TIMEOUT := 120
 
 # Colors for output
 RED := \033[0;31m
@@ -121,6 +128,18 @@ test: python-policy
 	@swift test
 	@echo "$(GREEN)All tests passed$(NC)"
 
+audit-swift-dependencies:
+	@bash scripts/audit-swift-dependencies.sh
+
+swift-sast:
+	@timeout $(SWIFT_SCAN_TIMEOUT) semgrep scan --config .semgrep-swift.yml --metrics=off \
+		--disable-version-check --strict --error Sources scripts/benchmark-search.swift
+
+benchmark-search:
+	@mkdir -p "$(dir $(SEARCH_BENCHMARK))"
+	@swiftc -O $(SEARCH_BENCHMARK_SOURCES) -o "$(SEARCH_BENCHMARK)"
+	@"$(SEARCH_BENCHMARK)"
+
 # ==============================================================================
 # Code Style
 # ==============================================================================
@@ -137,15 +156,15 @@ swiftformat-version:
 
 format: swiftformat-version
 	@echo "$(BLUE)Formatting Swift sources (SwiftFormat)...$(NC)"
-	swiftformat Sources Tests
+	swiftformat $(SWIFT_STYLE_PATHS)
 	@echo "$(GREEN)Formatting complete$(NC)"
 
 format-check: swiftformat-version
 	@echo "$(BLUE)Checking formatting (SwiftFormat --lint)...$(NC)"
 	@if [ "$$GITHUB_ACTIONS" = "true" ]; then \
-		swiftformat Sources Tests --lint --reporter github-actions-log; \
+		swiftformat $(SWIFT_STYLE_PATHS) --lint --reporter github-actions-log; \
 	else \
-		swiftformat Sources Tests --lint; \
+		swiftformat $(SWIFT_STYLE_PATHS) --lint; \
 	fi
 	@echo "$(GREEN)Formatting OK$(NC)"
 
