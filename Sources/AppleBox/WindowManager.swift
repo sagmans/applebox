@@ -273,6 +273,8 @@ class WindowManager: NSObject {
     private var scrollView: NSScrollView?
     private var emptyResultsLabel: NSTextField?
     private let emptyAppResultsMessage = "No apps found"
+    private let emptyClipboardResultsMessage = "No matching clips"
+    private let emptyClipboardHistoryMessage = "Clipboard history is empty"
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = []
@@ -1039,13 +1041,21 @@ class WindowManager: NSObject {
     /// Updates sidecar highlights without rebuilding the view (preserves scroll position).
     /// Called after search results change but the selected item remains the same.
     private func refreshSidecarHighlightIfNeeded() {
-        guard searchMode == .clipboard, isSidecarVisible, selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else { return }
+        guard searchMode == .clipboard else { return }
+        guard clipboardResults.indices.contains(selectedRowIndex) else {
+            // The previous clip is no longer actionable after the search changed.
+            if isSidecarVisible {
+                hideSidecar()
+            }
+            return
+        }
 
         let result = clipboardResults[selectedRowIndex]
         let item = result.item
 
         // Keep the scroll position only when the same clip owns the preview.
-        guard item.contentType == .text,
+        guard isSidecarVisible,
+              item.contentType == .text,
               item.id == sidecarDisplayedItemID,
               let textView = sidecarTextView,
               let textStorage = textView.textStorage,
@@ -1170,16 +1180,28 @@ class WindowManager: NSObject {
 
     /// Explain an empty query result while leaving the search field in place.
     private func updateEmptyResultsLabel() {
-        let showEmptyState = searchMode == .applications && searchResults.isEmpty &&
-            !lastSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasQuery = !lastSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let message: String? = if getResultCount() > 0 {
+            nil
+        } else if searchMode == .clipboard {
+            hasQuery ? emptyClipboardResultsMessage : emptyClipboardHistoryMessage
+        } else {
+            hasQuery ? emptyAppResultsMessage : nil
+        }
+
+        guard let message else {
+            emptyResultsLabel?.isHidden = true
+            return
+        }
         if let label = emptyResultsLabel {
-            label.isHidden = !showEmptyState
+            label.stringValue = message
+            label.isHidden = false
             return
         }
 
-        guard showEmptyState, let scrollView, let panel = scrollView.superview else { return }
+        guard let scrollView, let panel = scrollView.superview else { return }
 
-        let label = NSTextField(labelWithString: emptyAppResultsMessage)
+        let label = NSTextField(labelWithString: message)
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(label, positioned: .above, relativeTo: scrollView)
@@ -1602,20 +1624,16 @@ class WindowManager: NSObject {
     }
 
     private func handleEnterKey() {
-        if searchMode == .clipboard {
-            guard selectedRowIndex >= 0, selectedRowIndex < clipboardResults.count else {
-                hide()
-                return
-            }
+        guard selectedRowIndex >= 0, selectedRowIndex < getResultCount() else {
+            // Leave the query editable when there is no selected result to act on.
+            window?.makeFirstResponder(searchField)
+            return
+        }
 
+        if searchMode == .clipboard {
             let item = clipboardResults[selectedRowIndex].item
             copyToClipboard(item)
         } else {
-            guard selectedRowIndex >= 0, selectedRowIndex < searchResults.count else {
-                window?.makeFirstResponder(searchField)
-                return
-            }
-
             let appInfo = searchResults[selectedRowIndex].application
             launchApplication(appInfo)
         }
