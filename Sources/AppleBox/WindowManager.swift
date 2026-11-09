@@ -1651,19 +1651,19 @@ class WindowManager: NSObject {
 
     /// Replay the stored representation so display labels never become paste content.
     private func copyToClipboard(_ item: ClipboardItem) {
-        let didWrite: Bool
+        let representation: (data: Data, type: NSPasteboard.PasteboardType)
         switch item.contentType {
         case .text:
-            pasteboard.clearContents()
-            didWrite = pasteboard.setString(item.content, forType: .string)
+            representation = (Data(item.content.utf8), .string)
         case .image:
             guard let image = item.imageRepresentation() else {
                 logger.error("Cannot replay clipboard history image with invalid or unsupported data")
                 return
             }
-            didWrite = pasteboard.replaceData(image.data, forType: image.type)
+            representation = image
         }
 
+        let didWrite = pasteboard.replayData(representation.data, forType: representation.type)
         // Report the write outcome without retaining the clipboard payload in logs.
         logger.debug("Clipboard history replay write succeeded: \(didWrite, privacy: .public)")
         guard didWrite else { return }

@@ -67,10 +67,11 @@ struct ClipboardItem: Codable {
 final class ClipboardManager {
     private let maxHistoryCount = 50
 
-    /// Producers use these markers to keep private or temporary content out of history.
+    /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
         NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
         NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+        .generatedClipboardContent,
     ]
 
     private let logger = Logger(

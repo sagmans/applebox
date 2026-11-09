@@ -13,6 +13,7 @@ final class MockPasteboard: PasteboardProtocol {
 
     /// The current image data (PNG or TIFF)
     private(set) var mockImageData: [NSPasteboard.PasteboardType: Data] = [:]
+    private var didReplay = false
 
     // MARK: - Invocation Tracking
 
@@ -35,7 +36,8 @@ final class MockPasteboard: PasteboardProtocol {
     }
 
     var types: [NSPasteboard.PasteboardType]? {
-        Array(mockImageData.keys) + (mockStringContent == nil ? [] : [.string])
+        Array(mockImageData.keys) + (mockStringContent == nil ? [] : [.string]) +
+            (didReplay ? [.generatedClipboardContent] : [])
     }
 
     func string(forType dataType: NSPasteboard.PasteboardType) -> String? {
@@ -48,25 +50,16 @@ final class MockPasteboard: PasteboardProtocol {
         return mockImageData[dataType]
     }
 
-    @discardableResult
-    func clearContents() -> Int {
+    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+        if dataType == .string {
+            guard let text = String(data: data, encoding: .utf8) else { return false }
+            setStringCalls.append((string: text, type: dataType))
+            simulateExternalChange(content: text)
+        } else {
+            simulateExternalImageChange(imageData: data, type: dataType)
+        }
         clearContentsCalls += 1
-        mockStringContent = nil
-        mockImageData = [:]
-        mockChangeCount += 1
-        return mockChangeCount
-    }
-
-    @discardableResult
-    func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool {
-        setStringCalls.append((string: string, type: dataType))
-        mockStringContent = string
-        mockChangeCount += 1
-        return true
-    }
-
-    func replaceData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
-        simulateExternalImageChange(imageData: data, type: dataType)
+        didReplay = true
         return true
     }
 
@@ -82,6 +75,7 @@ final class MockPasteboard: PasteboardProtocol {
 
     /// Simulates external clipboard change (like another app copying)
     func simulateExternalChange(content: String?) {
+        didReplay = false
         mockStringContent = content
         mockImageData = [:]
         mockChangeCount += 1
@@ -89,6 +83,7 @@ final class MockPasteboard: PasteboardProtocol {
 
     /// Simulates external clipboard change with image data
     func simulateExternalImageChange(imageData: Data, type: NSPasteboard.PasteboardType = .png) {
+        didReplay = false
         mockStringContent = nil
         mockImageData = [type: imageData]
         mockChangeCount += 1
@@ -96,6 +91,7 @@ final class MockPasteboard: PasteboardProtocol {
 
     /// Sets the initial state without incrementing change count
     func setInitialState(content: String?, changeCount: Int) {
+        didReplay = false
         mockStringContent = content
         mockChangeCount = changeCount
     }

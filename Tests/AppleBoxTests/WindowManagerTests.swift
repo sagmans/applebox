@@ -374,12 +374,7 @@ final class WindowManagerTests: XCTestCase {
         // Given: Window is visible
         windowManager.show()
 
-        // The copyToClipboard method would:
-        // 1. Call pasteboard.clearContents()
-        // 2. Call pasteboard.setString(text, forType: .string)
-        // 3. Call hide()
-
-        // Verify mock is ready
+        // Opening the window alone must not replace the clipboard.
         XCTAssertEqual(mockPasteboard.clearContentsCalls, 0)
         XCTAssertEqual(mockPasteboard.setStringCalls.count, 0)
     }
