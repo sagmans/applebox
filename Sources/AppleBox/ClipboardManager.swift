@@ -34,6 +34,12 @@ struct ClipboardItem: Codable {
         self.imageData = imageData.base64EncodedString()
     }
 
+    /// Deduplicate neighboring copies without conflating distinct history entries.
+    func hasSamePayload(as other: ClipboardItem) -> Bool {
+        guard contentType == other.contentType else { return false }
+        return contentType == .text ? content == other.content : imageData == other.imageData
+    }
+
     /// Returns the decoded NSImage for image content types
     func getImage() -> NSImage? {
         guard contentType == .image, let base64 = imageData,
@@ -168,47 +174,29 @@ final class ClipboardManager {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
-        // Try to capture image first (PNG or TIFF)
+        // Keep the richest supported representation when the pasteboard offers both.
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            let newBase64 = imageData.base64EncodedString()
-
-            var shouldSave = false
-            historyQueue.sync {
-                if let lastItem = history.first, lastItem.contentType == .image, lastItem.imageData == newBase64 {
-                    return
-                }
-
-                history.insert(ClipboardItem(imageData: imageData), at: 0)
-                if history.count > maxHistoryCount {
-                    history = Array(history.prefix(maxHistoryCount))
-                }
-                shouldSave = true
-            }
-
-            if shouldSave {
-                postHistoryUpdated()
-                saveHistoryAsync()
-            }
-            return
+            record(ClipboardItem(imageData: imageData))
+        } else if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            record(ClipboardItem(content: text))
         }
+    }
 
-        // Capture plain text
-        guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
-
-        var shouldSave = false
-        historyQueue.sync {
-            if let lastItem = history.first, lastItem.contentType == .text, lastItem.content == text {
-                return
+    /// Check for duplicates and insert on the same queue to keep history ordered.
+    private func record(_ item: ClipboardItem) {
+        let didInsert = historyQueue.sync {
+            if history.first?.hasSamePayload(as: item) == true {
+                return false
             }
 
-            history.insert(ClipboardItem(content: text), at: 0)
+            history.insert(item, at: 0)
             if history.count > maxHistoryCount {
                 history = Array(history.prefix(maxHistoryCount))
             }
-            shouldSave = true
+            return true
         }
 
-        if shouldSave {
+        if didInsert {
             postHistoryUpdated()
             saveHistoryAsync()
         }
@@ -221,8 +209,9 @@ final class ClipboardManager {
     }
 
     private func saveHistoryAsync() {
-        let snapshot = getHistory()
-        persistenceQueue.async { [snapshot, storageURL, fileSystem, logger] in
+        persistenceQueue.async { [self] in
+            // A save queued during startup must include history loaded ahead of it.
+            let snapshot = getHistory()
             do {
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
@@ -242,7 +231,10 @@ final class ClipboardManager {
             guard let self else { return }
             let loaded = loadHistoryFromDisk()
             historyQueue.sync {
-                self.history = loaded
+                // Copies captured during startup are newer than everything on disk.
+                let duplicateBoundary = self.history.last.map { loaded.first?.hasSamePayload(as: $0) == true } ?? false
+                let olderItems = duplicateBoundary ? loaded.dropFirst() : loaded[...]
+                self.history.append(contentsOf: olderItems.prefix(self.maxHistoryCount - self.history.count))
             }
             postHistoryUpdated()
         }
