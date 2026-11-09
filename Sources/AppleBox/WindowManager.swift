@@ -1569,7 +1569,8 @@ class WindowManager: NSObject {
         updateSidecarVisibility()
 
         if searchMode == .clipboard {
-            print("Selected: \(selectedRowIndex) - \(clipboardResults[selectedRowIndex].item.content)")
+            // Row numbers identify navigation without exposing the copied material.
+            logger.debug("Selected clipboard history row \(self.selectedRowIndex, privacy: .public)")
         } else {
             print("Selected: \(selectedRowIndex) - \(searchResults[selectedRowIndex].application.name)")
         }
@@ -1652,8 +1653,9 @@ class WindowManager: NSObject {
     /// - Parameter text: The text to copy
     private func copyToClipboard(_ text: String) {
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        print("Copied to clipboard: \(text)")
+        let didWrite = pasteboard.setString(text, forType: .string)
+        // Report the write outcome without retaining the clipboard payload in logs.
+        logger.debug("Clipboard history replay write succeeded: \(didWrite, privacy: .public)")
 
         // Close the window after copying
         hide()
