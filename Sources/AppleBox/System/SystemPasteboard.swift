@@ -12,6 +12,10 @@ public final class SystemPasteboard: PasteboardProtocol {
         pasteboard.changeCount
     }
 
+    public var types: [NSPasteboard.PasteboardType]? {
+        pasteboard.types
+    }
+
     public func string(forType dataType: NSPasteboard.PasteboardType) -> String? {
         pasteboard.string(forType: dataType)
     }

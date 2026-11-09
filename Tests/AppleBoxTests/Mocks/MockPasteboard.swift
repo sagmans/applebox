@@ -34,6 +34,10 @@ final class MockPasteboard: PasteboardProtocol {
         mockChangeCount
     }
 
+    var types: [NSPasteboard.PasteboardType]? {
+        Array(mockImageData.keys) + (mockStringContent == nil ? [] : [.string])
+    }
+
     func string(forType dataType: NSPasteboard.PasteboardType) -> String? {
         stringForTypeCalls.append(dataType)
         return mockStringContent

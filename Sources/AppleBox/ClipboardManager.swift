@@ -67,6 +67,12 @@ struct ClipboardItem: Codable {
 final class ClipboardManager {
     private let maxHistoryCount = 50
 
+    /// Producers use these markers to keep private or temporary content out of history.
+    private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
+        NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+        NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+    ]
+
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
         category: "clipboard"
@@ -187,15 +193,27 @@ final class ClipboardManager {
     /// Polls the pasteboard once. The monitoring timer calls this every 0.5 s;
     /// tests call it directly so they do not race the timer.
     func checkForChanges() {
-        guard pasteboard.changeCount != lastChangeCount else { return }
-        lastChangeCount = pasteboard.changeCount
+        let change = pasteboard.changeCount
+        guard change != lastChangeCount else { return }
+        lastChangeCount = change
 
+        guard let types = pasteboard.types,
+              excludedTypes.isDisjoint(with: types),
+              pasteboard.changeCount == change else { return }
+
+        let item: ClipboardItem
         // Keep the richest supported representation when the pasteboard offers both.
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            record(ClipboardItem(imageData: imageData))
+            item = ClipboardItem(imageData: imageData)
         } else if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            record(ClipboardItem(content: text))
+            item = ClipboardItem(content: text)
+        } else {
+            return
         }
+
+        // Discard a payload if its privacy check belonged to a different clipboard change.
+        guard pasteboard.changeCount == change else { return }
+        record(item)
     }
 
     /// Check for duplicates and insert on the same queue to keep history ordered.

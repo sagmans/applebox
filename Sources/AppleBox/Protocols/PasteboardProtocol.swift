@@ -5,6 +5,9 @@ public protocol PasteboardProtocol {
     /// The receiver's change count
     var changeCount: Int { get }
 
+    /// Check privacy markers without asking the owner to supply the payload.
+    var types: [NSPasteboard.PasteboardType]? { get }
+
     /// Returns a string for the specified type from the first item in the pasteboard
     func string(forType dataType: NSPasteboard.PasteboardType) -> String?
 
