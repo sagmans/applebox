@@ -15,6 +15,16 @@ extension DesignTokens.Copy {
     /// Shown instead of a preview image when the stored bytes cannot be decoded, so the pane never looks
     /// like it is still loading.
     static let imageUnavailable = "Image unavailable"
+    /// Hint of an application row: what Return does there.
+    static let applicationRowHint = "Press Enter to launch this application"
+    /// Hint of a clip row: Return pastes the clip and Option-Return copies it (the old window said only copy).
+    static let clipRowHint = "Press Enter to paste this item, Option-Enter to copy it to the clipboard"
+    /// Name of the results list as a whole, so VoiceOver announces what the rows belong to.
+    static let resultsLabel = "Search Results"
+    /// Name of the launcher panel.
+    static let windowLabel = "AppleBox Launcher"
+    /// Purpose of the launcher panel.
+    static let windowHelp = "Quick launcher for applications and clipboard history"
     /// Accessibility label of the preview pane as a whole.
     static let previewLabel = "Clip preview"
 
@@ -57,13 +67,16 @@ extension DesignTokens.Palette {
     /// row is visible in the references.
     static let snapshotSelection = fixedColor(light: (0.72, 0.8, 0.95), dark: (0.35, 0.45, 0.7))
 
+    /// Snapshot colors are opaque: any transparency would let the host's backdrop leak into the references.
+    private static let fixedAlpha: CGFloat = 1
+
     /// A color that resolves to one of two fixed sRGB values by appearance, so snapshots stay stable.
     private static func fixedColor(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua])
                 .map { $0 == .darkAqua || $0 == .accessibilityHighContrastDarkAqua } ?? false
             let value = isDark ? dark : light
-            return NSColor(srgbRed: value.0, green: value.1, blue: value.2, alpha: 1)
+            return NSColor(srgbRed: value.0, green: value.1, blue: value.2, alpha: fixedAlpha)
         })
     }
 }

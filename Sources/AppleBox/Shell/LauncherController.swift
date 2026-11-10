@@ -40,6 +40,8 @@ final class LauncherController: NSObject, NSWindowDelegate {
         host.sizingOptions = []
         panel.contentView = host
         panel.setAccessibilityIdentifier(DesignTokens.Identifier.window)
+        panel.setAccessibilityLabel(DesignTokens.Copy.windowLabel)
+        panel.setAccessibilityHelp(DesignTokens.Copy.windowHelp)
         panel.delegate = self
         panel.keyHandler = { [weak self] key in self?.handle(key) ?? false }
         // Weak, because the model outlives a closed controller and must not keep it alive.

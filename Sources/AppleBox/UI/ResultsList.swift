@@ -21,6 +21,7 @@ struct ResultsList: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(DesignTokens.Identifier.resultsTable)
+        .accessibilityLabel(DesignTokens.Copy.resultsLabel)
     }
 
     private var tint: Color {
@@ -49,6 +50,7 @@ struct ResultsList: View {
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
+                            .accessibilityHint(Self.rowHint(for: .applications))
                         }
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
@@ -57,6 +59,7 @@ struct ResultsList: View {
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
+                            .accessibilityHint(Self.rowHint(for: .clipboard))
                             .contextMenu { menu(for: row.id) }
                         }
                     }
@@ -109,6 +112,11 @@ struct ResultsList: View {
         [title, subtitle, DesignTokens.Copy.position(index + 1, of: count)]
             .compactMap(\.self)
             .joined(separator: DesignTokens.Copy.labelSeparator)
+    }
+
+    /// What Return does on a row, which depends on the list. Static for the same reason as the label.
+    static func rowHint(for mode: SearchMode) -> String {
+        mode == .clipboard ? DesignTokens.Copy.clipRowHint : DesignTokens.Copy.applicationRowHint
     }
 
     /// Only image clips need content from the history; looking up text clips would be wasted work per row.

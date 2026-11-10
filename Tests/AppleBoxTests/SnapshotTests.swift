@@ -10,6 +10,11 @@ import XCTest
 /// glass samples what is behind it and follows the display profile, so references with real glass never
 /// matched from one machine to the next (ASG-1279). The test therefore covers layout, text, selection and
 /// colors of the content, not the glass material itself.
+///
+/// There is no Increase Contrast or Reduce Transparency variant. The launcher has no contrast-specific
+/// code: the system glass handles both settings, and a test cannot force either one (the contrast
+/// environment value is read-only, and a high-contrast appearance on the hosting view changes nothing
+/// SwiftUI reads: a recorded variant came out byte-identical to the dark reference).
 @MainActor
 final class SnapshotTests: XCTestCase {
     // MARK: - Constants
@@ -33,6 +38,7 @@ final class SnapshotTests: XCTestCase {
         static let iconRed: CGFloat = 0.25
         static let iconGreen: CGFloat = 0.55
         static let iconBlue: CGFloat = 0.95
+        static let iconAlpha: CGFloat = 1
         static let highlightQuery = "total"
         static let codeClip = """
         func calculateTotal(items: [Item]) -> Double {
@@ -62,15 +68,18 @@ final class SnapshotTests: XCTestCase {
         }
     }
 
-    /// Name of the Increase Contrast variant; kept apart from `Look` because it is one extra case, not a
-    /// second pass over every case.
-    private static let increasedContrastName = "increased-contrast"
     /// Matching tolerance of the references: loose enough for anti-aliasing noise, tight enough that a
     /// moved row or a lost highlight fails.
     private static let precision: Float = 0.99
     private static let perceptualPrecision: Float = 0.98
-    /// Time given to the run loop so lazy rows and AppKit-backed controls finish their first layout.
-    private static let settleInterval: TimeInterval = 0.3
+    /// Longest a render may take to reach a stable image before the test fails instead of recording a
+    /// half-laid-out one.
+    private static let settleTimeout: TimeInterval = 5
+    /// Gap between two looks at the rendered image while waiting for it to stop changing.
+    private static let settlePollInterval: TimeInterval = 0.05
+    /// Consecutive identical looks that count as settled, so one pause between two animation frames
+    /// does not end the wait early.
+    private static let settleStableLooks = 3
 
     private var shouldRecordSnapshots: Bool {
         let value = ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"]
@@ -88,10 +97,10 @@ final class SnapshotTests: XCTestCase {
             let image = NSImage(size: size)
             image.lockFocus()
             NSColor(
-                calibratedRed: Fixture.iconRed,
+                srgbRed: Fixture.iconRed,
                 green: Fixture.iconGreen,
                 blue: Fixture.iconBlue,
-                alpha: 1.0
+                alpha: Fixture.iconAlpha
             ).setFill()
             NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
             image.unlockFocus()
@@ -170,21 +179,17 @@ final class SnapshotTests: XCTestCase {
     /// Hosts the launcher at its mode size with an explicit frame, because an unsized hosting view
     /// renders as zero-size and the references would be empty. Returns the window, which the caller must
     /// keep alive: a view does not retain the window that holds it.
-    private func hostLauncher(model: LauncherModel, look: Look, highContrast: Bool = false) -> NSWindow {
+    private func hostLauncher(model: LauncherModel, look: Look) throws -> NSWindow {
         let size = model.mode == .clipboard ? DesignTokens.Layout.clipPanelSize : DesignTokens.Layout.appPanelSize
-        let root = LauncherView(model: model)
+        let root = try LauncherView(model: model)
             .environment(\.launcherSnapshotMode, true)
             .environment(\.appIcons, AppIconCache(loader: SnapshotIconProvider()))
             .environment(\.locale, Locale(identifier: Fixture.localeIdentifier))
-            .environment(\.timeZone, TimeZone(identifier: Fixture.timeZoneIdentifier) ?? .gmt)
+            .environment(\.timeZone, XCTUnwrap(TimeZone(identifier: Fixture.timeZoneIdentifier)))
         let host = NSHostingView(rootView: root)
         host.sizingOptions = []
         host.frame = CGRect(origin: .zero, size: size)
-        if highContrast {
-            host.appearance = NSAppearance(named: look == .dark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua)
-        } else {
-            host.appearance = NSAppearance(named: look.appearanceName)
-        }
+        host.appearance = NSAppearance(named: look.appearanceName)
 
         // A display profile is a property of the host machine, so the window pins standard RGB. The window
         // is never shown; the caller keeps it alive for the length of the render.
@@ -194,11 +199,26 @@ final class SnapshotTests: XCTestCase {
         return window
     }
 
-    /// Lets lazy rows and the AppKit-backed field finish their first layout.
-    private func settle(_ view: NSView) {
-        view.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: Self.settleInterval))
-        view.layoutSubtreeIfNeeded()
+    /// Waits until the rendered image stops changing, which is when lazy rows, the AppKit-backed field
+    /// and the selection motion have finished; a fixed delay would be too short on a loaded machine and
+    /// wasted time on a fast one.
+    private func settle(_ view: NSView, file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date(timeIntervalSinceNow: Self.settleTimeout)
+        var previous: Data?
+        var stableLooks = 0
+        while Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: Self.settlePollInterval))
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let current = rep.representation(using: .tiff, properties: [:])
+            stableLooks = current == previous ? stableLooks + 1 : 0
+            previous = current
+            if stableLooks >= Self.settleStableLooks {
+                return
+            }
+        }
+        XCTFail("The launcher did not reach a stable image within \(Self.settleTimeout) s", file: file, line: line)
     }
 
     /// Renders one scenario for `look` and returns the window whose content view is the settled launcher.
@@ -209,12 +229,11 @@ final class SnapshotTests: XCTestCase {
     private func renderScenario(
         mode: SearchMode,
         look: Look,
-        highContrast: Bool = false,
         arrange: (LauncherModel) throws -> Void
     ) throws -> NSWindow {
         let model = makeModel()
         model.switchMode(to: mode)
-        let window = hostLauncher(model: model, look: look, highContrast: highContrast)
+        let window = try hostLauncher(model: model, look: look)
         let view = try XCTUnwrap(window.contentView)
         settle(view)
         try arrange(model)
@@ -256,21 +275,6 @@ final class SnapshotTests: XCTestCase {
         try assertLauncher(.applications) { $0.setApplicationResults(applicationResults()) }
     }
 
-    /// The one case that also renders with Increase Contrast. The appearance override is the supported
-    /// way to force it; Reduce Transparency has no override, so it has no variant (see the task report).
-    func testSnapshotPopulatedSearchResultsIncreasedContrast() throws {
-        let window = try renderScenario(mode: .applications, look: .dark, highContrast: true) {
-            $0.setApplicationResults(applicationResults())
-        }
-        try assertSnapshot(
-            of: XCTUnwrap(window.contentView),
-            as: .image(precision: Self.precision, perceptualPrecision: Self.perceptualPrecision),
-            named: Self.increasedContrastName,
-            record: recordMode,
-            testName: "testSnapshotPopulatedSearchResults"
-        )
-    }
-
     // MARK: - Snapshot Tests for Clipboard Mode Results
 
     func testSnapshotClipboardModeResults() throws {
@@ -301,6 +305,8 @@ final class SnapshotTests: XCTestCase {
         try assertLauncher(.applications) { $0.setApplicationResults(applicationResults(count: Fixture.manyApplicationCount)) }
     }
 
+    /// Same scene as PopulatedSearchResults, because that one leaves row 0 selected by default; kept for
+    /// parity with the old suite, which had both cases.
     func testSnapshotFirstRowSelected() throws {
         try assertLauncher(.applications) {
             $0.setApplicationResults(applicationResults())

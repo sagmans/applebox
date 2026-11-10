@@ -5,10 +5,15 @@ import XCTest
 
 /// Accessibility checks for the SwiftUI launcher.
 ///
-/// A SwiftUI accessibility tree is not materialized for a window that is never shown, so what VoiceOver
-/// speaks is checked at the points where it is decided: the identifier and copy tokens the views apply,
-/// the static row-label function the list uses, and the model state that drives focus and selection. The
-/// AppKit controls SwiftUI backs with (the text field) are inspected in a hosted view.
+/// A SwiftUI accessibility tree is not materialized without a connected assistive client. Experiment
+/// (fix round 1): a borderless window was ordered in off screen (origin -20000, -20000, never key) and the
+/// hosting view's accessibility children were walked until the rows had been laid out, through both the
+/// modern and the legacy attribute. Only two AppKit elements ever appeared: a text field (no identifier,
+/// label or help) and a scroll area (also none). No SwiftUI row, container, button or preview element
+/// appeared, so the modifiers SwiftUI applies cannot be read back in a test. Cases that would only compare
+/// a constant with itself were deleted. What remains checks real behavior: the row label and hint the list
+/// builds (static, shared with the views), the panel's own AppKit label and help, the AppKit elements
+/// SwiftUI backs with, and the keyboard model. VoiceOver output itself needs a manual pass.
 @MainActor
 final class AccessibilityTests: XCTestCase {
     // MARK: - Constants
@@ -22,7 +27,8 @@ final class AccessibilityTests: XCTestCase {
         static let clipboardNote = "Important meeting notes"
         static let minimumLabelLength = 5
         static let uuidLabelLength = 30
-        static let settleInterval: TimeInterval = 0.3
+        static let settleTimeout: TimeInterval = 5
+        static let pollInterval: TimeInterval = 0.05
         static let minimumNavigableRows = 2
     }
 
@@ -108,9 +114,12 @@ final class AccessibilityTests: XCTestCase {
         let hosting = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         hosting.contentView = host
         window = hosting
-        host.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: Fixture.settleInterval))
-        host.layoutSubtreeIfNeeded()
+        // Waits for the hosted field instead of sleeping: it appears once SwiftUI has finished its first pass.
+        let deadline = Date(timeIntervalSinceNow: Fixture.settleTimeout)
+        while Date() < deadline, descendants(of: host, as: NSTextField.self).isEmpty {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: Fixture.pollInterval))
+        }
         return host
     }
 
@@ -146,22 +155,10 @@ final class AccessibilityTests: XCTestCase {
 
     // MARK: - Search Field Accessibility Tests
 
-    func testSearchFieldHasAccessibilityIdentifier() {
-        // SwiftUI modifiers do not reach the backing text field until a window is shown, so the exact
-        // value that SearchBar applies is checked.
-        XCTAssertEqual(DesignTokens.Identifier.searchField, "AppleBoxSearchField", "Scripts and UI tests rely on this exact value")
-    }
-
     func testSearchFieldHasAccessibilityLabel() throws {
         // The placeholder is what the field is announced as when it has no text.
         let field = try hostedSearchField()
         XCTAssertEqual(field.placeholderString, DesignTokens.Copy.searchApplicationsPlaceholder)
-    }
-
-    func testSearchFieldHasAccessibilityHelp() {
-        // SearchBar applies this model value as the field's hint; the controller publishes it at launch.
-        model.searchShortcutHelp = Fixture.shortcutHelp
-        XCTAssertEqual(model.searchShortcutHelp, Fixture.shortcutHelp)
     }
 
     func testSearchFieldHasAccessibleChildren() throws {
@@ -172,29 +169,7 @@ final class AccessibilityTests: XCTestCase {
 
     // MARK: - Results List Accessibility Tests
 
-    func testTableViewHasAccessibilityIdentifier() {
-        XCTAssertEqual(DesignTokens.Identifier.resultsTable, "AppleBoxResultsTable")
-    }
-
-    func testTableViewHasAccessibilityLabel() {
-        // The list is a container that exposes its rows; with no rows it speaks the empty message instead.
-        model.setQueryImmediately("zzzzzz-no-such-app")
-        XCTAssertEqual(model.emptyMessage, DesignTokens.Copy.emptyApps)
-    }
-
-    func testTableViewHasAccessibilityHelp() {
-        // Keys are announced through the footer hints: Return acts on the highlighted row, Esc closes.
-        model.setApplicationResults([])
-        XCTAssertEqual(DesignTokens.Copy.actionOpen, "Open")
-        XCTAssertEqual(DesignTokens.Copy.actionClose, "Close")
-    }
-
     // MARK: - Row Accessibility Tests
-
-    func testApplicationRowsHaveAccessibilityIdentifiers() {
-        XCTAssertEqual(DesignTokens.Identifier.applicationRow(0), "ApplicationRow_0")
-        XCTAssertTrue(DesignTokens.Identifier.applicationRow(3).hasPrefix("ApplicationRow_"))
-    }
 
     func testApplicationRowsHaveAccessibilityLabels() throws {
         model.setQueryImmediately(Fixture.safariQuery)
@@ -204,14 +179,9 @@ final class AccessibilityTests: XCTestCase {
     }
 
     func testApplicationRowsHaveAccessibilityHelp() {
-        // Position replaces per-row help: it tells VoiceOver users where they are in the list.
-        let label = ResultsList.rowLabel(title: Fixture.safariName, subtitle: nil, index: 1, count: 4)
-        XCTAssertEqual(label, "\(Fixture.safariName)\(DesignTokens.Copy.labelSeparator)2 of 4")
-    }
-
-    func testClipboardRowsHaveAccessibilityIdentifiers() {
-        XCTAssertEqual(DesignTokens.Identifier.clipboardRow(0), "ClipboardRow_0")
-        XCTAssertTrue(DesignTokens.Identifier.clipboardRow(2).hasPrefix("ClipboardRow_"))
+        let hint = ResultsList.rowHint(for: .applications)
+        XCTAssertEqual(hint, DesignTokens.Copy.applicationRowHint)
+        XCTAssertTrue(hint.contains("launch"), "Hint should mention launching the application")
     }
 
     func testClipboardRowsHaveAccessibilityLabels() throws {
@@ -223,9 +193,10 @@ final class AccessibilityTests: XCTestCase {
     }
 
     func testClipboardRowsHaveAccessibilityHelp() {
-        // The subtitle is optional: a clip has none, so its label is the text and the position only.
-        let label = ResultsList.rowLabel(title: "Clip", subtitle: nil, index: 0, count: 1)
-        XCTAssertEqual(label, "Clip\(DesignTokens.Copy.labelSeparator)1 of 1")
+        let hint = ResultsList.rowHint(for: .clipboard)
+        XCTAssertEqual(hint, DesignTokens.Copy.clipRowHint)
+        XCTAssertTrue(hint.contains("copy"), "Hint should mention copying to the clipboard")
+        XCTAssertNotEqual(hint, ResultsList.rowHint(for: .applications), "Each list needs its own hint")
     }
 
     // MARK: - Keyboard Navigation Tests
@@ -284,14 +255,6 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertFalse(label.contains("-") && label.count > Fixture.uuidLabelLength, "Label should not be a UUID")
     }
 
-    func testTableViewLabelIsReadable() {
-        // Empty-state copy is what the list announces when it holds nothing.
-        for message in [DesignTokens.Copy.emptyApps, DesignTokens.Copy.emptyClipMatches, DesignTokens.Copy.emptyHistory] {
-            XCTAssertFalse(message.isEmpty)
-            XCTAssertGreaterThan(message.count, Fixture.minimumLabelLength)
-        }
-    }
-
     func testApplicationRowLabelIsReadableWithContent() throws {
         model.setQueryImmediately(Fixture.safariQuery)
         let label = try appRowLabel(at: 0)
@@ -311,18 +274,17 @@ final class AccessibilityTests: XCTestCase {
     // MARK: - Window Accessibility Tests
 
     func testWindowHasAccessibilityIdentifier() {
-        XCTAssertEqual(DesignTokens.Identifier.window, "AppleBoxWindow")
+        XCTAssertEqual(LauncherController(model: model).panel.accessibilityIdentifier(), DesignTokens.Identifier.window)
     }
 
-    func testWindowHasAccessibilityLabel() {
-        // The preview pane is the one named region besides the list; the panel itself is identified, not named.
-        XCTAssertEqual(DesignTokens.Copy.previewLabel, "Clip preview")
+    func testWindowHasAccessibilityLabel() throws {
+        let label = try XCTUnwrap(LauncherController(model: model).panel.accessibilityLabel())
+        XCTAssertTrue(label.contains("AppleBox"), "Window label should mention AppleBox")
     }
 
-    func testWindowHasAccessibilityHelp() {
-        // Shortcut help is published to the field by the controller; the model carries it.
-        model.searchShortcutHelp = Fixture.shortcutHelp
-        XCTAssertEqual(model.searchShortcutHelp, Fixture.shortcutHelp)
+    func testWindowHasAccessibilityHelp() throws {
+        let help = try XCTUnwrap(LauncherController(model: model).panel.accessibilityHelp())
+        XCTAssertTrue(help.contains("launcher"), "Help should describe the purpose")
     }
 
     // MARK: - Accessibility Element Discoverability Tests
@@ -331,9 +293,9 @@ final class AccessibilityTests: XCTestCase {
         model.show()
         model.setQueryImmediately(Fixture.applicationsQuery)
         let host = try hostLauncher()
-        XCTAssertFalse(descendants(of: host, as: NSTextField.self).isEmpty, "Search field should be discoverable")
-        XCTAssertGreaterThan(model.resultCount, 0)
-        XCTAssertNotNil(model.apps.rows.first, "First row should be discoverable")
+        let roles = Set((host.accessibilityAttributeValue(.children) as? [NSAccessibilityProtocol] ?? []).compactMap { $0.accessibilityRole() })
+        XCTAssertTrue(roles.contains(.textField), "Search field should be discoverable")
+        XCTAssertTrue(roles.contains(.scrollArea), "Results list should be discoverable")
     }
 
     // MARK: - Search Mode Accessibility Tests
