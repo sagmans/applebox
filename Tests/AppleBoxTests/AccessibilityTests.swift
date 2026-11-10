@@ -10,8 +10,12 @@ import XCTest
 /// hosting view's accessibility children were walked until the rows had been laid out, through both the
 /// modern and the legacy attribute. Only two AppKit elements ever appeared: a text field (no identifier,
 /// label or help) and a scroll area (also none). No SwiftUI row, container, button or preview element
-/// appeared, so the modifiers SwiftUI applies cannot be read back in a test. Cases that would only compare
-/// a constant with itself were deleted. What remains checks real behavior: the row label and hint the list
+/// appeared. Round 2 repeated the walk after forcing an assistive client: `AXEnhancedUserInterface` set as an
+/// override value on `NSApp`, and as an attribute on `AXUIElementCreateApplication(getpid())` (the latter
+/// fails with kAXErrorAPIDisabled, because the test process is not an accessibility-trusted client). The
+/// tree stayed the same: the SwiftUI container was empty and no node carried an identifier. So the modifiers
+/// SwiftUI applies are not observed even with a forced AX client. Cases that would only compare a constant
+/// with itself were deleted. What remains checks real behavior: the row label and hint the list
 /// builds (static, shared with the views), the panel's own AppKit label and help, the AppKit elements
 /// SwiftUI backs with, and the keyboard model. VoiceOver output itself needs a manual pass.
 @MainActor
@@ -23,7 +27,6 @@ final class AccessibilityTests: XCTestCase {
         static let applicationsQuery = "a"
         static let safariQuery = "Safari"
         static let safariName = "Safari"
-        static let shortcutHelp = "Press Option-Space to open the launcher"
         static let clipboardNote = "Important meeting notes"
         static let minimumLabelLength = 5
         static let uuidLabelLength = 30

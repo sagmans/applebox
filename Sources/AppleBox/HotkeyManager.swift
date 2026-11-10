@@ -62,7 +62,7 @@ final class HotkeyManager {
     private var eventHandler: EventHandlerRef?
     private var active: [HotkeyMode: Registration] = [:]
     private var nextID: UInt32 = 1
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox", category: "hotkey")
+    private let logger = Logger(subsystem: LogSubsystem.name, category: "hotkey")
 
     init(preferences: UserDefaults = .standard, callback: @escaping (HotkeyMode) -> Void) {
         self.preferences = preferences

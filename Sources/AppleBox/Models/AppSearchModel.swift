@@ -85,7 +85,7 @@ final class AppSearchModel {
     @ObservationIgnored private var pendingLaunch: UUID?
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
     @ObservationIgnored private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        subsystem: LogSubsystem.name,
         category: "launcher"
     )
 

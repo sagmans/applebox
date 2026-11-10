@@ -22,6 +22,7 @@ struct ResultsList: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(DesignTokens.Identifier.resultsTable)
         .accessibilityLabel(DesignTokens.Copy.resultsLabel)
+        .accessibilityHint(DesignTokens.Copy.resultsHelp)
     }
 
     private var tint: Color {

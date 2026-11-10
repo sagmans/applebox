@@ -38,6 +38,7 @@ struct SearchBar: View {
                 .font(DesignTokens.Typography.search)
                 .focused($isFocused)
                 .accessibilityIdentifier(DesignTokens.Identifier.searchField)
+                .accessibilityLabel(DesignTokens.Copy.searchFieldLabel)
                 .accessibilityHint(model.searchShortcutHelp)
             Text(model.resultCount, format: .number)
                 .font(DesignTokens.Typography.caption)

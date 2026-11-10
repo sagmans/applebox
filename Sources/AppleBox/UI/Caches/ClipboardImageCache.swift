@@ -4,11 +4,18 @@ import ImageIO
 /// Decoded clipboard images, shared by rows and the preview so each image is decoded once.
 ///
 /// Keyed by the clip's id, not a hash of its bytes: a clip is immutable, and payloads reach about 10 MB of
-/// base64, so hashing them on every lookup would cost more than the lookup saves. A history reload gives
-/// clips new ids, which only costs one more decode.
+/// base64, so hashing them on every lookup would cost more than the lookup saves. Ids are assigned when
+/// the archive is decoded at startup, so only a restart gives clips new ids, which costs one more decode.
 final class ClipboardImageCache {
     private let full = NSCache<NSUUID, NSImage>()
     private let thumbnails = NSCache<NSUUID, NSImage>()
+
+    /// Both caches hold at most one entry per clip the history can keep. More would only keep images of
+    /// clips that were already evicted from history, and fewer would re-decode visible rows while scrolling.
+    init(countLimit: Int = ClipboardHistoryLimits.itemCount) {
+        full.countLimit = countLimit
+        thumbnails.countLimit = countLimit
+    }
 
     /// Full-size image for the preview; decoded at most once per clip id.
     func image(for item: ClipboardItem) -> NSImage? {

@@ -20,19 +20,48 @@ nonisolated enum ClipKind: Sendable, Equatable {
     /// Only web links get the link treatment; other schemes are not safe to open from a preview.
     private static let linkSchemes: Set<String> = ["http", "https"]
     private static let fileScheme = "file"
+    /// Hex digits are base 16; named so the parse call states which radix the notation implies.
     private static let hexRadix = 16
+    /// Digit counts of the three hex notations: shorthand (doubled per digit), full, and full with alpha.
     private static let hexDigitsShort = 3
     private static let hexDigitsLong = 6
     private static let hexDigitsAlpha = 8
+    /// Bit width of one hex-encoded channel, so unpacking shifts by whole channels.
+    private static let bitsPerChannel = 8
+    /// Selects one channel after a shift; the value follows from `bitsPerChannel`, written as hex because
+    /// it is a bit mask.
+    private static let channelMask: UInt32 = 0xFF
+    /// Channel values in CSS `rgb()` run 0...255; dividing by this maps them to the 0...1 SwiftUI expects.
     private static let byteMax = 255.0
+    /// HSL saturation and lightness run 0...100 in CSS; dividing by this maps them to 0...1.
     private static let percentMax = 100.0
+    /// Hue is an angle in degrees and wraps at a full turn, so values outside it are malformed, not wrapped.
     private static let degreesMax = 360.0
+    /// A full hue turn is split into six 60 degree sectors, which is how the HSL to RGB conversion picks
+    /// the channel order.
     private static let hueSectors = 6.0
     private static let argumentSeparator = ","
     private static let percentSuffix = "%"
+    /// Delimiters of the functional notation; the pattern already guarantees a single outer pair.
+    private static let argumentsOpen: Character = "("
+    private static let argumentsClose: Character = ")"
+    /// Function names of the supported notations, lowercased because the pattern is case-insensitive.
+    private static let rgbName = "rgb"
+    private static let rgbaName = "rgba"
+    private static let hslName = "hsl"
+    /// CSS `rgb()` takes three channels and `rgba()` adds one alpha argument after them.
+    private static let rgbChannelCount = 3
+    private static let rgbaArgumentCount = 4
+    /// CSS `hsl()` takes hue, saturation and lightness.
+    private static let hslArgumentCount = 3
     /// Every kind is decided by the start of a clip, and a clip can be hundreds of KiB. Bounding the scan
     /// keeps classification cheap when rows are built on the main actor at open time.
     private static let classificationScanLimit = 4096
+    /// A line counts as indented when it starts with two spaces or a tab; one stray indent in prose is not code.
+    private static let indentationSpaces = "  "
+    private static let indentationTab = "\t"
+    /// More than this many indented lines are needed, so a quoted paragraph with one or two indents stays text.
+    private static let indentedLineThreshold = 2
 
     /// Pure function of the item so it can run on a background queue while rows are built.
     static func classify(_ item: ClipboardItem) -> ClipKind {
@@ -64,7 +93,7 @@ nonisolated enum ClipKind: Sendable, Equatable {
     /// Heuristic to detect code-like content for monospace formatting.
     /// Detects: common code patterns, indentation, brackets, semicolons, etc.
     static func isCodeLike(_ text: String) -> Bool {
-        // Code indicators
+        // Markers that rarely occur in prose; one hit is enough, so a short snippet is not missed.
         let codePatterns = [
             "func ", "class ", "struct ", "enum ", "let ", "var ", "import ", // Swift
             "function ", "const ", "=>", "===", "!==", // JavaScript
@@ -74,17 +103,17 @@ nonisolated enum ClipKind: Sendable, Equatable {
 
         let lowercased = text.lowercased()
 
-        // Check for code patterns
+        // Case-insensitive so `Func ` or `CONST ` pasted from tools that capitalize still counts as code.
         for pattern in codePatterns {
             if lowercased.contains(pattern.lowercased()) {
                 return true
             }
         }
 
-        // Check for indentation (multiple leading spaces/tabs on lines)
+        // Markers can be absent from short statements, but consistently indented lines still mark code.
         let lines = text.components(separatedBy: "\n")
-        let indentedLines = lines.filter { $0.hasPrefix("  ") || $0.hasPrefix("\t") }
-        if indentedLines.count > 2 {
+        let indentedLines = lines.filter { $0.hasPrefix(indentationSpaces) || $0.hasPrefix(indentationTab) }
+        if indentedLines.count > indentedLineThreshold {
             return true
         }
 
@@ -107,15 +136,15 @@ nonisolated enum ClipKind: Sendable, Equatable {
             return parseHex(String(text.dropFirst()))
         }
         guard text.range(of: functionalColorPattern, options: [.regularExpression, .caseInsensitive]) != nil,
-              let open = text.firstIndex(of: "("),
-              let close = text.lastIndex(of: ")") else { return nil }
+              let open = text.firstIndex(of: argumentsOpen),
+              let close = text.lastIndex(of: argumentsClose) else { return nil }
         let name = text[..<open].lowercased()
         let args = text[text.index(after: open) ..< close]
             .components(separatedBy: argumentSeparator)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         switch name {
-        case "rgb", "rgba": return parseRGB(args, allowsAlpha: name == "rgba")
-        case "hsl": return parseHSL(args)
+        case rgbName, rgbaName: return parseRGB(args, allowsAlpha: name == rgbaName)
+        case hslName: return parseHSL(args)
         default: return nil
         }
     }
@@ -130,7 +159,7 @@ nonisolated enum ClipKind: Sendable, Equatable {
               let value = UInt32(expanded, radix: hexRadix) else { return nil }
         let hasAlpha = expanded.count == hexDigitsAlpha
         let shift: (Int) -> Double = { position in
-            Double((value >> UInt32(position * 8)) & 0xFF) / byteMax
+            Double((value >> UInt32(position * bitsPerChannel)) & channelMask) / byteMax
         }
         return hasAlpha
             ? Color(.sRGB, red: shift(3), green: shift(2), blue: shift(1), opacity: shift(0))
@@ -139,18 +168,18 @@ nonisolated enum ClipKind: Sendable, Equatable {
 
     /// Accepts 3 channels, plus an alpha only for `rgba`, to match CSS spelling.
     private static func parseRGB(_ args: [String], allowsAlpha: Bool) -> Color? {
-        let expected = allowsAlpha ? 4 : 3
+        let expected = allowsAlpha ? rgbaArgumentCount : rgbChannelCount
         guard args.count == expected else { return nil }
-        let channels = args.prefix(3).compactMap { Double($0) }
-        guard channels.count == 3, channels.allSatisfy({ (0 ... byteMax).contains($0) }) else { return nil }
-        let alpha = allowsAlpha ? Double(args[3]) : 1
+        let channels = args.prefix(rgbChannelCount).compactMap { Double($0) }
+        guard channels.count == rgbChannelCount, channels.allSatisfy({ (0 ... byteMax).contains($0) }) else { return nil }
+        let alpha = allowsAlpha ? Double(args[rgbChannelCount]) : 1
         guard let alpha, (0 ... 1).contains(alpha) else { return nil }
         return Color(.sRGB, red: channels[0] / byteMax, green: channels[1] / byteMax, blue: channels[2] / byteMax, opacity: alpha)
     }
 
     /// Converts HSL to RGB because SwiftUI's `Color` has no HSL initializer in sRGB.
     private static func parseHSL(_ args: [String]) -> Color? {
-        guard args.count == 3,
+        guard args.count == hslArgumentCount,
               let hue = Double(args[0]),
               let sat = percent(args[1]),
               let light = percent(args[2]),
@@ -170,7 +199,8 @@ nonisolated enum ClipKind: Sendable, Equatable {
         return Color(.sRGB, red: red + base, green: green + base, blue: blue + base, opacity: 1)
     }
 
-    /// HSL saturation and lightness are written as percentages; normalizing to 0...1 here.
+    /// HSL saturation and lightness are written as percentages in CSS but the conversion needs fractions,
+    /// so reading them here keeps the unit handling out of the conversion.
     private static func percent(_ text: String) -> Double? {
         guard text.hasSuffix(percentSuffix),
               let value = Double(text.dropLast(percentSuffix.count)),

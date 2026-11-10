@@ -350,14 +350,6 @@ final class LauncherModelTests: XCTestCase {
 
     // MARK: - Panel Key Routing
 
-    /// Key codes of the keys under test, matching the hardware codes the panel reserves.
-    private enum TestKeyCode {
-        static let escape: UInt16 = 53
-        static let upArrow: UInt16 = 126
-        static let downArrow: UInt16 = 125
-        static let returnKey: UInt16 = 36
-    }
-
     private func keyEvent(_ code: UInt16, characters: String = "", modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
@@ -380,7 +372,7 @@ final class LauncherModelTests: XCTestCase {
         XCTAssertEqual(model.selection, 0)
         model.query = "abc"
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.escape))
 
         XCTAssertEqual(model.query, "")
         XCTAssertNil(model.selection)
@@ -392,7 +384,7 @@ final class LauncherModelTests: XCTestCase {
         model.show()
         XCTAssertEqual(model.query, "")
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.escape))
 
         XCTAssertFalse(model.isPresented)
     }
@@ -403,10 +395,10 @@ final class LauncherModelTests: XCTestCase {
         model.show(mode: .clipboard)
         XCTAssertEqual(model.selection, 0)
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.downArrow))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.downArrow))
         XCTAssertEqual(model.selection, 1)
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.upArrow))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.upArrow))
         XCTAssertEqual(model.selection, 0)
     }
 
@@ -415,7 +407,7 @@ final class LauncherModelTests: XCTestCase {
         let controller = LauncherController(model: model)
         model.show(mode: .clipboard)
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.returnKey, characters: "\r"))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.returnKey, characters: "\r"))
 
         XCTAssertEqual(mockPasteboard.string(forType: .string), "hello")
     }
@@ -425,7 +417,7 @@ final class LauncherModelTests: XCTestCase {
         let controller = LauncherController(model: model)
         model.show(mode: .clipboard)
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.returnKey, characters: "\r", modifiers: .option))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.returnKey, characters: "\r", modifiers: .option))
 
         XCTAssertEqual(mockPasteboard.string(forType: .string), "hello")
         XCTAssertTrue(mockEventSource.pasteTargets.isEmpty, "Copy must not paste")
@@ -442,7 +434,7 @@ final class LauncherModelTests: XCTestCase {
         textView.setMarkedText("あ", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
         XCTAssertTrue(textView.hasMarkedText())
 
-        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+        try controller.panel.sendEvent(keyEvent(LauncherKeyCode.escape))
 
         XCTAssertTrue(model.isPresented, "Esc must reach the input method, not dismiss the launcher")
     }

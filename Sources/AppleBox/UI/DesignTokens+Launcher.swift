@@ -25,11 +25,18 @@ extension DesignTokens.Copy {
     static let windowLabel = "AppleBox Launcher"
     /// Purpose of the launcher panel.
     static let windowHelp = "Quick launcher for applications and clipboard history"
-    /// Accessibility label of the preview pane as a whole.
+    /// Accessibility label of the preview content (text or image) inside the pane.
     static let previewLabel = "Clip preview"
-
-    /// Key that chooses Cancel in the clear-history sheet: Return, so a repeated press can never erase history.
-    static let cancelKeyEquivalent = "\r"
+    /// Spoken name and purpose of the preview pane as a whole. Kept verbatim from the earlier AppKit
+    /// launcher so VoiceOver users hear what they heard before.
+    static let previewPaneLabel = "Clipboard Preview Panel"
+    static let previewPaneHelp = "Preview panel for clipboard items"
+    /// Spoken help of the results list, naming the keys that move through it. Verbatim from the earlier
+    /// launcher for the same reason.
+    static let resultsHelp = "Use arrow keys to navigate results, Enter to select."
+    /// Spoken name of the search field. Verbatim from the earlier launcher; the placeholder alone names
+    /// the list being searched, not the control.
+    static let searchFieldLabel = "Search Field"
 
     /// Joins the parts of a row's spoken label with a pause, so VoiceOver reads them as separate phrases.
     static let labelSeparator = ", "
@@ -82,6 +89,12 @@ extension DesignTokens.Palette {
 }
 
 extension DesignTokens {
+    /// Key bindings that are behavior, not user copy, so changing wording can never change a key.
+    enum Keys {
+        /// Key that chooses Cancel in the clear-history sheet: Return, so a repeated press can never erase history.
+        static let cancelKeyEquivalent = "\r"
+    }
+
     /// Date format of the copy time in the preview header: day and time, no year, because clips are recent.
     static let clipDateFormat = Date.FormatStyle().month().day().hour().minute()
 

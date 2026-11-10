@@ -11,7 +11,8 @@ enum LauncherKey: Equatable {
 }
 
 /// Hardware key codes the panel reserves, so a focused text field cannot consume these keys first.
-private enum LauncherKeyCode {
+/// Internal, not private, so tests post the same codes the panel matches instead of keeping copies.
+enum LauncherKeyCode {
     static let escape: UInt16 = 53
     static let upArrow: UInt16 = 126
     static let downArrow: UInt16 = 125

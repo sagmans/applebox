@@ -10,7 +10,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
     let panel: LauncherPanel
     /// Records why the panel could not open, since a silent hotkey press is hard to diagnose.
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        subsystem: LogSubsystem.name,
         category: "launcher-shell"
     )
 

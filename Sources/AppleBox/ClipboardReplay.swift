@@ -12,7 +12,7 @@ final class ClipboardReplay {
     private let changedClipboardMessage = "Clipboard changed before paste."
     private let copyFailureMessage = "Couldn't copy the clip. Try again."
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        subsystem: LogSubsystem.name,
         category: "clipboardReplay"
     )
 

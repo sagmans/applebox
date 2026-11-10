@@ -28,7 +28,8 @@ struct ClipPreviewPane: View {
         .padding(DesignTokens.Metrics.previewPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(DesignTokens.Copy.previewLabel)
+        .accessibilityLabel(DesignTokens.Copy.previewPaneLabel)
+        .accessibilityHint(DesignTokens.Copy.previewPaneHelp)
     }
 
     /// Kind, copy time and size, in a quiet row so the content stays the focus.
@@ -99,7 +100,9 @@ struct ClipPreviewPane: View {
 /// change; bounded so a long session cannot grow it without limit.
 private final class CharacterCountMemo {
     private var counts: [UUID: Int] = [:]
-    private static let limit = 64
+    /// One entry per clip the history can hold, so the memo never evicts a count that is still reachable
+    /// and cannot outgrow the history it describes.
+    private static let limit = ClipboardHistoryLimits.itemCount
 
     func characters(in item: ClipboardItem) -> Int {
         if let known = counts[item.id] {

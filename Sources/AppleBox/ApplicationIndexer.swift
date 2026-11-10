@@ -66,7 +66,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
     private let maximumDirectoryDepth = 5
     private let maximumEntriesPerRoot = 4096
     private let scanResourceKeys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox", category: "index")
+    private let logger = Logger(subsystem: LogSubsystem.name, category: "index")
 
     /// Paths to scan for applications
     private var searchPaths: [URL] {

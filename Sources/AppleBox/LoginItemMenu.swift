@@ -16,7 +16,7 @@ final class LoginItemMenu: NSObject, NSMenuDelegate {
 
     private let service = SMAppService.mainApp
     private let toggle = NSMenuItem(title: Title.toggle, action: #selector(toggleLoginItem), keyEquivalent: "")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox", category: "login-item")
+    private let logger = Logger(subsystem: LogSubsystem.name, category: "login-item")
     let item = NSMenuItem(title: Title.menu, action: nil, keyEquivalent: "")
 
     override init() {

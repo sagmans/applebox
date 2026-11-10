@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let loginItemMenu = LoginItemMenu()
 
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        subsystem: LogSubsystem.name,
         category: "app"
     )
 

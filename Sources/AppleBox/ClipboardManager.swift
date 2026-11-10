@@ -64,7 +64,9 @@ nonisolated struct ClipboardItem: Codable, Sendable {
     }
 }
 
-private nonisolated enum ClipboardHistoryLimits {
+/// Retention rules of the history. Internal, not private, so caches that mirror the history can derive
+/// their bounds from `itemCount` instead of keeping a second number that drifts.
+nonisolated enum ClipboardHistoryLimits {
     private static let kibibyte = 1024
     private static let mebibyte = kibibyte * kibibyte
     private static let maximumJSONEscapeBytes = 6
@@ -141,7 +143,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     ]
 
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
+        subsystem: LogSubsystem.name,
         category: "clipboard"
     )
 
