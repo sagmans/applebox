@@ -23,6 +23,10 @@ final class LauncherController: NSObject, NSWindowDelegate {
     private var closeTask: Task<Void, Never>?
     /// The pending shrink after a mode morph; kept so another switch, a hide or a reopen can cancel it.
     private var resizeTask: Task<Void, Never>?
+    /// Removal count already reflected in the image cache, so a hide after a delete or clear also drops
+    /// the decoded images of removed clips. Only user removals count: clips that expire or fall out at the
+    /// history limit leave the cache by its own count limit, and a failed removal only costs a re-decode.
+    private var removalsReleased = 0
     /// Watches the clear-history sheet, which takes key status from the panel while it is up.
     private var sheetObserver: NSObjectProtocol?
 
@@ -117,6 +121,10 @@ final class LauncherController: NSObject, NSWindowDelegate {
             guard let self, !Task.isCancelled else { return }
             closeTask = nil
             panel.orderOut(nil)
+            // After the fade, so the preview does not blank while it is still visible.
+            let removals = model.clips.removalsFinished
+            imageCache.releaseHidden(clipsWereRemoved: removals != removalsReleased)
+            removalsReleased = removals
         }
     }
 

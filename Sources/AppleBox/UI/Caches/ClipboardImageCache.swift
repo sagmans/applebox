@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import Synchronization
 
 /// What the cache holds for a clip image right now. A view tells "still decoding" from "cannot be
 /// decoded", because an empty pane reads as loading while a failure must say so.
@@ -17,21 +18,26 @@ nonisolated enum ClipImageLookup {
 ///
 /// Decoding runs on `decodeQueue`, because a base64 payload of that size plus the image decode takes tens
 /// of milliseconds, and doing it inside a view's body stalls the open motion and typing. Lookups return
-/// at once; `didLoad` tells views to look again. The type opts out of default main-actor isolation for
-/// that queue. `@unchecked Sendable` is safe because `inFlight` is only touched through `inFlightQueue`,
-/// and the remaining properties are immutable or NSCache, which is documented as thread-safe.
+/// at once; `didLoad` tells views to look again.
+///
+/// Entries leave by count, least recently used first, or when the panel hides (`releaseHidden`), never
+/// while a view may still draw them. NSCache is not used: it also purges on system
+/// memory pressure, and every purge made the visible rows and the preview miss on their next redraw,
+/// decode again, post `didLoad`, and redraw. Under sustained pressure that loop kept the decode thread
+/// busy and the preview never kept its image long enough to draw it.
+///
+/// The type opts out of default main-actor isolation for that queue. `@unchecked Sendable` is safe
+/// because all mutable state sits in `state`, a mutex, and NSImage values are only read after decoding.
 final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// Posted on the main queue when a decode finishes, whatever its result, so views showing the
     /// pending state can redraw.
     static let didLoad = Notification.Name("applebox.clipboardImageCache.didLoad")
 
-    /// One decode result; the box lets a failed decode be cached too, so it is not retried per redraw.
-    private final class Box {
-        let image: NSImage?
-        init(_ image: NSImage?) {
-            self.image = image
-        }
-    }
+    /// Full-size images kept at once. The preview shows one, so a few cover stepping back and forth through
+    /// neighbouring clips; each can be tens of megabytes once drawn, so more would pin memory nobody sees.
+    static let defaultFullLimit = 3
+    /// Floor for both limits, so a store always keeps the entry a view is drawing.
+    private static let minimumLimit = 1
 
     /// Names one decode: the full image and the thumbnail of a clip are separate work.
     private struct Job: Hashable {
@@ -39,30 +45,89 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
         let isThumbnail: Bool
     }
 
-    private let full = NSCache<NSUUID, Box>()
-    private let thumbnails = NSCache<NSUUID, Box>()
-    private let decodeQueue = DispatchQueue(label: "applebox.clipImages.decode", qos: .userInitiated)
-    private let inFlightQueue = DispatchQueue(label: "applebox.clipImages.inflight")
-    /// Jobs queued or running, so redraws while a decode runs do not queue the same work again.
-    private var inFlight: Set<Job> = []
-
-    /// Both caches hold at most one entry per clip the history can keep. More would only keep images of
-    /// clips that were already evicted from history, and fewer would re-decode visible rows while scrolling.
-    init(countLimit: Int = ClipboardHistoryLimits.itemCount) {
-        full.countLimit = countLimit
-        thumbnails.countLimit = countLimit
+    /// What one store knows about a clip. `missing` is distinct from a stored failure, so a failed decode
+    /// is kept and not retried per redraw.
+    private enum Stored {
+        case missing
+        case decoded(NSImage?)
     }
 
-    /// Full-size image for the preview; decoded at most once per clip id.
+    /// Count-bounded least-recently-used map; one per image kind so full images never evict thumbnails.
+    private struct LRUStore {
+        private var entries: [UUID: (image: NSImage?, lastUse: UInt64)] = [:]
+        private var clock: UInt64 = 0
+        let limit: Int
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        /// A hit refreshes recency, so the image a view is drawing is the last to be evicted.
+        mutating func get(_ id: UUID) -> Stored {
+            guard let entry = entries[id] else { return .missing }
+            clock &+= 1
+            entries[id]?.lastUse = clock
+            return .decoded(entry.image)
+        }
+
+        /// A linear scan for the oldest entry is enough: a store holds at most the history's clip count.
+        mutating func put(_ image: NSImage?, for id: UUID) {
+            clock &+= 1
+            entries[id] = (image, clock)
+            while entries.count > limit, let oldest = entries.min(by: { $0.value.lastUse < $1.value.lastUse }) {
+                entries.removeValue(forKey: oldest.key)
+            }
+        }
+
+        mutating func removeAll() {
+            entries.removeAll()
+        }
+    }
+
+    /// Everything the lookups and the decode queue share, behind one lock so a store and the end of its
+    /// in-flight marker are seen together.
+    private struct State {
+        var full: LRUStore
+        var thumbnails: LRUStore
+        /// Jobs queued or running, so redraws while a decode runs do not queue the same work again.
+        var inFlight: Set<Job> = []
+        /// Bumped by each release, so a decode that started before it does not put its image back after it.
+        var generation: UInt64 = 0
+
+        /// In-place access to one kind's store; a get/set pair would copy its dictionary on every lookup.
+        mutating func store<Result>(thumbnail: Bool, _ body: (inout LRUStore) -> Result) -> Result {
+            thumbnail ? body(&thumbnails) : body(&full)
+        }
+    }
+
+    private let state: Mutex<State>
+    private let decodeQueue = DispatchQueue(label: "applebox.clipImages.decode", qos: .userInitiated)
+
+    /// Thumbnails keep one entry per clip the history can hold, so scrolling the whole list never
+    /// re-decodes a row; they are small. Full images keep `fullLimit`, see `defaultFullLimit`.
+    init(
+        fullLimit: Int = ClipboardImageCache.defaultFullLimit,
+        thumbnailLimit: Int = ClipboardHistoryLimits.itemCount
+    ) {
+        state = Mutex(State(
+            full: LRUStore(limit: max(Self.minimumLimit, fullLimit)),
+            thumbnails: LRUStore(limit: max(Self.minimumLimit, thumbnailLimit))
+        ))
+    }
+
+    /// Full-size image for the preview; decoded at most once while the clip stays among the recent ones.
     func image(for item: ClipboardItem) -> ClipImageLookup {
         guard item.contentType == .image, item.imageData != nil else { return .unavailable }
-        if let cached = full.object(forKey: item.id as NSUUID) {
-            return cached.image.map(ClipImageLookup.ready) ?? .unavailable
+        let job = Job(id: item.id, isThumbnail: false)
+        switch lookup(job) {
+        case let .decoded(image):
+            return image.map(ClipImageLookup.ready) ?? .unavailable
+        case .missing:
+            schedule(job) {
+                item.imageData.flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:))
+            }
+            return .pending
         }
-        schedule(Job(id: item.id, isThumbnail: false)) {
-            item.imageData.flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:))
-        }
-        return .pending
     }
 
     /// Small image for a list row, or nil while it decodes or when it cannot be decoded; the row shows
@@ -70,13 +135,33 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// multi-megapixel bitmap in memory or pay for decoding one.
     func thumbnail(for item: ClipboardItem, pixelSize: CGFloat) -> NSImage? {
         guard item.contentType == .image, item.imageData != nil else { return nil }
-        if let cached = thumbnails.object(forKey: item.id as NSUUID) {
-            return cached.image
+        let job = Job(id: item.id, isThumbnail: true)
+        switch lookup(job) {
+        case let .decoded(image):
+            return image
+        case .missing:
+            schedule(job) {
+                Self.decodeThumbnail(item: item, pixelSize: pixelSize)
+            }
+            return nil
         }
-        schedule(Job(id: item.id, isThumbnail: true)) {
-            Self.decodeThumbnail(item: item, pixelSize: pixelSize)
+    }
+
+    /// Called when the panel has hidden. Full images are large and only the preview draws them, so they
+    /// are not kept while nothing is on screen. After a delete or clear, thumbnails go too, so images of
+    /// removed clips do not outlive their removal in memory.
+    func releaseHidden(clipsWereRemoved: Bool) {
+        state.withLock { state in
+            state.generation &+= 1
+            state.full.removeAll()
+            if clipsWereRemoved {
+                state.thumbnails.removeAll()
+            }
         }
-        return nil
+    }
+
+    private func lookup(_ job: Job) -> Stored {
+        state.withLock { $0.store(thumbnail: job.isThumbnail) { $0.get(job.id) } }
     }
 
     private static func decodeThumbnail(item: ClipboardItem, pixelSize: CGFloat) -> NSImage? {
@@ -92,13 +177,16 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     }
 
     private func schedule(_ job: Job, decode: @escaping @Sendable () -> NSImage?) {
-        let shouldStart = inFlightQueue.sync { inFlight.insert(job).inserted }
+        let (shouldStart, generation) = state.withLock { ($0.inFlight.insert(job).inserted, $0.generation) }
         guard shouldStart else { return }
         decodeQueue.async { [weak self] in
             guard let self else { return }
-            let cache = job.isThumbnail ? thumbnails : full
-            cache.setObject(Box(decode()), forKey: job.id as NSUUID)
-            inFlightQueue.sync { _ = self.inFlight.remove(job) }
+            let decoded = decode()
+            state.withLock { state in
+                state.inFlight.remove(job)
+                guard state.generation == generation else { return }
+                state.store(thumbnail: job.isThumbnail) { $0.put(decoded, for: job.id) }
+            }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: Self.didLoad, object: nil)
             }
