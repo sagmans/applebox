@@ -123,6 +123,8 @@ final class ClipboardManager {
     static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
     private static let capturePausedKey = "ClipboardCapturePaused"
     private static let privateDirectoryMode = 0o700
+    private static let captureInterval: TimeInterval = 0.2
+    private static let captureTolerance: TimeInterval = 0.02
 
     /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
@@ -297,10 +299,13 @@ final class ClipboardManager {
         // Initialize last change count
         lastChangeCount = pasteboard.changeCount
 
-        // Check for changes every 0.5 seconds
-        monitoringTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.captureInterval, repeats: true) { [weak self] _ in
             self?.checkForChanges()
         }
+        // Coalesce idle wakeups while still capturing copies made during menu tracking.
+        timer.tolerance = Self.captureTolerance
+        RunLoop.main.add(timer, forMode: .common)
+        monitoringTimer = timer
     }
 
     private func stopMonitoring() {
@@ -308,8 +313,7 @@ final class ClipboardManager {
         monitoringTimer = nil
     }
 
-    /// Polls the pasteboard once. The monitoring timer calls this every 0.5 s;
-    /// tests call it directly so they do not race the timer.
+    /// Allow tests to exercise one capture without depending on the timer's phase.
     func checkForChanges() {
         guard !isCapturePaused else { return }
         let change = pasteboard.changeCount

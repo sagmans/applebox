@@ -99,6 +99,9 @@ and SwiftLint versions.
   **Global Shortcuts** in the AppleBox menu. The check mark shows the active
   shortcut. If macOS rejects a choice, AppleBox keeps the current shortcut.
 - **Menu bar**: Open either mode, retry global shortcuts, or quit AppleBox
+- **Clipboard history** keeps plain text and PNG or TIFF images. AppleBox
+  checks for copies about every 200 ms while capture is enabled. If several
+  copies replace each other before a check, only the latest can be captured.
 - **Escape Key**: Press `Esc` to dismiss the launcher
 - **Centered Window**: Window appears centered on the active screen
 - **No Dock Icon**: Runs as a background application (LSUIElement style)
