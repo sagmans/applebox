@@ -14,17 +14,32 @@ final class LauncherController: NSObject, NSWindowDelegate {
         category: "launcher-shell"
     )
 
-    /// Whether the panel is on screen, for the hotkey toggle.
+    /// Owned here, not by a view, so icons survive the panel being hidden and can be warmed before the
+    /// first opening.
+    private let iconCache: AppIconCache
+    /// Shared by rows and the preview so each clip image is decoded once.
+    private let imageCache = ClipboardImageCache()
+    /// The pending order-out after the close motion; kept so a quick reopen can cancel it.
+    private var closeTask: Task<Void, Never>?
+
+    /// Whether the panel is on screen, for the hotkey toggle. A panel that is fading out counts as
+    /// hidden, so a second hotkey press reopens it instead of closing it twice.
     var isVisible: Bool {
-        panel.isVisible
+        panel.isVisible && closeTask == nil
     }
 
-    init(model: LauncherModel) {
+    init(model: LauncherModel, iconProvider: AppIconProviding = SystemAppIconProvider()) {
         self.model = model
+        iconCache = AppIconCache(loader: iconProvider)
         panel = LauncherPanel(contentRect: NSRect(origin: .zero, size: DesignTokens.Layout.appPanelSize))
         super.init()
-        // The views arrive in a later step; an empty host keeps the panel's content view in place.
-        panel.contentView = NSHostingView(rootView: EmptyView())
+        let host = NSHostingView(rootView: LauncherView(model: model)
+            .environment(\.appIcons, iconCache)
+            .environment(\.clipImages, imageCache))
+        // The controller sizes the panel per mode; letting the content drive the window size would fight it.
+        host.sizingOptions = []
+        panel.contentView = host
+        panel.setAccessibilityIdentifier(DesignTokens.Identifier.window)
         panel.delegate = self
         panel.keyHandler = { [weak self] key in self?.handle(key) ?? false }
         // Weak, because the model outlives a closed controller and must not keep it alive.
@@ -48,6 +63,9 @@ final class LauncherController: NSObject, NSWindowDelegate {
     /// Opens the panel. The model goes first because it records the paste target, which is whichever
     /// app has focus before the panel takes the keyboard.
     func show(mode: SearchMode?) {
+        // A reopen during the close motion must not be undone by the pending order-out.
+        closeTask?.cancel()
+        closeTask = nil
         model.show(mode: mode)
         guard resizeAndPosition() else {
             // Without a screen there is nowhere to draw; undo the session so the model does not think
@@ -66,12 +84,45 @@ final class LauncherController: NSObject, NSWindowDelegate {
             panel.endSheet(sheet, returnCode: .cancel)
         }
         model.hide()
-        panel.orderOut(nil)
+        guard panel.isVisible, closeTask == nil else { return }
+        // The model's close state drives the fade; the window must outlive it, or the motion is never seen.
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? DesignTokens.Motion.reducedFade
+            : DesignTokens.Motion.closeDuration
+        closeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            guard let self, !Task.isCancelled else { return }
+            closeTask = nil
+            panel.orderOut(nil)
+        }
+    }
+
+    /// Applies the app index once it exists; forwarded so the app delegate holds one launcher object.
+    func setSearchService(_ service: SearchService) {
+        model.setSearchService(service)
+    }
+
+    /// Applies the clipboard history once it has loaded.
+    func setClipboardManager(_ manager: ClipboardManager) {
+        model.setClipboardManager(manager)
+    }
+
+    /// Publishes the shortcut description for assistive technology on the search field.
+    func setSearchShortcutHelp(_ help: String) {
+        model.searchShortcutHelp = help
+    }
+
+    /// Loads icons ahead of the first search so the list never opens with placeholders.
+    func prewarmAppIcons(applications: [ApplicationInfo]) {
+        let bundlePaths = applications.map(\.bundlePath)
+        DispatchQueue.global(qos: .utility).async { [iconCache] in
+            iconCache.prewarm(bundlePaths: bundlePaths)
+        }
     }
 
     /// Click-away dismissal. A sheet taking key status is part of the launcher, so it must not close it.
     func windowDidResignKey(_ notification: Notification) {
-        guard notification.object as? NSWindow === panel, panel.attachedSheet == nil else { return }
+        guard notification.object as? NSWindow === panel, panel.attachedSheet == nil, closeTask == nil else { return }
         hide()
     }
 

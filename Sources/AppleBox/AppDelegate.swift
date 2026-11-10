@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var hotkeyManager: HotkeyManager?
-    private var windowManager: WindowManager?
+    private var launcher: LauncherController?
     private var appIndexer: ApplicationIndexer?
     private var clipboardManager: ClipboardManager?
     private var statusItem: NSStatusItem?
@@ -32,26 +32,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("AppleBox launched")
 
         // UI first: show/typing must never wait on indexing/persistence.
-        // The model owns launcher state; the window only renders it and forwards input.
+        // The model owns launcher state; the controller presents it and forwards input.
         let launcherModel = LauncherModel()
-        let windowManager = WindowManager(model: launcherModel)
-        self.windowManager = windowManager
+        let launcher = LauncherController(model: launcherModel)
+        self.launcher = launcher
 
         // Start indexing asynchronously.
         let appIndexer = ApplicationIndexer(scanSynchronously: false)
         self.appIndexer = appIndexer
         let searchService = SearchService(indexer: appIndexer)
-        windowManager.setSearchService(searchService)
+        launcher.setSearchService(searchService)
 
         // Load clipboard history asynchronously and start monitoring.
         let clipboardManager = ClipboardManager(capturePreferences: .standard, loadSynchronously: false)
         self.clipboardManager = clipboardManager
-        windowManager.setClipboardManager(clipboardManager)
+        launcher.setClipboardManager(clipboardManager)
 
         // Start watching before the scan so an install during startup queues a refresh.
         appIndexer.startMonitoring()
-        appIndexer.scanForApplicationsAsync { [weak windowManager] apps in
-            windowManager?.prewarmAppIcons(applications: apps)
+        appIndexer.scanForApplicationsAsync { [weak launcher] apps in
+            launcher?.prewarmAppIcons(applications: apps)
         }
 
         // Initialize hotkey manager.
@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openFromMenu(mode: SearchMode) {
         // Let AppKit finish tracking the menu before the launcher takes keyboard focus.
-        DispatchQueue.main.async { [weak self] in self?.windowManager?.show(mode: mode) }
+        DispatchQueue.main.async { [weak self] in self?.launcher?.show(mode: mode) }
     }
 
     @objc private func retryShortcutsFromMenu() {
@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let search = hotkeyManager.activePreset(for: .application)?.chord.label ?? MenuTitle.noActiveShortcut
         let clipboard = hotkeyManager.activePreset(for: .clipboard)?.chord.label ?? MenuTitle.noActiveShortcut
-        windowManager?.setSearchShortcutHelp("\(MenuTitle.searchHelp) \(MenuTitle.search) \(search). \(MenuTitle.clipboard) \(clipboard).")
+        launcher?.setSearchShortcutHelp("\(MenuTitle.searchHelp) \(MenuTitle.search) \(search). \(MenuTitle.clipboard) \(clipboard).")
     }
 
     private func shortcutOptions(for mode: HotkeyMode, title: String, manager: HotkeyManager) -> NSMenu {
@@ -188,6 +188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if mode != .clipboard {
             appIndexer?.refreshIfMonitoringUnavailable()
         }
-        windowManager?.toggle(mode: mode)
+        launcher?.toggle(mode: mode)
     }
 }

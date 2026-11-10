@@ -40,6 +40,9 @@ final class LauncherModel {
     var mode: SearchMode = .applications
     /// The text the user typed; kept here so Esc and refreshes act on what is on screen.
     var query = ""
+    /// Spoken hint on the search field naming the global shortcuts, set by the shell once they are known.
+    /// Lives on the model because the field is a view that can only read what the model publishes.
+    var searchShortcutHelp = ""
     /// Index of the highlighted row, or nil when focus is on the search field.
     private(set) var selection: Int?
 

@@ -80,11 +80,23 @@ final class LauncherPanel: NSPanel {
         }
     }
 
+    /// Whether a reserved key belongs to the launcher given where the keyboard focus is. A text view that
+    /// is not the search field's editor, such as the selectable preview, needs arrows and Return for
+    /// its own text navigation, so they pass through to it. Esc closes the launcher from anywhere.
+    static func routes(_ key: LauncherKey, firstResponder: NSResponder?) -> Bool {
+        if key == .escape {
+            return true
+        }
+        guard let textView = firstResponder as? NSTextView else { return true }
+        return textView.isFieldEditor
+    }
+
     /// Intercepts reserved keys before the field editor sees them. Skipped during IME composition,
     /// because those keys then confirm or cancel the composed text and must reach the input method.
     override func sendEvent(_ event: NSEvent) {
         if (firstResponder as? NSTextView)?.hasMarkedText() != true,
            let key = Self.launcherKey(for: event),
+           Self.routes(key, firstResponder: firstResponder),
            keyHandler?(key) == true
         {
             return

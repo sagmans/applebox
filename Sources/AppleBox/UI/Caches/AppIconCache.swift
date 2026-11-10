@@ -15,6 +15,11 @@ nonisolated struct SystemAppIconProvider: AppIconProviding {
 /// `@unchecked Sendable` is safe because `inFlight` is only touched through `inFlightQueue`, and the
 /// remaining properties are immutable or NSCache, which is documented as thread-safe.
 final nonisolated class AppIconCache: @unchecked Sendable {
+    /// Posted on the main queue when an icon finishes loading, so views showing the placeholder can redraw.
+    static let didLoad = Notification.Name("applebox.appIconCache.didLoad")
+    /// Key of the bundle path in the load notification's user info.
+    static let pathKey = "bundlePath"
+
     private let loader: AppIconProviding
     private let cache = NSCache<NSString, NSImage>()
     private let loadQueue = DispatchQueue(label: "applebox.icons.load", qos: .utility)
@@ -76,9 +81,9 @@ final nonisolated class AppIconCache: @unchecked Sendable {
             if notify {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
-                        name: Notification.Name("applebox.appIconCache.didLoad"),
+                        name: Self.didLoad,
                         object: nil,
-                        userInfo: ["bundlePath": bundlePath]
+                        userInfo: [Self.pathKey: bundlePath]
                     )
                 }
             }
