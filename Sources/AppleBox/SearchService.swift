@@ -320,7 +320,7 @@ final class SearchService {
             if $0.score != $1.score {
                 return $0.score > $1.score
             }
-            return $0.application.name < $1.application.name
+            return $0.application.isOrderedBefore($1.application)
         }
 
         cachedQuery = queryBytes

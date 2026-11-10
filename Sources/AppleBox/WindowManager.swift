@@ -152,7 +152,8 @@ final class RecentApplicationsStore {
 
     func orderedApplications(from applications: [ApplicationInfo]) -> [ApplicationInfo] {
         let snapshot = queue.sync { recentBundlePaths }
-        var remaining = Dictionary(uniqueKeysWithValues: applications.map { ($0.bundlePath, $0) })
+        // A restored cache can repeat a path. Keep the first record so recents still open.
+        var remaining = Dictionary(applications.map { ($0.bundlePath, $0) }, uniquingKeysWith: { first, _ in first })
         var ordered: [ApplicationInfo] = []
         ordered.reserveCapacity(applications.count)
 
@@ -162,7 +163,7 @@ final class RecentApplicationsStore {
             }
         }
 
-        let tail = remaining.values.sorted { $0.name < $1.name }
+        let tail = remaining.values.sorted { $0.isOrderedBefore($1) }
         ordered.append(contentsOf: tail)
         return ordered
     }
@@ -310,7 +311,12 @@ class WindowManager: NSObject {
     private let clipboardAccessDenied = "Clipboard access blocked. Allow AppleBox in System Settings to resume capture."
 
     private var searchService: SearchService?
-    private var searchResults: [SearchResult] = []
+    private var searchResults: [SearchResult] = [] {
+        didSet { updateDuplicateApplicationNames() }
+    }
+
+    private var duplicateApplicationNames: Set<String> = []
+    private let applicationLocationSeparator = "   ·   "
     private var selectedRowIndex: Int = -1
 
     // Clipboard support
@@ -1223,6 +1229,15 @@ class WindowManager: NSObject {
         }
     }
 
+    private func updateDuplicateApplicationNames() {
+        // Classify the result set before AppKit asks for its visible rows.
+        duplicateApplicationNames.removeAll(keepingCapacity: true)
+        var names: Set<String> = []
+        for result in searchResults where !names.insert(result.application.name).inserted {
+            duplicateApplicationNames.insert(result.application.name)
+        }
+    }
+
     private func updateCaptureControl() {
         guard let searchField else { return }
         guard searchMode == .clipboard, let clipboardManager, let headerPanel else {
@@ -1807,6 +1822,8 @@ class WindowManager: NSObject {
 
         // Launch the application
         let config = NSWorkspace.OpenConfiguration()
+        // A running copy at another path must not replace the row the user chose.
+        config.allowsRunningApplicationSubstitution = false
         workspace.openApplication(at: appUrl, configuration: config) { [weak self] app, error in
             if let error {
                 print("Error launching \(appInfo.name): \(error.localizedDescription)")
@@ -2167,13 +2184,11 @@ extension WindowManager: NSTableViewDelegate {
             imageView.image = icon
         }
 
-        // Set app name with highlighted matches
+        let location = duplicateApplicationNames.contains(appInfo.name)
+            ? (appInfo.bundlePath as NSString).abbreviatingWithTildeInPath
+            : nil
         if let textField = cardContainer?.viewWithTag(101) as? NSTextField {
-            textField.attributedStringValue = attributedString(
-                for: appInfo.name,
-                highlightingIndices: result.matchedIndices,
-                font: textField.font ?? NSFont.systemFont(ofSize: 14)
-            )
+            configureApplicationTitle(textField, result: result, location: location)
         }
 
         // Apply initial selection styling
@@ -2182,10 +2197,34 @@ extension WindowManager: NSTableViewDelegate {
 
         // Accessibility
         cardContainer?.setAccessibilityIdentifier("ApplicationRow_\(row)")
-        cardContainer?.setAccessibilityLabel("Application: \(appInfo.name)")
+        let accessibleName = location.map { "\(appInfo.name), \($0)" } ?? appInfo.name
+        cardContainer?.setAccessibilityLabel("Application: \(accessibleName)")
         cardContainer?.setAccessibilityHelp("Press Enter to launch this application")
 
         return cardContainer
+    }
+
+    private func configureApplicationTitle(_ field: NSTextField, result: SearchResult, location: String?) {
+        let title = attributedString(
+            for: result.application.name,
+            highlightingIndices: result.matchedIndices,
+            font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        )
+
+        // Restore the default styling when a duplicate row is reused for a unique result.
+        field.lineBreakMode = location == nil ? .byTruncatingTail : .byTruncatingMiddle
+        field.toolTip = location
+        guard let location else {
+            field.attributedStringValue = title
+            return
+        }
+
+        let fullTitle = NSMutableAttributedString(attributedString: title)
+        fullTitle.append(NSAttributedString(string: applicationLocationSeparator + location, attributes: [
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+        ]))
+        field.attributedStringValue = fullTitle
     }
 
     func tableViewSelectionDidChange(_: Notification) {

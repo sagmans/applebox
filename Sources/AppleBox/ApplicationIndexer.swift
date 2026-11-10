@@ -22,6 +22,11 @@ struct ApplicationInfo {
         normalizedFilename = filename == normalized ? nil : filename
         normalizedFilenameBytes = normalizedFilename.map { ContiguousArray($0.utf8) }
     }
+
+    /// Keep copies with identical display names in a stable order across scans.
+    func isOrderedBefore(_ other: Self) -> Bool {
+        name == other.name ? bundlePath < other.bundlePath : name < other.name
+    }
 }
 
 private struct CachedApplication: Codable {
@@ -220,12 +225,12 @@ final class ApplicationIndexer {
         let apps = allApplications
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return apps.sorted { $0.name < $1.name }
+            return apps.sorted { $0.isOrderedBefore($1) }
         }
 
         let lowerQuery = trimmed.lowercased()
         return apps.filter { app in
             app.normalizedName.contains(lowerQuery) || app.normalizedFilename?.contains(lowerQuery) == true
-        }.sorted { $0.name < $1.name }
+        }.sorted { $0.isOrderedBefore($1) }
     }
 }
