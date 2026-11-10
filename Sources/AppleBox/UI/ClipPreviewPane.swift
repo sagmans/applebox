@@ -9,6 +9,7 @@ struct ClipPreviewPane: View {
 
     @Environment(\.clipImages) private var images
     @Environment(\.appIcons) private var icons
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Memo of character counts so a keystroke does not recount a clip of hundreds of KiB.
     @State private var counts = CharacterCountMemo()
     /// Bumped when a clip image finishes decoding in the background, so a pane showing the pending
@@ -27,10 +28,17 @@ struct ClipPreviewPane: View {
                 let _ = imageLoads
                 // One cache lookup per evaluation, shared by header and body.
                 let image = item.contentType == .image ? images.image(for: item) : .unavailable
-                header(row: row, item: item, image: image)
+                // Keyed by clip so a new selection cross-fades; the stack overlaps old and new header
+                // during the fade instead of stacking them and pushing the body down.
+                ZStack(alignment: .topLeading) {
+                    header(row: row, item: item, image: image)
+                        .id(row.id)
+                        .transition(.opacity)
+                }
                 content(row: row, item: item, image: image)
             }
         }
+        .animation(DesignTokens.motion(DesignTokens.Motion.previewChange, reduceMotion: reduceMotion), value: selectedRow?.id)
         .padding(DesignTokens.Metrics.previewPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onReceive(NotificationCenter.default.publisher(for: ClipboardImageCache.didLoad)) { _ in
@@ -81,7 +89,12 @@ struct ClipPreviewPane: View {
     @ViewBuilder
     private func content(row: ClipRowData, item: ClipboardItem, image: ClipImageLookup) -> some View {
         if item.contentType == .image {
-            imageBody(image: image)
+            // Keyed and overlapped like the header, so one image fades into the next.
+            ZStack {
+                imageBody(image: image)
+                    .id(item.id)
+                    .transition(.opacity)
+            }
         } else {
             PreviewTextView(
                 itemID: item.id,
@@ -90,7 +103,10 @@ struct ClipPreviewPane: View {
                 // The row's kind already applied the code rule to the clip's start; re-running it over
                 // a 256 KiB clip on every model change would cost more than the rule is worth.
                 isMonospaced: row.kind == .code,
-                tint: DesignTokens.Palette.matchText
+                tint: DesignTokens.Palette.matchText,
+                // The text view is AppKit and outside SwiftUI transitions, so it fades on its own clock,
+                // matched to the header's.
+                fadeDuration: reduceMotion ? DesignTokens.Motion.reducedFade : DesignTokens.Motion.previewFade
             )
         }
     }

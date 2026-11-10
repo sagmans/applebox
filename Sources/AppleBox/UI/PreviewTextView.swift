@@ -14,6 +14,8 @@ struct PreviewTextView: NSViewRepresentable {
     let matchedIndices: [Int]
     let isMonospaced: Bool
     let tint: Color
+    /// Seconds the text takes to fade in when another clip is shown; already reduced for Reduce Motion.
+    let fadeDuration: Double
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -26,6 +28,8 @@ struct PreviewTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // The clip change fade is a layer transition, which needs a backing layer.
+        scrollView.wantsLayer = true
         guard let textView = scrollView.documentView as? NSTextView else {
             // Without a text view there is nothing to preview; an empty scroll view fails visibly, not by crashing.
             return scrollView
@@ -86,6 +90,10 @@ struct PreviewTextView: NSViewRepresentable {
             let styles = PreviewTextStyles(for: view)
 
             if needsRebuild {
+                // The first clip just appears; only a change from one clip to another cross-fades.
+                if isNewItem, shownID != nil {
+                    Self.fade(textView.enclosingScrollView, duration: view.fadeDuration)
+                }
                 shownID = view.itemID
                 shownMonospaced = view.isMonospaced
                 storage.setAttributedString(NSAttributedString(string: view.content, attributes: styles.base))
@@ -107,6 +115,15 @@ struct PreviewTextView: NSViewRepresentable {
             if isNewItem {
                 textView.scrollToBeginningOfDocument(nil)
             }
+        }
+
+        /// Cross-fades the next drawn frame of the text from the previous one, without recreating the
+        /// view: a fresh text view per clip would cost more than the 256 KiB rebuild it already does.
+        private static func fade(_ view: NSView?, duration: Double) {
+            let transition = CATransition()
+            transition.type = .fade
+            transition.duration = duration
+            view?.layer?.add(transition, forKey: kCATransition)
         }
     }
 }

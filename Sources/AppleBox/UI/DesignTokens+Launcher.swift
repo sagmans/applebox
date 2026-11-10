@@ -76,6 +76,9 @@ extension DesignTokens.Copy {
 extension DesignTokens.Motion {
     /// Dismissal curve: short ease-out so closing never feels like a wait.
     static let close = Animation.easeOut(duration: closeDuration)
+    /// Cross-fade of the preview when the selected clip changes, so moving through clips reads as one
+    /// pane updating rather than content cutting.
+    static let previewChange = Animation.easeInOut(duration: previewFade)
 }
 
 extension DesignTokens.Palette {
