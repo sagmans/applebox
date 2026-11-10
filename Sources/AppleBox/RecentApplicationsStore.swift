@@ -46,6 +46,12 @@ final class RecentApplicationsStore {
         return ordered
     }
 
+    /// Lets row builders flag recents without re-deriving them from the sorted order, which would
+    /// make an alphabetical tail indistinguishable from launch history.
+    func recentSnapshot() -> Set<String> {
+        queue.sync { Set(recentBundlePaths) }
+    }
+
     func recordLaunch(bundlePath: String) {
         let snapshot = queue.sync { () -> [String] in
             var updated = recentBundlePaths.filter { $0 != bundlePath }

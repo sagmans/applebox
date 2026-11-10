@@ -32,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("AppleBox launched")
 
         // UI first: show/typing must never wait on indexing/persistence.
-        let windowManager = WindowManager()
+        // The model owns launcher state; the window only renders it and forwards input.
+        let launcherModel = LauncherModel()
+        let windowManager = WindowManager(model: launcherModel)
         self.windowManager = windowManager
 
         // Start indexing asynchronously.

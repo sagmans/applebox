@@ -4,13 +4,6 @@ import CryptoKit
 import OSLog
 import QuartzCore
 
-// MARK: - Search Mode
-
-nonisolated enum SearchMode: Sendable {
-    case applications
-    case clipboard
-}
-
 /// Result type for clipboard search
 nonisolated struct ClipboardSearchResult: Sendable {
     let item: ClipboardItem
@@ -82,42 +75,28 @@ class WindowManager: NSObject {
     private var tableView: NSTableView?
     private var scrollView: NSScrollView?
     private var emptyResultsLabel: NSTextField?
-    private var clipboardRemovalStatus: String?
     private let clipboardMenu = NSMenu()
     private var captureButton: NSButton?
     private var fullSearchFieldWidth: CGFloat?
     private let captureButtonSpacing: CGFloat = 12
     private var statusLabel: NSTextField?
     private let statusLabelHeight: CGFloat = 16
-    private var applicationLaunchStatus: String?
-    private var pendingApplicationLaunch: UUID?
-
-    private var searchService: SearchService?
-    private var searchResults: [SearchResult] = [] {
-        didSet { updateDuplicateApplicationNames() }
-    }
-
-    private var duplicateApplicationNames: Set<String> = []
     private let applicationLocationSeparator = "   ·   "
-    private var selectedRowIndex: Int = -1
 
-    // Clipboard support
-    private var clipboardManager: ClipboardManager?
-    private var clipboardResults: [ClipboardSearchResult] = []
-    private var searchMode: SearchMode = .applications
+    /// All launcher state lives here; this class only draws it and turns AppKit events into intents.
+    private let model: LauncherModel
 
-    private var lastSearchQuery: String = ""
     private var userHasOverriddenPinnedScrollSinceLastQueryChange = false
     private var isPerformingProgrammaticScroll = false
     private var isNavigatingProgrammatically = false
 
-    private var lastResultsAnimationUptime: TimeInterval = 0
-    private var searchDebounceWorkItem: DispatchWorkItem?
-    private let searchDebounceInterval: TimeInterval = 0.0
+    /// Set while the shell resets the model itself, because it then draws the result explicitly in
+    /// the right order against the window and must not also react to the model's announcement.
+    private var isSuppressingModelChanges = false
+    /// Remembered so a newly arrived launch failure can pull focus back to the query exactly once.
+    private var lastShownStatus: LauncherStatus?
 
-    private let searchQueue = DispatchQueue(label: "applebox.window.search", qos: .userInteractive)
-    private var searchComputeWorkItem: DispatchWorkItem?
-    private var workspaceObservers: [NSObjectProtocol] = []
+    private var lastResultsAnimationUptime: TimeInterval = 0
 
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
@@ -133,43 +112,82 @@ class WindowManager: NSObject {
     private var sidecarHighlightedIndices: [Int] = []
 
     // Injected dependencies
-    private let workspace: WorkspaceProtocol
-    private let clipboardReplay: ClipboardReplay
-    private let fileSystem: FileSystemProtocol
     private let iconProvider: AppIconProviding
     private let iconCache: AppIconCache
-    private let recentApplicationsStore: RecentApplicationsStore
 
+    /// A model passed in is shared with the app's other consumers; without one the window builds its own
+    /// from the same seams, which is how tests substitute the system.
     init(
+        model: LauncherModel? = nil,
         workspace: WorkspaceProtocol = SystemWorkspace(),
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         eventSource: EventSourceProtocol = SystemEventSource(),
         fileSystem: FileSystemProtocol = SystemFileManager(),
         iconProvider: AppIconProviding = SystemAppIconProvider()
     ) {
-        self.workspace = workspace
-        clipboardReplay = ClipboardReplay(workspace: workspace, pasteboard: pasteboard, eventSource: eventSource)
-        self.fileSystem = fileSystem
+        self.model = model ?? LauncherModel(
+            workspace: workspace,
+            pasteboard: pasteboard,
+            eventSource: eventSource,
+            fileSystem: fileSystem
+        )
         self.iconProvider = iconProvider
         iconCache = AppIconCache(loader: iconProvider)
-        recentApplicationsStore = RecentApplicationsStore(fileSystem: fileSystem)
         super.init()
         setupWindow()
-        window?.copyClipHandler = { [weak self] in self?.copySelectedClip() ?? false }
+        window?.copyClipHandler = { [weak self] in self?.model.copySelection() ?? false }
         clipboardMenu.delegate = self
+        connectModel()
         observeAccessibilityChanges()
         observeAsyncUpdates()
-        observeWorkspaceActivity()
         observeWindowMovement()
     }
 
-    /// Isolated so teardown can read the main-actor observer list.
-    isolated deinit {
+    deinit {
         NotificationCenter.default.removeObserver(self)
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        for observer in workspaceObservers {
-            workspaceCenter.removeObserver(observer)
+    }
+
+    /// The model reports through callbacks because this class draws by hand rather than by observation.
+    private func connectModel() {
+        model.onDismiss = { [weak self] in self?.hide() }
+        model.onChange = { [weak self] change in
+            guard let self, !isSuppressingModelChanges else { return }
+            modelDidChange(change)
         }
+    }
+
+    private func modelDidChange(_ change: LauncherChange) {
+        switch change {
+        case let .results(preservedSelection):
+            if preservedSelection {
+                reloadRefreshedResults()
+                return
+            }
+            reloadResults(animate: false)
+            if !userHasOverriddenPinnedScrollSinceLastQueryChange {
+                scrollResultsToTop(selectFirstRow: true)
+            }
+            // Update sidecar highlights (scroll-preserving) for clipboard mode
+            if model.mode == .clipboard {
+                refreshSidecarHighlightIfNeeded()
+            }
+        case .status:
+            updateCaptureControl()
+            updateStatusLabel()
+            let status = model.status
+            // A failed launch leaves the query as the next thing to fix.
+            if model.mode == .applications, status != nil, status != lastShownStatus {
+                window?.makeFirstResponder(searchField)
+            }
+            lastShownStatus = status
+        }
+    }
+
+    /// Runs `body` without drawing the model's announcements, for resets the shell draws itself.
+    private func withoutModelChanges(_ body: () -> Void) {
+        isSuppressingModelChanges = true
+        defer { isSuppressingModelChanges = false }
+        body()
     }
 
     // MARK: - Accessibility Settings (US-005)
@@ -222,6 +240,7 @@ class WindowManager: NSObject {
         sidecar.setFrameOrigin(sidecarOrigin)
     }
 
+    /// Icons load lazily, so a finished load redraws only the row that was waiting for it.
     private func observeAsyncUpdates() {
         NotificationCenter.default.addObserver(
             forName: Notification.Name("applebox.appIconCache.didLoad"),
@@ -233,9 +252,9 @@ class WindowManager: NSObject {
             let bundlePath = notification.userInfo?["bundlePath"] as? String
             guard let self else { return }
             MainActor.assumeIsolated {
-                guard isWindowVisible, searchMode == .applications, let bundlePath else { return }
+                guard isWindowVisible, model.mode == .applications, let bundlePath else { return }
 
-                if let row = searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
+                if let row = model.apps.rows.firstIndex(where: { $0.id == bundlePath }) {
                     tableView?.reloadData(
                         forRowIndexes: IndexSet(integer: row),
                         columnIndexes: IndexSet(integer: 0)
@@ -243,93 +262,6 @@ class WindowManager: NSObject {
                 }
             }
         }
-
-        NotificationCenter.default.addObserver(
-            forName: Notification.Name("applebox.clipboardHistory.didUpdate"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                guard isWindowVisible, searchMode == .clipboard else { return }
-
-                scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: ApplicationIndexer.didUpdate,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                guard isWindowVisible, searchMode == .applications else { return }
-
-                scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: ClipboardManager.readAccessDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let sender = notification.object as? ClipboardManager
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                guard sender === clipboardManager else { return }
-                updateStatusLabel()
-            }
-        }
-    }
-
-    private func observeWorkspaceActivity() {
-        guard workspace is SystemWorkspace else { return }
-
-        let center = NSWorkspace.shared.notificationCenter
-
-        let runningBundles = NSWorkspace.shared.runningApplications
-            .sorted { ($0.launchDate ?? .distantPast) > ($1.launchDate ?? .distantPast) }
-            .compactMap { app -> String? in
-                guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
-                return app.bundleURL?.path
-            }
-        recentApplicationsStore.seedIfEmpty(with: runningBundles)
-
-        // Observers are registered on the main queue, which the compiler cannot see through the Sendable block.
-        let handler: @Sendable (Notification) -> Void = { [weak self] notification in
-            // Extract plain values here because NSRunningApplication cannot cross into the isolated block.
-            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            let bundlePath = app?.bundleURL?.path
-            let isSelf = app?.bundleIdentifier == Bundle.main.bundleIdentifier
-            guard let self, let bundlePath, !isSelf else { return }
-            MainActor.assumeIsolated {
-                recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
-
-                guard isWindowVisible, searchMode == .applications else { return }
-                let query = searchField?.stringValue ?? ""
-                guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-                updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: true)
-            }
-        }
-
-        let launchObserver = center.addObserver(
-            forName: NSWorkspace.didLaunchApplicationNotification,
-            object: nil,
-            queue: .main,
-            using: handler
-        )
-
-        let activateObserver = center.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main,
-            using: handler
-        )
-
-        workspaceObservers = [launchObserver, activateObserver]
     }
 
     /// Applies current accessibility settings to all UI elements
@@ -453,8 +385,7 @@ class WindowManager: NSObject {
     }
 
     func setSearchService(_ service: SearchService) {
-        searchService = service
-        searchService?.resetCache()
+        model.setSearchService(service)
     }
 
     func setSearchShortcutHelp(_ help: String) {
@@ -462,7 +393,7 @@ class WindowManager: NSObject {
     }
 
     func setClipboardManager(_ manager: ClipboardManager) {
-        clipboardManager = manager
+        model.setClipboardManager(manager)
     }
 
     func prewarmAppIcons(applications: [ApplicationInfo]) {
@@ -559,7 +490,7 @@ class WindowManager: NSObject {
         // Create search field inside header panel
         // Text draws at top of field, so use smaller height and position to center visually
         let searchField = NSSearchField(frame: NSRect(x: 16, y: 12, width: 536, height: 24))
-        searchField.placeholderString = "Search applications..."
+        searchField.placeholderString = DesignTokens.Copy.searchApplicationsPlaceholder
         searchField.font = NSFont.systemFont(ofSize: 17)
         searchField.target = self
         searchField.action = #selector(handleSearch(_:))
@@ -756,7 +687,7 @@ class WindowManager: NSObject {
 
     /// Shows the sidecar panel positioned to the right of the main window.
     func showSidecar() {
-        guard let mainWindow = window, let sidecar = sidecarWindow, searchMode == .clipboard else { return } // Only show in clipboard mode
+        guard let mainWindow = window, let sidecar = sidecarWindow, model.mode == .clipboard else { return } // Only show in clipboard mode
 
         let gap: CGFloat = 8
         let mainFrame = mainWindow.frame
@@ -799,30 +730,38 @@ class WindowManager: NSObject {
     /// - Shows sidecar when text overflows single-line row
     /// - Hides sidecar otherwise
     private func updateSidecarVisibility() {
-        guard searchMode == .clipboard, selectedRowIndex >= 0 && selectedRowIndex < clipboardResults.count else {
+        guard model.mode == .clipboard, let selected = selectedClip() else {
             hideSidecar()
             return
         }
 
-        let result = clipboardResults[selectedRowIndex]
-        let item = result.item
+        let item = selected.item
 
         // Rule 1: Show for images
         if item.contentType == .image {
-            updateSidecarContent(for: item, matchedIndices: result.matchedIndices)
+            updateSidecarContent(for: item, matchedIndices: selected.matchedIndices)
             showSidecar()
             return
         }
 
         // Rule 2: Show for overflowing text
         if item.content.count > singleLineCharacterLimit || item.content.contains("\n") {
-            updateSidecarContent(for: item, matchedIndices: result.matchedIndices)
+            updateSidecarContent(for: item, matchedIndices: selected.matchedIndices)
             showSidecar()
             return
         }
 
         // Rule 3: Hide otherwise
         hideSidecar()
+    }
+
+    /// The highlighted clip with its full text and match offsets, which rows deliberately omit.
+    private func selectedClip() -> (item: ClipboardItem, matchedIndices: [Int])? {
+        guard let selection = model.selection, model.clips.rows.indices.contains(selection) else { return nil }
+
+        let id = model.clips.rows[selection].id
+        guard let item = model.clips.item(id: id) else { return nil }
+        return (item, model.clips.matchedIndices(id: id))
     }
 
     /// Updates the sidecar content view with the appropriate preview.
@@ -895,8 +834,8 @@ class WindowManager: NSObject {
     /// Updates sidecar highlights without rebuilding the view (preserves scroll position).
     /// Called after search results change but the selected item remains the same.
     private func refreshSidecarHighlightIfNeeded() {
-        guard searchMode == .clipboard else { return }
-        guard clipboardResults.indices.contains(selectedRowIndex) else {
+        guard model.mode == .clipboard else { return }
+        guard let selected = selectedClip() else {
             // The previous clip is no longer actionable after the search changed.
             if isSidecarVisible {
                 hideSidecar()
@@ -904,8 +843,7 @@ class WindowManager: NSObject {
             return
         }
 
-        let result = clipboardResults[selectedRowIndex]
-        let item = result.item
+        let item = selected.item
 
         // Keep the scroll position only when the same clip owns the preview.
         guard isSidecarVisible,
@@ -920,7 +858,7 @@ class WindowManager: NSObject {
             return
         }
 
-        let newIndices = result.matchedIndices
+        let newIndices = selected.matchedIndices
 
         // Skip if highlights haven't changed
         guard newIndices != sidecarHighlightedIndices else { return }
@@ -946,7 +884,7 @@ class WindowManager: NSObject {
     func toggle(mode: SearchMode? = nil) {
         if isWindowVisible {
             // If window is visible, switch to the requested mode or hide
-            if let mode, mode != searchMode {
+            if let mode, mode != model.mode {
                 switchToMode(mode)
             } else {
                 hide()
@@ -972,22 +910,25 @@ class WindowManager: NSObject {
 
         guard selectFirstRow, let tableView else { return }
 
-        let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
-        if count > 0 {
-            if selectedRowIndex != 0 || tableView.selectedRow != 0 {
-                selectedRowIndex = 0
+        if model.resultCount > 0 {
+            if model.selection != 0 || tableView.selectedRow != 0 {
+                model.select(0)
                 tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
             }
             tableView.scrollRowToVisible(0)
         } else {
-            selectedRowIndex = -1
+            model.select(-1)
             tableView.deselectAll(nil)
         }
     }
 
     private func reloadResults(animate: Bool) {
+        // Reloading drops the table's selection; the model, not the table, decides what is selected.
+        let wasNavigating = isNavigatingProgrammatically
+        isNavigatingProgrammatically = true
         tableView?.reloadData()
-        tableView?.menu = searchMode == .clipboard ? clipboardMenu : nil
+        isNavigatingProgrammatically = wasNavigating
+        tableView?.menu = model.mode == .clipboard ? clipboardMenu : nil
         updateEmptyResultsLabel()
         updateCaptureControl()
         updateStatusLabel()
@@ -996,18 +937,9 @@ class WindowManager: NSObject {
         }
     }
 
-    private func updateDuplicateApplicationNames() {
-        // Classify the result set before AppKit asks for its visible rows.
-        duplicateApplicationNames.removeAll(keepingCapacity: true)
-        var names: Set<String> = []
-        for result in searchResults where !names.insert(result.application.name).inserted {
-            duplicateApplicationNames.insert(result.application.name)
-        }
-    }
-
     private func updateCaptureControl() {
         guard let searchField else { return }
-        guard searchMode == .clipboard, let clipboardManager, let headerPanel else {
+        guard model.mode == .clipboard, model.clips.manager != nil, let headerPanel else {
             captureButton?.isHidden = true
             if let fullSearchFieldWidth {
                 searchField.frame.size.width = fullSearchFieldWidth
@@ -1016,7 +948,7 @@ class WindowManager: NSObject {
         }
 
         let button = captureButton ?? makeCaptureButton(in: headerPanel, beside: searchField)
-        let paused = clipboardManager.isCapturePaused
+        let paused = model.clips.isPaused
         button.title = paused ? DesignTokens.Copy.resumeCapture : DesignTokens.Copy.pauseCapture
         button.setAccessibilityHelp(paused ? DesignTokens.Copy.capturePausedHelp : DesignTokens.Copy.captureActiveHelp)
         button.isHidden = false
@@ -1036,24 +968,12 @@ class WindowManager: NSObject {
     }
 
     @objc private func toggleCapture() {
-        clipboardManager?.toggleCapturePaused()
-        updateCaptureControl()
-        updateStatusLabel()
-    }
-
-    private var clipboardAccessStatus: String? {
-        guard let clipboardManager, !clipboardManager.isCapturePaused else { return nil }
-        return switch clipboardManager.readAccess {
-        case .mayPrompt: DesignTokens.Copy.accessPrompt
-        case .denied: DesignTokens.Copy.accessDenied
-        case .allowed: nil
-        }
+        model.toggleCapture()
     }
 
     /// Keep recovery guidance visible without covering the query or existing results.
     private func updateStatusLabel() {
-        let message = searchMode == .clipboard ? clipboardRemovalStatus ?? clipboardAccessStatus : applicationLaunchStatus
-        guard let message, let content = headerPanel?.superview else {
+        guard let message = model.status?.message, let content = headerPanel?.superview else {
             statusLabel?.isHidden = true
             return
         }
@@ -1078,16 +998,7 @@ class WindowManager: NSObject {
 
     /// Explain an empty query result while leaving the search field in place.
     private func updateEmptyResultsLabel() {
-        let hasQuery = !lastSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let message: String? = if getResultCount() > 0 {
-            nil
-        } else if searchMode == .clipboard {
-            hasQuery ? DesignTokens.Copy.emptyClipMatches : DesignTokens.Copy.emptyHistory
-        } else {
-            hasQuery ? DesignTokens.Copy.emptyApps : nil
-        }
-
-        guard let message else {
+        guard let message = model.emptyMessage else {
             emptyResultsLabel?.isHidden = true
             return
         }
@@ -1110,21 +1021,8 @@ class WindowManager: NSObject {
         emptyResultsLabel = label
     }
 
-    /// Reordering can move a result without changing what the user selected.
-    private func refreshedRow<Result>(
-        from previous: [Result], to results: [Result], identifiedBy identity: KeyPath<Result, some Equatable>
-    ) -> Int? {
-        if previous.isEmpty {
-            return results.indices.first
-        }
-        guard previous.indices.contains(selectedRowIndex) else { return nil }
-
-        let selected = previous[selectedRowIndex][keyPath: identity]
-        return results.firstIndex { $0[keyPath: identity] == selected }
-    }
-
     /// Keep the action index and the table selection in sync even after manual scrolling.
-    private func reloadRefreshedResults(selecting row: Int?) {
+    private func reloadRefreshedResults() {
         let previousRow = tableView?.selectedRow ?? -1
         let wasVisible = tableView.map { table in
             previousRow >= 0 && NSLocationInRange(previousRow, table.rows(in: table.visibleRect))
@@ -1137,7 +1035,7 @@ class WindowManager: NSObject {
             isPerformingProgrammaticScroll = false
         }
 
-        selectedRowIndex = row ?? -1
+        let row = model.selection
         reloadResults(animate: false)
         tableView?.selectRowIndexes(row.map(IndexSet.init(integer:)) ?? [], byExtendingSelection: false)
         if wasVisible, let row {
@@ -1151,26 +1049,10 @@ class WindowManager: NSObject {
         }
     }
 
-    private func updateApplicationResultsForEmptyQuery(animate: Bool, preservingSelection: Bool = false) {
-        guard searchMode == .applications, let searchService else { return }
-
-        let orderedApplications = recentApplicationsStore.orderedApplications(from: searchService.allApplications())
-        let results = orderedApplications.map {
-            SearchResult(application: $0, score: 0, matchedIndices: [])
-        }
-        let row = preservingSelection ? refreshedRow(from: searchResults, to: results, identifiedBy: \.application.bundlePath) : nil
-        searchResults = results
-        clipboardResults = []
-        if preservingSelection {
-            reloadRefreshedResults(selecting: row)
-            return
-        }
-
-        selectedRowIndex = results.isEmpty ? -1 : 0
-        reloadResults(animate: animate)
-        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
-            scrollResultsToTop(selectFirstRow: true)
-        }
+    /// Draws whatever the model holds after the shell reset it, in the order the window needs.
+    private func presentCurrentResults() {
+        reloadResults(animate: false)
+        scrollResultsToTop(selectFirstRow: true)
         updateSidecarVisibility()
     }
 
@@ -1202,48 +1084,27 @@ class WindowManager: NSObject {
     }
 
     private func switchToMode(_ mode: SearchMode) {
-        clearApplicationLaunchStatus()
-        searchMode = mode
+        withoutModelChanges { model.switchMode(to: mode) }
+        presentFreshSession()
+        print("Switched to \(mode) mode")
+    }
 
+    /// Draws the model's freshly reset session: empty field, mode placeholder, first row selected.
+    private func presentFreshSession() {
         if let searchField {
-            if mode == .clipboard {
-                searchField.stringValue = "" // Don't show ">" in clipboard mode
-                searchField.placeholderString = "Search clipboard history..."
-                // Load clipboard history
-                if let manager = clipboardManager {
-                    let history = manager.getHistory()
-                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
-                }
-                selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
-            } else {
-                searchField.stringValue = ""
-                searchField.placeholderString = "Search applications..."
-                searchResults = []
-                clipboardResults = []
-                selectedRowIndex = -1
-            }
+            searchField.stringValue = ""
+            searchField.placeholderString = model.placeholder
             window?.makeFirstResponder(searchField)
         }
 
-        lastSearchQuery = searchField?.stringValue ?? ""
         userHasOverriddenPinnedScrollSinceLastQueryChange = false
-
-        if mode == .applications {
-            updateApplicationResultsForEmptyQuery(animate: false)
-        } else {
-            reloadResults(animate: false)
-            scrollResultsToTop(selectFirstRow: true)
-            updateSidecarVisibility()
-        }
-
-        print("Switched to \(mode) mode")
+        presentCurrentResults()
     }
 
     func show(mode: SearchMode? = nil) {
         guard let window else { return }
-        clipboardRemovalStatus = nil
-        clearApplicationLaunchStatus()
-        clipboardReplay.begin()
+        // The model records the paste target, so it must see the world before AppleBox takes focus.
+        withoutModelChanges { model.show(mode: mode) }
 
         // Center on the active screen
         if let screen = NSScreen.main {
@@ -1259,55 +1120,17 @@ class WindowManager: NSObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Set search mode
-        if let mode {
-            searchMode = mode
-        } else {
-            searchMode = .applications
-        }
-
-        // Configure based on mode
-        if let searchField {
-            if searchMode == .clipboard {
-                searchField.stringValue = "" // Don't show ">" in clipboard mode
-                searchField.placeholderString = "Search clipboard history..."
-                // Load clipboard history
-                if let manager = clipboardManager {
-                    let history = manager.getHistory()
-                    clipboardResults = history.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
-                }
-                selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
-            } else {
-                searchField.stringValue = ""
-                searchField.placeholderString = "Search applications..."
-                searchResults = []
-                clipboardResults = []
-                selectedRowIndex = -1
-            }
-            window.makeFirstResponder(searchField)
-        }
-
-        lastSearchQuery = searchField?.stringValue ?? ""
-        userHasOverriddenPinnedScrollSinceLastQueryChange = false
-
-        if searchMode == .applications {
-            updateApplicationResultsForEmptyQuery(animate: false)
-        } else {
-            reloadResults(animate: false)
-            scrollResultsToTop(selectFirstRow: true)
-            updateSidecarVisibility()
-        }
+        presentFreshSession()
 
         isWindowVisible = true
-        print("Window shown in \(searchMode) mode")
+        print("Window shown in \(model.mode) mode")
     }
 
     func hide() {
         if let window, let sheet = window.attachedSheet {
             window.endSheet(sheet, returnCode: .cancel)
         }
-        clearApplicationLaunchStatus()
-        clipboardReplay.end()
+        model.hide()
         hideSidecar()
         window?.orderOut(nil)
         NSApp.hide(nil)
@@ -1324,27 +1147,10 @@ class WindowManager: NSObject {
     @objc private func handleSearch(_ sender: NSSearchField) {
         let query = sender.stringValue
 
-        if query != lastSearchQuery {
-            clearApplicationLaunchStatus()
+        if query != model.query {
             userHasOverriddenPinnedScrollSinceLastQueryChange = false
-            lastSearchQuery = query
         }
-
-        // Cancel any pending debounced search
-        searchDebounceWorkItem?.cancel()
-
-        if searchDebounceInterval <= 0 {
-            searchDebounceWorkItem = nil
-            scheduleSearch(query: query)
-            return
-        }
-
-        // Debounce search to avoid per-keystroke overhead
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.scheduleSearch(query: query)
-        }
-        searchDebounceWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
+        model.setQuery(query)
     }
 
     // MARK: - Focus Treatment (US-002)
@@ -1419,81 +1225,16 @@ class WindowManager: NSObject {
         }
     }
 
-    private func scheduleSearch(query: String, preservingSelection: Bool = false) {
-        // Cancel any pending async search
-        searchComputeWorkItem?.cancel()
-        searchComputeWorkItem = nil
-
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Empty query in applications mode -> show recent apps
-        if searchMode == .applications, trimmedQuery.isEmpty {
-            searchService?.resetCache()
-            updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: preservingSelection)
-            return
-        }
-
-        #if DEBUG
-            let start = ProcessInfo.processInfo.systemUptime
-        #endif
-
-        // INSTANT SEARCH: Execute synchronously on main thread
-        // The optimized FuzzyMatcher is fast enough (<1ms for 500 items)
-        let row: Int?
-        switch searchMode {
-        case .clipboard:
-            let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
-            let results = matches.map { match in
-                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
-            }
-
-            row = preservingSelection ? refreshedRow(from: clipboardResults, to: results, identifiedBy: \.item.id) : nil
-            searchResults = []
-            clipboardResults = results
-
-        case .applications:
-            let results = searchService?.search(trimmedQuery) ?? []
-
-            row = preservingSelection ? refreshedRow(from: searchResults, to: results, identifiedBy: \.application.bundlePath) : nil
-            clipboardResults = []
-            searchResults = results
-        }
-
-        if preservingSelection {
-            reloadRefreshedResults(selecting: row)
-            return
-        }
-
-        selectedRowIndex = getResultCount() == 0 ? -1 : 0
-        reloadResults(animate: false)
-        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
-            scrollResultsToTop(selectFirstRow: true)
-        }
-
-        // Update sidecar highlights (scroll-preserving) for clipboard mode
-        if searchMode == .clipboard {
-            refreshSidecarHighlightIfNeeded()
-        }
-
-        #if DEBUG
-            let end = ProcessInfo.processInfo.systemUptime
-            logger.debug("search(\(self.searchMode == .clipboard ? "clipboard" : "apps", privacy: .public)) took \((end - start) * 1000, privacy: .public)ms")
-        #endif
-    }
-
     private func navigateResults(direction: Int) {
         userHasOverriddenPinnedScrollSinceLastQueryChange = true
-        // Determine which result set to use based on mode
-        let resultCount = searchMode == .clipboard ? clipboardResults.count : searchResults.count
-        guard resultCount > 0 else { return }
+        guard model.resultCount > 0 else { return }
 
-        let newIndex = selectedRowIndex + direction
+        let previousIndex = model.selection ?? -1
+        model.moveSelection(by: direction)
+        let newIndex = model.selection ?? -1
 
-        // Handle navigation boundaries without wrapping
         if newIndex < 0 {
             // Going up from first element (or no selection) - focus search field
-            let previousIndex = selectedRowIndex
-            selectedRowIndex = -1
             tableView?.deselectAll(nil)
             // Deselect the previous card visually
             if let tableView {
@@ -1502,73 +1243,53 @@ class WindowManager: NSObject {
             window?.makeFirstResponder(searchField)
             print("Focus returned to search field")
             return
-        } else if newIndex >= resultCount {
+        } else if newIndex == previousIndex {
             // At last element, don't wrap - stay at last
             return
         }
 
-        // Save previous index BEFORE updating for correct visual update
-        let previousIndex = selectedRowIndex
-        selectedRowIndex = newIndex
-
         // Prevent tableViewSelectionDidChange from double-updating visuals
         isNavigatingProgrammatically = true
-        tableView?.selectRowIndexes(IndexSet(integer: selectedRowIndex), byExtendingSelection: false)
-        tableView?.scrollRowToVisible(selectedRowIndex)
+        tableView?.selectRowIndexes(IndexSet(integer: newIndex), byExtendingSelection: false)
+        tableView?.scrollRowToVisible(newIndex)
         isNavigatingProgrammatically = false
 
         // Manually update card visuals with correct previous/current indices
         if let tableView {
-            updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: selectedRowIndex)
+            updateCardSelectionVisuals(tableView: tableView, previousRow: previousIndex, currentRow: newIndex)
         }
         updateSidecarVisibility()
 
-        if searchMode == .clipboard {
+        if model.mode == .clipboard {
             // Row numbers identify navigation without exposing the copied material.
-            logger.debug("Selected clipboard history row \(self.selectedRowIndex, privacy: .public)")
+            logger.debug("Selected clipboard history row \(newIndex, privacy: .public)")
         } else {
-            print("Selected: \(selectedRowIndex) - \(searchResults[selectedRowIndex].application.name)")
+            print("Selected: \(newIndex) - \(model.apps.rows[newIndex].name)")
         }
     }
 
     private func handleEnterKey() {
-        guard selectedRowIndex >= 0, selectedRowIndex < getResultCount() else {
+        guard let selection = model.selection, selection < model.resultCount else {
             // Leave the query editable when there is no selected result to act on.
             window?.makeFirstResponder(searchField)
             return
         }
 
-        if searchMode == .clipboard {
-            let item = clipboardResults[selectedRowIndex].item
-            clipboardReplay.replay(item, dismiss: hide)
-        } else {
-            let appInfo = searchResults[selectedRowIndex].application
-            launchApplication(appInfo)
-        }
-    }
-
-    private func copySelectedClip() -> Bool {
-        guard searchMode == .clipboard else { return false }
-        if clipboardResults.indices.contains(selectedRowIndex) {
-            clipboardReplay.replay(clipboardResults[selectedRowIndex].item, pasteAutomatically: false, dismiss: hide)
-        }
-        return true
+        model.activateSelection()
     }
 
     @objc private func copyClickedClip(_ action: NSMenuItem) {
-        guard searchMode == .clipboard,
-              let id = action.representedObject as? UUID,
-              let item = clipboardResults.first(where: { $0.item.id == id })?.item else { return }
-        clipboardReplay.replay(item, pasteAutomatically: false, dismiss: hide)
+        guard let id = action.representedObject as? UUID else { return }
+        model.copyClip(id: id)
     }
 
     @objc private func deleteClickedClip(_ action: NSMenuItem) {
-        guard searchMode == .clipboard, let id = action.representedObject as? UUID else { return }
-        removeClipboardHistory(.item(id))
+        guard let id = action.representedObject as? UUID else { return }
+        model.deleteClip(id: id)
     }
 
     @objc private func confirmClearClipboardHistory(_: NSMenuItem) {
-        guard searchMode == .clipboard, let window, window.attachedSheet == nil else { return }
+        guard model.mode == .clipboard, let window, window.attachedSheet == nil else { return }
         let alert = NSAlert()
         alert.messageText = DesignTokens.Copy.clearHistoryTitle
         alert.informativeText = DesignTokens.Copy.clearHistoryExplanation
@@ -1577,95 +1298,16 @@ class WindowManager: NSObject {
         alert.addButton(withTitle: DesignTokens.Copy.clearHistoryButton).hasDestructiveAction = true
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else { return }
-            self?.removeClipboardHistory(.all)
-        }
-    }
-
-    private func removeClipboardHistory(_ removal: ClipboardManager.HistoryRemoval) {
-        clipboardRemovalStatus = nil
-        updateStatusLabel()
-        clipboardManager?.removeHistory(removal) { [weak self] succeeded in
-            guard let self, !succeeded else { return }
-            clipboardRemovalStatus = DesignTokens.Copy.removalFailed
-            updateStatusLabel()
+            self?.model.clearHistory()
         }
     }
 
     @objc private func handleDoubleClick(_ sender: NSTableView) {
         let clickedRow = sender.clickedRow
+        guard clickedRow >= 0, clickedRow < model.resultCount else { return }
 
-        if searchMode == .clipboard {
-            if clickedRow >= 0, clickedRow < clipboardResults.count {
-                let item = clipboardResults[clickedRow].item
-                clipboardReplay.replay(item, dismiss: hide)
-            }
-        } else {
-            if clickedRow >= 0, clickedRow < searchResults.count {
-                let appInfo = searchResults[clickedRow].application
-                launchApplication(appInfo)
-            }
-        }
-    }
-
-    private func launchApplication(_ appInfo: ApplicationInfo) {
-        guard pendingApplicationLaunch == nil else { return }
-        clearApplicationLaunchStatus()
-        let bundlePath = appInfo.bundlePath
-        guard fileSystem.fileExists(atPath: bundlePath) else {
-            logger.notice("Selected application bundle no longer exists")
-            showApplicationLaunchFailure(DesignTokens.Copy.appMissing)
-            return
-        }
-
-        let request = UUID()
-        pendingApplicationLaunch = request
-        let config = NSWorkspace.OpenConfiguration()
-        // A running copy at another path must not replace the row the user chose.
-        config.allowsRunningApplicationSubstitution = false
-        config.promptsUserIfNeeded = false
-        workspace.openApplication(at: URL(fileURLWithPath: bundlePath), configuration: config) { [weak self] app, error in
-            let opened = app != nil
-            DispatchQueue.main.async {
-                self?.finishApplicationLaunch(request, bundlePath: bundlePath, opened: opened, error: error)
-            }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(Int(DesignTokens.Timing.launchTimeout.components.seconds))) { [weak self] in
-            guard let self, pendingApplicationLaunch == request else { return }
-            logger.error("Application launch timed out")
-            showApplicationLaunchFailure(DesignTokens.Copy.launchTimedOut)
-        }
-    }
-
-    private func finishApplicationLaunch(_ request: UUID, bundlePath: String, opened: Bool, error: Error?) {
-        if opened, error == nil {
-            // Record confirmed success even if activation already dismissed the launcher.
-            recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
-            if pendingApplicationLaunch == request {
-                hide()
-            }
-            return
-        }
-        guard pendingApplicationLaunch == request else { return }
-        if let failure = error as NSError? {
-            logger.error("Application launch failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
-        } else {
-            logger.error("Application launch returned without a running application")
-        }
-        showApplicationLaunchFailure(DesignTokens.Copy.launchFailed)
-    }
-
-    private func showApplicationLaunchFailure(_ message: String) {
-        pendingApplicationLaunch = nil
-        applicationLaunchStatus = message
-        updateStatusLabel()
-        window?.makeFirstResponder(searchField)
-    }
-
-    private func clearApplicationLaunchStatus() {
-        pendingApplicationLaunch = nil
-        applicationLaunchStatus = nil
-        updateStatusLabel()
+        model.select(clickedRow)
+        model.activateSelection()
     }
 
     func isVisible() -> Bool {
@@ -1676,7 +1318,7 @@ class WindowManager: NSObject {
 
     /// Returns the current search mode (for testing)
     func getCurrentSearchMode() -> SearchMode {
-        searchMode
+        model.mode
     }
 
     /// Returns the current placeholder text (for testing)
@@ -1686,7 +1328,7 @@ class WindowManager: NSObject {
 
     /// Returns the number of results currently displayed (for testing)
     func getResultCount() -> Int {
-        searchMode == .clipboard ? clipboardResults.count : searchResults.count
+        model.resultCount
     }
 
     /// Returns the current search text (for testing)
@@ -1695,42 +1337,13 @@ class WindowManager: NSObject {
     }
 
     /// Simulates typing in the search field (for testing).
-    /// Executes search synchronously (bypassing debounce) for test reliability.
+    /// Searches before returning, so tests can read the rows at once.
     func simulateSearch(query: String) {
         searchField?.stringValue = query
-        // Cancel any pending debounced search
-        searchDebounceWorkItem?.cancel()
-        searchDebounceWorkItem = nil
-        // Update query tracking
-        if query != lastSearchQuery {
+        if query != model.query {
             userHasOverriddenPinnedScrollSinceLastQueryChange = false
-            lastSearchQuery = query
         }
-        // Execute search synchronously for tests
-        switch searchMode {
-        case .clipboard:
-            let matches = clipboardManager?.searchHistoryWithMatches(query: query) ?? []
-            clipboardResults = matches.map { match in
-                ClipboardSearchResult(item: match.item, relevanceScore: match.score, matchedIndices: match.matchedIndices)
-            }
-            searchResults = []
-            selectedRowIndex = clipboardResults.isEmpty ? -1 : 0
-
-        case .applications:
-            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                updateApplicationResultsForEmptyQuery(animate: false)
-                return
-            }
-            searchResults = searchService?.search(trimmed) ?? []
-            clipboardResults = []
-            selectedRowIndex = searchResults.isEmpty ? -1 : 0
-        }
-
-        reloadResults(animate: false)
-        if !userHasOverriddenPinnedScrollSinceLastQueryChange {
-            scrollResultsToTop(selectFirstRow: true)
-        }
+        model.setQueryImmediately(query)
     }
 
     /// Returns the content view for snapshot testing
@@ -1745,9 +1358,7 @@ class WindowManager: NSObject {
 
     /// Sets search results directly for snapshot testing
     func setSearchResultsForTesting(_ results: [SearchResult]) {
-        searchMode = .applications
-        searchResults = results
-        selectedRowIndex = results.isEmpty ? -1 : 0
+        withoutModelChanges { model.setApplicationResults(results) }
         tableView?.reloadData()
         if !results.isEmpty {
             tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
@@ -1756,34 +1367,38 @@ class WindowManager: NSObject {
 
     /// Sets clipboard results directly for snapshot testing
     func setClipboardResultsForTesting(_ items: [ClipboardItem]) {
-        searchMode = .clipboard
-        clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
-        selectedRowIndex = items.isEmpty ? -1 : 0
-        searchField?.placeholderString = "Search clipboard history..."
+        setClipboardSearchResultsForTesting(
+            items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) },
+            updatingSidecar: false
+        )
         reloadResults(animate: false)
-        if !items.isEmpty {
-            tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        }
     }
 
     /// Sets clipboard search results with matchedIndices for testing highlight behavior
     func setClipboardSearchResultsForTesting(_ results: [ClipboardSearchResult]) {
-        searchMode = .clipboard
-        clipboardResults = results
-        selectedRowIndex = results.isEmpty ? -1 : 0
-        searchField?.placeholderString = "Search clipboard history..."
+        setClipboardSearchResultsForTesting(results, updatingSidecar: true)
+    }
+
+    private func setClipboardSearchResultsForTesting(_ results: [ClipboardSearchResult], updatingSidecar: Bool) {
+        withoutModelChanges {
+            model.setClipboardMatches(results.map {
+                ClipboardManager.ClipboardSearchMatch(item: $0.item, score: $0.relevanceScore, matchedIndices: $0.matchedIndices)
+            })
+        }
+        searchField?.placeholderString = model.placeholder
         tableView?.reloadData()
         if !results.isEmpty {
             tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
-        updateSidecarVisibility()
+        if updatingSidecar {
+            updateSidecarVisibility()
+        }
     }
 
     /// Select a specific row for snapshot testing
     func selectRowForTesting(_ row: Int) {
-        let count = searchMode == .clipboard ? clipboardResults.count : searchResults.count
-        guard row >= 0, row < count else { return }
-        selectedRowIndex = row
+        guard row >= 0, row < model.resultCount else { return }
+        model.select(row)
         tableView?.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView?.scrollRowToVisible(row)
     }
@@ -1808,7 +1423,7 @@ class WindowManager: NSObject {
 
     /// Returns the selected row index for testing
     func getSelectedRowIndex() -> Int {
-        selectedRowIndex
+        model.selection ?? -1
     }
 
     // MARK: - Sidecar Test Helpers
@@ -1828,7 +1443,7 @@ class WindowManager: NSObject {
 
 extension WindowManager: NSTableViewDataSource {
     func numberOfRows(in _: NSTableView) -> Int {
-        searchMode == .clipboard ? clipboardResults.count : searchResults.count
+        model.resultCount
     }
 }
 
@@ -1837,7 +1452,7 @@ extension WindowManager: NSTableViewDataSource {
 extension WindowManager: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
         // Display based on search mode
-        if searchMode == .clipboard {
+        if model.mode == .clipboard {
             makeClipboardCell(tableView: tableView, row: row)
         } else {
             makeApplicationCell(tableView: tableView, row: row)
@@ -1845,7 +1460,7 @@ extension WindowManager: NSTableViewDelegate {
     }
 
     private func makeClipboardCell(tableView: NSTableView, row: Int) -> NSView? {
-        guard row >= 0, row < clipboardResults.count else { return nil }
+        guard row >= 0, row < model.clips.rows.count else { return nil }
 
         let cellId = NSUserInterfaceItemIdentifier("ClipboardCell")
         var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
@@ -1892,43 +1507,19 @@ extension WindowManager: NSTableViewDelegate {
             ])
         }
 
-        let result = clipboardResults[row]
-        let item = result.item
-
-        // Collapse to single line: replace newlines/tabs with spaces, collapse multiple spaces
-        let singleLine = item.content
-            .replacingOccurrences(of: "\r\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-            .split(separator: " ", omittingEmptySubsequences: true)
-            .joined(separator: " ")
-
-        let displayContent = singleLine.count > 100
-            ? String(singleLine.prefix(100)) + "..."
-            : singleLine
-
-        // Remap matched indices from original content to collapsed single-line content
-        // For simplicity, re-match on the display content to get correct indices
-        let rematchedIndices: [Int]
-        if !result.matchedIndices.isEmpty, let query = searchField?.stringValue, !query.isEmpty {
-            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            let rematch = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: displayContent)
-            rematchedIndices = rematch.matchedIndices
-        } else {
-            rematchedIndices = []
-        }
+        let clip = model.clips.rows[row]
+        let displayContent = clip.preview
 
         if let textField = cardContainer?.viewWithTag(200) as? NSTextField {
             textField.attributedStringValue = attributedString(
                 for: displayContent,
-                highlightingIndices: rematchedIndices,
+                highlighting: clip.runs,
                 font: textField.font ?? NSFont.systemFont(ofSize: 14)
             )
         }
 
         // Apply initial selection styling
-        let isSelected = (selectedRowIndex == row)
+        let isSelected = (model.selection == row)
         applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
 
         // Accessibility
@@ -1940,7 +1531,7 @@ extension WindowManager: NSTableViewDelegate {
     }
 
     private func makeApplicationCell(tableView: NSTableView, row: Int) -> NSView? {
-        guard row >= 0, row < searchResults.count else { return nil }
+        guard row >= 0, row < model.apps.rows.count else { return nil }
 
         let cellId = NSUserInterfaceItemIdentifier("AppCell")
         var cardContainer = tableView.makeView(withIdentifier: cellId, owner: nil)
@@ -1998,40 +1589,38 @@ extension WindowManager: NSTableViewDelegate {
             ])
         }
 
-        let result = searchResults[row]
-        let appInfo = result.application
+        let application = model.apps.rows[row]
 
         // Get app icon
         if let imageView = cardContainer?.viewWithTag(100) as? NSImageView {
-            let icon = iconCache.icon(forBundlePath: appInfo.bundlePath)
+            let icon = iconCache.icon(forBundlePath: application.id)
             icon.size = NSSize(width: iconSize, height: iconSize)
             imageView.image = icon
         }
 
-        let location = duplicateApplicationNames.contains(appInfo.name)
-            ? (appInfo.bundlePath as NSString).abbreviatingWithTildeInPath
-            : nil
+        let location = application.location
         if let textField = cardContainer?.viewWithTag(101) as? NSTextField {
-            configureApplicationTitle(textField, result: result, location: location)
+            configureApplicationTitle(textField, row: application)
         }
 
         // Apply initial selection styling
-        let isSelected = (selectedRowIndex == row)
+        let isSelected = (model.selection == row)
         applyCardSelectionStyle(to: cardContainer, isSelected: isSelected, animated: false)
 
         // Accessibility
         cardContainer?.setAccessibilityIdentifier("ApplicationRow_\(row)")
-        let accessibleName = location.map { "\(appInfo.name), \($0)" } ?? appInfo.name
+        let accessibleName = location.map { "\(application.name), \($0)" } ?? application.name
         cardContainer?.setAccessibilityLabel("Application: \(accessibleName)")
         cardContainer?.setAccessibilityHelp("Press Enter to launch this application")
 
         return cardContainer
     }
 
-    private func configureApplicationTitle(_ field: NSTextField, result: SearchResult, location: String?) {
+    private func configureApplicationTitle(_ field: NSTextField, row: AppRowData) {
+        let location = row.location
         let title = attributedString(
-            for: result.application.name,
-            highlightingIndices: result.matchedIndices,
+            for: row.name,
+            highlighting: row.runs,
             font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize)
         )
 
@@ -2057,11 +1646,11 @@ extension WindowManager: NSTableViewDelegate {
         // Skip if navigating programmatically (handled in navigateResults)
         guard !isNavigatingProgrammatically else { return }
 
-        let previousSelection = selectedRowIndex
-        selectedRowIndex = tableView.selectedRow
+        let previousSelection = model.selection ?? -1
+        model.select(tableView.selectedRow)
 
         // Update card styling for previous and new selection
-        updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: selectedRowIndex)
+        updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: model.selection ?? -1)
 
         updateSidecarVisibility()
     }
@@ -2166,6 +1755,18 @@ extension WindowManager: NSTableViewDelegate {
 
     // MARK: - Attributed String Highlighting
 
+    /// Draws precomputed match runs in the accent color, so rows highlight exactly what the model matched.
+    private func attributedString(for text: String, highlighting runs: [MatchRun], font: NSFont) -> NSAttributedString {
+        let attributedString = NSMutableAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+        ])
+        for run in runs {
+            attributedString.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: NSRange(run.range, in: text))
+        }
+        return attributedString
+    }
+
     /// Creates an attributed string with matched characters highlighted using the system accent color.
     private func attributedString(for text: String, highlightingIndices indices: [Int], font: NSFont) -> NSAttributedString {
         let attributedString = NSMutableAttributedString(string: text, attributes: [
@@ -2195,11 +1796,11 @@ extension WindowManager: NSTableViewDelegate {
 extension WindowManager: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        guard searchMode == .clipboard else { return }
+        guard model.mode == .clipboard else { return }
 
-        if let row = tableView?.clickedRow, clipboardResults.indices.contains(row) {
+        if let row = tableView?.clickedRow, model.clips.rows.indices.contains(row) {
             // Bind the menu to the clip even if live capture reorders rows before a click.
-            let id = clipboardResults[row].item.id
+            let id = model.clips.rows[row].id
             let copy = NSMenuItem(title: DesignTokens.Copy.copyClip, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
             copy.keyEquivalentModifierMask = CopyClipShortcut.modifiers
             copy.target = self
@@ -2250,25 +1851,23 @@ extension WindowManager: NSSearchFieldDelegate {
     }
 
     private func handleEscapeFromSearchField() {
-        // Ensure pending debounced searches don't run after hiding.
-        searchDebounceWorkItem?.cancel()
-        searchDebounceWorkItem = nil
-
         // When text exists, Esc should clear + hide.
-        if let searchField, !searchField.stringValue.isEmpty {
+        let hadText = searchField.map { !$0.stringValue.isEmpty } ?? false
+        let previousSelection = model.selection ?? -1
+        if hadText, let searchField {
+            // Typing normally reaches the model through the search action; this covers text it has not seen.
+            model.query = searchField.stringValue
             searchField.stringValue = ""
-            lastSearchQuery = ""
+        }
 
-            let previousSelection = selectedRowIndex
-            selectedRowIndex = -1
+        // The model clears the query and selection, then asks the shell to hide.
+        model.escape()
+
+        if hadText {
             tableView?.deselectAll(nil)
-
             if let tableView {
                 updateCardSelectionVisuals(tableView: tableView, previousRow: previousSelection, currentRow: -1)
             }
         }
-
-        // Always hide on Esc.
-        hide()
     }
 }

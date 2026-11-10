@@ -279,8 +279,12 @@ nonisolated struct SearchResult: Sendable {
     let matchedIndices: [Int]
 }
 
-final class SearchService {
+/// Searches run off the main actor so typing never waits on matching; the lock exists because the
+/// refinement cache is shared by every in-flight search and a superseded one may still be unwinding
+/// while its replacement starts.
+final nonisolated class SearchService: @unchecked Sendable {
     private let indexer: ApplicationIndexer
+    private let lock = NSLock()
     private var cachedQuery: FuzzyText?
     private var cachedCandidates: [ApplicationInfo] = []
     private var cachedIndexerRevision: UInt64?
@@ -294,6 +298,12 @@ final class SearchService {
     }
 
     func resetCache() {
+        lock.withLock { clearCache() }
+    }
+
+    /// The cache is only valid inside `lock`; this unlocked variant lets a search that already holds
+    /// the lock reset it without deadlocking on the non-recursive mutex.
+    private func clearCache() {
         cachedQuery = nil
         cachedCandidates = []
         cachedIndexerRevision = nil
@@ -307,9 +317,13 @@ final class SearchService {
     }
 
     func search(_ query: String, isCancelled: () -> Bool) -> [SearchResult] {
+        lock.withLock { searchLocked(query, isCancelled: isCancelled) }
+    }
+
+    private func searchLocked(_ query: String, isCancelled: () -> Bool) -> [SearchResult] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
-            resetCache()
+            clearCache()
             return []
         }
 

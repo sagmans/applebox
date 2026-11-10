@@ -126,6 +126,8 @@ private nonisolated enum ClipboardStorageError: Error {
 /// (`isCapturePaused`, `lastChangeCount`, `readAccess`, the timers) only from `@MainActor` members.
 final nonisolated class ClipboardManager: @unchecked Sendable {
     static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
+    /// Posted after history changes so views refresh without polling; shared so poster and observers cannot drift.
+    static let historyDidUpdate = Notification.Name("applebox.clipboardHistory.didUpdate")
     private static let capturePausedKey = "ClipboardCapturePaused"
     private static let privateDirectoryMode = 0o700
     private static let captureInterval: TimeInterval = 0.2
@@ -401,7 +403,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
 
     private func postHistoryUpdated() {
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Notification.Name("applebox.clipboardHistory.didUpdate"), object: nil)
+            NotificationCenter.default.post(name: Self.historyDidUpdate, object: nil)
         }
     }
 

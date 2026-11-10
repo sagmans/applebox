@@ -27,6 +27,8 @@ enum DesignTokens {
         static let appMissing = "App was moved or removed. Search again for its new location."
         static let launchFailed = "Couldn’t open this app. Try opening it in Finder."
         static let launchTimedOut = "The app hasn’t opened yet. Try again or open it in Finder."
+        static let searchApplicationsPlaceholder = "Search applications..."
+        static let searchClipboardPlaceholder = "Search clipboard history..."
     }
 
     /// Durations shared across window and views so launch feedback stays consistent.
