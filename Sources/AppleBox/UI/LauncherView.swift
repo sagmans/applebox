@@ -28,12 +28,15 @@ struct LauncherView: View {
 
     var body: some View {
         GlassEffectContainer(spacing: DesignTokens.Metrics.glassMergeSpacing) {
+            // A flexible body keeps the search bar and footer fixed whatever the result
+            // count; without them an empty state shrinks and the stack centers in the fixed-size panel.
             VStack(spacing: 0) {
                 SearchBar(model: model)
                 Divider()
                 HStack(spacing: 0) {
                     ResultsList(model: model)
                         .frame(width: model.mode == .clipboard ? DesignTokens.Layout.clipListWidth : nil)
+                        .frame(maxHeight: .infinity)
                     if model.mode == .clipboard {
                         ClipPreviewPane(model: model)
                             .launcherGlass(.regular, in: .rect(cornerRadius: DesignTokens.Metrics.previewCornerRadius))
@@ -41,6 +44,7 @@ struct LauncherView: View {
                             .padding(DesignTokens.Metrics.previewInset)
                     }
                 }
+                .frame(maxHeight: .infinity, alignment: .top)
                 Divider()
                 FooterBar(model: model)
             }
