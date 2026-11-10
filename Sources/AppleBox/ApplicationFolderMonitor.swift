@@ -2,11 +2,14 @@ import CoreServices
 import Foundation
 
 /// Let filesystem events drive index refreshes without repeatedly walking quiet folders.
-final class ApplicationFolderMonitor {
-    private final class Callback {
-        let onChange: () -> Void
+/// Created from the indexer's nonisolated code and delivers events on the main queue, so it opts
+/// out of default main-actor isolation. `@unchecked Sendable` is safe because `stream` is
+/// immutable after init and FSEvents calls are thread-safe.
+final nonisolated class ApplicationFolderMonitor: @unchecked Sendable {
+    private final class Callback: Sendable {
+        let onChange: @Sendable () -> Void
 
-        init(onChange: @escaping () -> Void) {
+        init(onChange: @escaping @Sendable () -> Void) {
             self.onChange = onChange
         }
     }
@@ -14,7 +17,7 @@ final class ApplicationFolderMonitor {
     private static let eventLatency: TimeInterval = 0.3
     private let stream: FSEventStreamRef
 
-    init?(paths: [String], onChange: @escaping () -> Void) {
+    init?(paths: [String], onChange: @escaping @Sendable () -> Void) {
         let callback = Callback(onChange: onChange)
         // Let the stream own the callback for as long as native events can reach it.
         var context = FSEventStreamContext(

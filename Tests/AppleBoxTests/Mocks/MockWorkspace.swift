@@ -30,7 +30,7 @@ final class MockWorkspace: WorkspaceProtocol {
 
     // MARK: - WorkspaceProtocol Implementation
 
-    func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: ((NSRunningApplication?, Error?) -> Void)?) {
+    func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: (@Sendable (NSRunningApplication?, Error?) -> Void)?) {
         let call = OpenApplicationCall(
             applicationURL: applicationURL,
             configuration: configuration,

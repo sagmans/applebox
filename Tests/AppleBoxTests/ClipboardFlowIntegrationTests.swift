@@ -3,13 +3,14 @@ import XCTest
 
 /// Integration tests verifying clipboard capture and retrieval works end-to-end.
 /// These tests verify the full flow from pasteboard changes through ClipboardManager to history retrieval.
+@MainActor
 final class ClipboardFlowIntegrationTests: XCTestCase {
     var mockPasteboard: MockPasteboard!
     var mockFileSystem: MockFileSystem!
     var storageURL: URL!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         mockPasteboard = MockPasteboard()
         mockFileSystem = MockFileSystem()
 
@@ -22,11 +23,11 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
         storageURL = appDirectory.appendingPathComponent("clipboard_history.json")
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         mockPasteboard = nil
         mockFileSystem = nil
         storageURL = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Helper Methods

@@ -6,30 +6,34 @@ import QuartzCore
 
 // MARK: - Search Mode
 
-enum SearchMode {
+nonisolated enum SearchMode: Sendable {
     case applications
     case clipboard
 }
 
 /// Result type for clipboard search
-struct ClipboardSearchResult {
+nonisolated struct ClipboardSearchResult: Sendable {
     let item: ClipboardItem
     let relevanceScore: Int
     /// Character indices in item.content that matched the query.
     let matchedIndices: [Int]
 }
 
-protocol AppIconProviding {
+/// Loaded off the main thread by `AppIconCache`, so providers must be nonisolated and thread-safe.
+nonisolated protocol AppIconProviding: Sendable {
     func icon(forBundlePath: String) -> NSImage
 }
 
-struct SystemAppIconProvider: AppIconProviding {
+nonisolated struct SystemAppIconProvider: AppIconProviding {
     func icon(forBundlePath: String) -> NSImage {
         NSWorkspace.shared.icon(forFile: forBundlePath)
     }
 }
 
-final class AppIconCache {
+/// Icons load on `loadQueue`, so the type opts out of default main-actor isolation.
+/// `@unchecked Sendable` is safe because `inFlight` is only touched through `inFlightQueue`, and the
+/// remaining properties are immutable or NSCache, which is documented as thread-safe.
+final nonisolated class AppIconCache: @unchecked Sendable {
     private let loader: AppIconProviding
     private let cache = NSCache<NSString, NSImage>()
     private let loadQueue = DispatchQueue(label: "applebox.icons.load", qos: .utility)
@@ -395,7 +399,8 @@ class WindowManager: NSObject {
         observeWindowMovement()
     }
 
-    deinit {
+    /// Isolated so teardown can read the main-actor observer list.
+    isolated deinit {
         NotificationCenter.default.removeObserver(self)
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
@@ -422,7 +427,8 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.applyAccessibilitySettings()
+            // Delivered on the main queue, which the compiler cannot see through the Sendable block.
+            MainActor.assumeIsolated { self?.applyAccessibilitySettings() }
         }
     }
 
@@ -433,7 +439,7 @@ class WindowManager: NSObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.updateSidecarPosition()
+            MainActor.assumeIsolated { self?.updateSidecarPosition() }
         }
     }
 
@@ -458,13 +464,19 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self, isWindowVisible, searchMode == .applications, let bundlePath = notification.userInfo?["bundlePath"] as? String else { return }
+            // Delivered on the main queue, which the compiler cannot see through the Sendable block.
+            // Read the payload here because Notification itself cannot cross into the isolated block.
+            let bundlePath = notification.userInfo?["bundlePath"] as? String
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard isWindowVisible, searchMode == .applications, let bundlePath else { return }
 
-            if let row = searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
-                tableView?.reloadData(
-                    forRowIndexes: IndexSet(integer: row),
-                    columnIndexes: IndexSet(integer: 0)
-                )
+                if let row = searchResults.firstIndex(where: { $0.application.bundlePath == bundlePath }) {
+                    tableView?.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                }
             }
         }
 
@@ -473,9 +485,12 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, isWindowVisible, searchMode == .clipboard else { return }
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard isWindowVisible, searchMode == .clipboard else { return }
 
-            scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
+                scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -483,9 +498,12 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, isWindowVisible, searchMode == .applications else { return }
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard isWindowVisible, searchMode == .applications else { return }
 
-            scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
+                scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -493,8 +511,12 @@ class WindowManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self, notification.object as? ClipboardManager === clipboardManager else { return }
-            updateStatusLabel()
+            let sender = notification.object as? ClipboardManager
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard sender === clipboardManager else { return }
+                updateStatusLabel()
+            }
         }
     }
 
@@ -511,19 +533,22 @@ class WindowManager: NSObject {
             }
         recentApplicationsStore.seedIfEmpty(with: runningBundles)
 
-        let handler: (Notification) -> Void = { [weak self] notification in
-            guard let self,
-                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  let bundleURL = app.bundleURL,
-                  app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        // Observers are registered on the main queue, which the compiler cannot see through the Sendable block.
+        let handler: @Sendable (Notification) -> Void = { [weak self] notification in
+            // Extract plain values here because NSRunningApplication cannot cross into the isolated block.
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let bundlePath = app?.bundleURL?.path
+            let isSelf = app?.bundleIdentifier == Bundle.main.bundleIdentifier
+            guard let self, let bundlePath, !isSelf else { return }
+            MainActor.assumeIsolated {
+                recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
 
-            recentApplicationsStore.recordLaunch(bundlePath: bundleURL.path)
+                guard isWindowVisible, searchMode == .applications else { return }
+                let query = searchField?.stringValue ?? ""
+                guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-            guard isWindowVisible, searchMode == .applications else { return }
-            let query = searchField?.stringValue ?? ""
-            guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-            updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: true)
+                updateApplicationResultsForEmptyQuery(animate: false, preservingSelection: true)
+            }
         }
 
         let launchObserver = center.addObserver(
@@ -1865,8 +1890,9 @@ class WindowManager: NSObject {
         config.allowsRunningApplicationSubstitution = false
         config.promptsUserIfNeeded = false
         workspace.openApplication(at: URL(fileURLWithPath: bundlePath), configuration: config) { [weak self] app, error in
+            let opened = app != nil
             DispatchQueue.main.async {
-                self?.finishApplicationLaunch(request, bundlePath: bundlePath, opened: app != nil, error: error)
+                self?.finishApplicationLaunch(request, bundlePath: bundlePath, opened: opened, error: error)
             }
         }
 

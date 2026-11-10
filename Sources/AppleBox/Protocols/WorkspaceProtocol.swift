@@ -10,5 +10,5 @@ public protocol WorkspaceProtocol {
     ///   - applicationURL: The URL of the application to open
     ///   - configuration: The configuration options for opening the application
     ///   - completionHandler: A closure called when the operation completes
-    func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: ((NSRunningApplication?, Error?) -> Void)?)
+    func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: (@Sendable (NSRunningApplication?, Error?) -> Void)?)
 }

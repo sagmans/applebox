@@ -1,6 +1,7 @@
 @testable import AppleBox
 import XCTest
 
+@MainActor
 final class AppleBoxTests: XCTestCase {
     func testPlaceholder() {
         // Placeholder test to verify test target is configured correctly

@@ -4,6 +4,7 @@ import XCTest
 
 /// UI tests for search mode behavior.
 /// Verifies application and clipboard modes are separated (no ">" trigger).
+@MainActor
 final class SearchModeSwitchingTests: XCTestCase {
     // MARK: - Test Fixtures
 
@@ -15,8 +16,8 @@ final class SearchModeSwitchingTests: XCTestCase {
     var searchService: SearchService!
     var clipboardManager: ClipboardManager!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
 
         mockFileSystem = MockFileSystem()
         mockPasteboard = MockPasteboard()
@@ -44,7 +45,7 @@ final class SearchModeSwitchingTests: XCTestCase {
         windowManager.setClipboardManager(clipboardManager)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         if windowManager.isVisible() {
             windowManager.hide()
         }
@@ -55,7 +56,7 @@ final class SearchModeSwitchingTests: XCTestCase {
         mockPasteboard = nil
         mockWorkspace = nil
         mockEventSource = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func setupMockApplications() {

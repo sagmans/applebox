@@ -1,7 +1,10 @@
 import Foundation
 
-/// Protocol abstracting FileManager operations for testability
-public protocol FileSystemProtocol {
+/// Protocol abstracting FileManager operations for testability.
+///
+/// Nonisolated and Sendable because indexing and clipboard persistence call it
+/// from background queues; conformers must be safe to share across threads.
+public nonisolated protocol FileSystemProtocol: Sendable {
     /// Returns the home directory URL for the current user
     var homeDirectoryForCurrentUser: URL { get }
 
@@ -47,7 +50,7 @@ public protocol FileSystemProtocol {
 }
 
 /// Extension to provide default implementations for overloaded methods
-public extension FileSystemProtocol {
+public nonisolated extension FileSystemProtocol {
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool) throws {
         try createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: nil)
     }

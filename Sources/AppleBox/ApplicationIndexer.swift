@@ -1,7 +1,7 @@
 import AppKit
 import OSLog
 
-struct ApplicationInfo {
+nonisolated struct ApplicationInfo: Sendable {
     let name: String
     let bundlePath: String
     /// Cached normalized name for fast matching.
@@ -29,17 +29,22 @@ struct ApplicationInfo {
     }
 }
 
-private struct CachedApplication: Codable {
+/// Encoded and decoded on background queues, so the Codable conformance must not be main-actor isolated.
+private nonisolated struct CachedApplication: Codable {
     let name: String
     let bundlePath: String
 }
 
-private struct ApplicationIndexCache: Codable {
+private nonisolated struct ApplicationIndexCache: Codable {
     let version: Int
     let entries: [CachedApplication]
 }
 
-final class ApplicationIndexer {
+/// Scans run on private dispatch queues, so the type opts out of default main-actor isolation.
+/// `@unchecked Sendable` is safe because `applications` and `revision` are only touched through
+/// `applicationsQueue`, `folderRefreshPending` only on `scanQueue`, and `folderMonitor` only from
+/// the main-thread lifecycle calls that start monitoring.
+final nonisolated class ApplicationIndexer: @unchecked Sendable {
     static let didUpdate = Notification.Name("applebox.applicationIndex.didUpdate")
 
     private let fileSystem: FileSystemProtocol
@@ -113,7 +118,7 @@ final class ApplicationIndexer {
         }
     }
 
-    func scanForApplicationsAsync(completion: (([ApplicationInfo]) -> Void)? = nil) {
+    func scanForApplicationsAsync(completion: (@MainActor @Sendable ([ApplicationInfo]) -> Void)? = nil) {
         scanQueue.async { [weak self] in
             self?.publishScan(completion: completion)
         }
@@ -149,7 +154,7 @@ final class ApplicationIndexer {
         }
     }
 
-    private func publishScan(completion: (([ApplicationInfo]) -> Void)?) {
+    private func publishScan(completion: (@MainActor @Sendable ([ApplicationInfo]) -> Void)?) {
         let scanned = scanForApplicationsInternal()
         applicationsQueue.async(flags: .barrier) {
             let changed = !self.applications.elementsEqual(scanned) {
@@ -164,7 +169,9 @@ final class ApplicationIndexer {
                 if changed {
                     NotificationCenter.default.post(name: Self.didUpdate, object: self)
                 }
-                completion?(scanned)
+                if let completion {
+                    MainActor.assumeIsolated { completion(scanned) }
+                }
             }
         }
     }

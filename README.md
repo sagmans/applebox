@@ -6,6 +6,8 @@ AppleBox is a minimal macOS launcher for app search and clipboard history.
 
 ## Building
 
+AppleBox requires macOS 26 or later and Swift 6.2 or later.
+
 ```bash
 swift build
 ```

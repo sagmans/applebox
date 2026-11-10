@@ -12,7 +12,7 @@ public final class SystemWorkspace: WorkspaceProtocol {
         workspace.frontmostApplication
     }
 
-    public func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: ((NSRunningApplication?, Error?) -> Void)?) {
+    public func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: (@Sendable (NSRunningApplication?, Error?) -> Void)?) {
         workspace.openApplication(at: applicationURL, configuration: configuration, completionHandler: completionHandler)
     }
 }

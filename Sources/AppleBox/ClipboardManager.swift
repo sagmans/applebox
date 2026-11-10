@@ -3,12 +3,12 @@ import ImageIO
 import OSLog
 
 /// Content type for clipboard items
-enum ClipboardContentType: String, Codable {
+nonisolated enum ClipboardContentType: String, Codable, Sendable {
     case text
     case image
 }
 
-struct ClipboardItem: Codable {
+nonisolated struct ClipboardItem: Codable, Sendable {
     /// Distinguish repeated copies without changing the on-disk history format.
     let id = UUID()
     let content: String
@@ -64,7 +64,7 @@ struct ClipboardItem: Codable {
     }
 }
 
-private enum ClipboardHistoryLimits {
+private nonisolated enum ClipboardHistoryLimits {
     private static let kibibyte = 1024
     private static let mebibyte = kibibyte * kibibyte
     private static let maximumJSONEscapeBytes = 6
@@ -114,12 +114,17 @@ private enum ClipboardHistoryLimits {
     }
 }
 
-private enum ClipboardStorageError: Error {
+private nonisolated enum ClipboardStorageError: Error {
     case unavailable
     case archiveTooLarge
 }
 
-final class ClipboardManager {
+/// History and persistence run on private dispatch queues, so the type opts out of default
+/// main-actor isolation and only the pasteboard and timer entry points are `@MainActor`.
+/// `@unchecked Sendable` is safe because `history` is only touched through `historyQueue`,
+/// `storageWritesAllowed` only on `persistenceQueue` (after init), and the remaining mutable state
+/// (`isCapturePaused`, `lastChangeCount`, `readAccess`, the timers) only from `@MainActor` members.
+final nonisolated class ClipboardManager: @unchecked Sendable {
     static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
     private static let capturePausedKey = "ClipboardCapturePaused"
     private static let privateDirectoryMode = 0o700
@@ -162,6 +167,7 @@ final class ClipboardManager {
         persistenceQueue.sync {}
     }
 
+    @MainActor
     init(
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         fileSystem: FileSystemProtocol = SystemFileManager(),
@@ -193,12 +199,14 @@ final class ClipboardManager {
 
         // Expiry continues even when the clipboard monitor is paused.
         expiryTimer = Timer.scheduledTimer(withTimeInterval: ClipboardHistoryLimits.expirySweepInterval, repeats: true) { [weak self] _ in
-            self?.pruneExpiredHistory()
+            // Scheduled on the main run loop, which the compiler cannot see through the Sendable block.
+            MainActor.assumeIsolated { self?.pruneExpiredHistory() }
         }
     }
 
     deinit {
-        stopMonitoring()
+        // Invalidate directly because deinit cannot call the main-actor stopMonitoring().
+        monitoringTimer?.invalidate()
         expiryTimer?.invalidate()
     }
 
@@ -214,7 +222,7 @@ final class ClipboardManager {
         case all
     }
 
-    func removeHistory(_ removal: HistoryRemoval, completion: @escaping (Bool) -> Void) {
+    func removeHistory(_ removal: HistoryRemoval, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
         persistenceQueue.async { [self] in
             let snapshot = getHistory()
             let removedIDs: Set<UUID>
@@ -235,15 +243,16 @@ final class ClipboardManager {
                 // Copies arriving during the write have different identities and must survive it.
                 historyQueue.sync { history.removeAll { removedIDs.contains($0.id) } }
                 postHistoryUpdated()
-                DispatchQueue.main.async { completion(true) }
+                DispatchQueue.main.async { MainActor.assumeIsolated { completion(true) } }
             } catch {
                 logStorageFailure(error, operation: "remove")
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { MainActor.assumeIsolated { completion(false) } }
             }
         }
     }
 
     /// Restart the monitor from the current change count so paused copies stay excluded.
+    @MainActor
     func toggleCapturePaused() {
         isCapturePaused.toggle()
         capturePreferences?.set(isCapturePaused, forKey: Self.capturePausedKey)
@@ -256,7 +265,7 @@ final class ClipboardManager {
     }
 
     /// Result of a clipboard search with score and matched indices.
-    struct ClipboardSearchMatch {
+    struct ClipboardSearchMatch: Sendable {
         let item: ClipboardItem
         let score: Int
         let matchedIndices: [Int]
@@ -295,12 +304,14 @@ final class ClipboardManager {
 
     // MARK: - Private Methods
 
+    @MainActor
     private func startMonitoring() {
         // Initialize last change count
         lastChangeCount = pasteboard.changeCount
 
         let timer = Timer(timeInterval: Self.captureInterval, repeats: true) { [weak self] _ in
-            self?.checkForChanges()
+            // The timer runs on the main run loop, which the compiler cannot see through the Sendable block.
+            MainActor.assumeIsolated { self?.checkForChanges() }
         }
         // Coalesce idle wakeups while still capturing copies made during menu tracking.
         timer.tolerance = Self.captureTolerance
@@ -308,12 +319,14 @@ final class ClipboardManager {
         monitoringTimer = timer
     }
 
+    @MainActor
     private func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
     }
 
     /// Allow tests to exercise one capture without depending on the timer's phase.
+    @MainActor
     func checkForChanges() {
         guard !isCapturePaused else { return }
         let change = pasteboard.changeCount
@@ -333,6 +346,7 @@ final class ClipboardManager {
         record(item)
     }
 
+    @MainActor
     private func readSupportedClipboardItem() -> ClipboardItem? {
         // Check the raw image size before allocating its base64 representation.
         if let image = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
@@ -344,6 +358,7 @@ final class ClipboardManager {
         return ClipboardItem(content: text)
     }
 
+    @MainActor
     private func refreshReadAccess() {
         let access = pasteboard.readAccess
         guard access != readAccess else { return }
@@ -352,6 +367,7 @@ final class ClipboardManager {
     }
 
     /// Check for duplicates and insert on the same queue to keep history ordered.
+    @MainActor
     private func record(_ item: ClipboardItem) {
         let didInsert = historyQueue.sync {
             if let latest = history.first, latest.timestamp >= ClipboardHistoryLimits.cutoff(), latest.hasSamePayload(as: item) {
@@ -369,6 +385,7 @@ final class ClipboardManager {
         }
     }
 
+    @MainActor
     private func pruneExpiredHistory() {
         let earliest = ClipboardHistoryLimits.cutoff()
         let changed = historyQueue.sync {

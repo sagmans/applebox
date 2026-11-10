@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "AppleBox",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v26)
     ],
     products: [
         .executable(name: "AppleBox", targets: ["AppleBox"]),
@@ -17,7 +17,8 @@ let package = Package(
             name: "AppleBox",
             path: "Sources/AppleBox",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6),
+                .defaultIsolation(MainActor.self),
             ]
         ),
         .testTarget(
@@ -29,7 +30,9 @@ let package = Package(
             path: "Tests/AppleBoxTests",
             exclude: ["__Snapshots__"],
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6),
+                // XCTestCase initializers are nonisolated, so default main-actor isolation cannot
+                // apply here; test classes opt in with an explicit @MainActor instead.
             ]
         ),
     ]

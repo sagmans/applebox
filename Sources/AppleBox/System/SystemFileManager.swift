@@ -1,7 +1,11 @@
 import Foundation
 
-/// Production implementation of FileSystemProtocol wrapping FileManager.default
-public final class SystemFileManager: FileSystemProtocol {
+/// Production implementation of FileSystemProtocol wrapping FileManager.default.
+///
+/// Nonisolated because the indexer and clipboard persistence call it off the main thread.
+/// `@unchecked Sendable` is safe because every property is an immutable `let`, and Apple documents
+/// the shared FileManager's operations as thread-safe.
+public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked Sendable {
     private let fileManager: FileManager
     private let applicationPackageTypeKey = "CFBundlePackageType"
     private let applicationPackageType = "APPL"

@@ -1,14 +1,15 @@
 import AppKit
 
 /// Result containing both score and matched character indices.
-struct FuzzyMatchResult {
+nonisolated struct FuzzyMatchResult: Sendable {
     let score: Int
     /// Character indices (0-based) in the candidate string that matched.
     let matchedIndices: [Int]
 }
 
+/// Value types below cross the search and indexing queues, so they are nonisolated and Sendable.
 /// Keep the original character positions when folding changes a name or clip.
-enum FuzzyText {
+nonisolated enum FuzzyText: Sendable {
     case ascii(ContiguousArray<UInt8>)
     case unicode(ContiguousArray<Character>, sourceOffsets: ContiguousArray<Int>)
 
@@ -60,7 +61,7 @@ enum FuzzyText {
 }
 
 /// Use the same scoring for ASCII bytes and folded Unicode characters.
-enum FuzzyMatcher {
+nonisolated enum FuzzyMatcher {
     /// fzf-style fuzzy matching score.
     /// Returns `0` if `query` is not a subsequence of `candidate`.
     static func score(query: String, candidate: String) -> Int {
@@ -271,7 +272,7 @@ enum FuzzyMatcher {
 }
 
 /// Represents a search result with a relevance score and match indices
-struct SearchResult {
+nonisolated struct SearchResult: Sendable {
     let application: ApplicationInfo
     let score: Int
     /// Character indices in application.name that matched the query.

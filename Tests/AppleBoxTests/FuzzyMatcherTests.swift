@@ -2,6 +2,7 @@
 import XCTest
 
 /// Unit tests for FuzzyMatcher, focused on exact substring priority and index correctness.
+@MainActor
 final class FuzzyMatcherTests: XCTestCase {
     // MARK: - Exact Substring Priority Tests
 

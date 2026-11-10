@@ -1,13 +1,14 @@
 @testable import AppleBox
 import XCTest
 
+@MainActor
 final class ClipboardManagerTests: XCTestCase {
     var mockPasteboard: MockPasteboard!
     var mockFileSystem: MockFileSystem!
     var storageURL: URL!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         mockPasteboard = MockPasteboard()
         mockFileSystem = MockFileSystem()
 
@@ -20,11 +21,11 @@ final class ClipboardManagerTests: XCTestCase {
         storageURL = appDirectory.appendingPathComponent("clipboard_history.json")
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         mockPasteboard = nil
         mockFileSystem = nil
         storageURL = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Helper Methods

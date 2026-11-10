@@ -3,17 +3,18 @@ import XCTest
 
 /// Integration tests verifying SearchService works correctly with ApplicationIndexer
 /// Tests the end-to-end flow: mock file system -> ApplicationIndexer -> SearchService -> results
+@MainActor
 final class SearchFlowIntegrationTests: XCTestCase {
     private var mockFileSystem: MockFileSystem!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         mockFileSystem = MockFileSystem()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         mockFileSystem = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Helper Methods

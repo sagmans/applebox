@@ -3,6 +3,7 @@ import AppKit
 import XCTest
 
 /// UI-level tests for WindowManager behavior and keyboard handling
+@MainActor
 final class WindowManagerTests: XCTestCase {
     // MARK: - Test Fixtures
 
@@ -14,8 +15,8 @@ final class WindowManagerTests: XCTestCase {
     var searchService: SearchService!
     var clipboardManager: ClipboardManager!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
 
         // Create mocks
         mockFileSystem = MockFileSystem()
@@ -48,7 +49,7 @@ final class WindowManagerTests: XCTestCase {
         windowManager.setClipboardManager(clipboardManager)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         // Hide window if visible
         if windowManager.isVisible() {
             windowManager.hide()
@@ -60,7 +61,7 @@ final class WindowManagerTests: XCTestCase {
         mockPasteboard = nil
         mockWorkspace = nil
         mockEventSource = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// Helper to setup mock applications in file system

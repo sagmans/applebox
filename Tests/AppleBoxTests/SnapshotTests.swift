@@ -5,6 +5,7 @@ import XCTest
 
 /// Snapshot tests for UI components to catch visual regressions.
 /// These tests create images of views in various states and compare them to reference images.
+@MainActor
 final class SnapshotTests: XCTestCase {
     private var previousAppearance: NSAppearance?
     private var mockFileSystem: MockFileSystem!
@@ -43,6 +44,18 @@ final class SnapshotTests: XCTestCase {
             "Snapshot tests are skipped in CI due to environment-specific rendering differences."
         )
 
+        runOnMainActor { $0.createFixture() }
+    }
+
+    /// XCTest calls the setUp and tearDown overrides on the main thread, but their signatures are
+    /// nonisolated, so fixture work hops into the main actor explicitly.
+    private nonisolated func runOnMainActor(_ work: @MainActor (SnapshotTests) -> Void) {
+        // The case outlives the call and XCTest never runs it elsewhere, so sharing it is safe.
+        nonisolated(unsafe) let test = self
+        MainActor.assumeIsolated { work(test) }
+    }
+
+    private func createFixture() {
         // Snapshot tests are sensitive to OS appearance settings. Force a stable baseline.
         // The committed reference images are recorded in Dark Mode.
         _ = NSApplication.shared
@@ -86,6 +99,11 @@ final class SnapshotTests: XCTestCase {
     }
 
     override func tearDown() {
+        runOnMainActor { $0.destroyFixture() }
+        super.tearDown()
+    }
+
+    private func destroyFixture() {
         // Only restore appearance if setup completed (test wasn't skipped)
         if windowManager != nil {
             NSApp.appearance = previousAppearance
@@ -99,7 +117,6 @@ final class SnapshotTests: XCTestCase {
         mockPasteboard = nil
         mockWorkspace = nil
         mockEventSource = nil
-        super.tearDown()
     }
 
     // MARK: - Helper Methods

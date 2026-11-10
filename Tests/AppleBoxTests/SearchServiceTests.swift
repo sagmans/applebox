@@ -1,13 +1,14 @@
 @testable import AppleBox
 import XCTest
 
+@MainActor
 final class SearchServiceTests: XCTestCase {
     private var mockFileSystem: MockFileSystem!
     private var indexer: ApplicationIndexer!
     private var searchService: SearchService!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         mockFileSystem = MockFileSystem()
         // Set up a mock file system with test applications
         setupMockApplications()
@@ -15,11 +16,11 @@ final class SearchServiceTests: XCTestCase {
         searchService = SearchService(indexer: indexer)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         mockFileSystem = nil
         indexer = nil
         searchService = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// Sets up a mock file system with various test applications

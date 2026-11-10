@@ -1,17 +1,18 @@
 @testable import AppleBox
 import XCTest
 
+@MainActor
 final class ApplicationIndexerTests: XCTestCase {
     private var mockFileSystem: MockFileSystem!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         mockFileSystem = MockFileSystem()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         mockFileSystem = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Helper Methods

@@ -1,8 +1,11 @@
 @testable import AppleBox
 import Foundation
 
-/// Mock implementation of FileSystemProtocol for testing
-final class MockFileSystem: FileSystemProtocol {
+/// Mock implementation of FileSystemProtocol for testing.
+///
+/// Production code calls it from background queues; `@unchecked Sendable` is safe because every
+/// mutable property is read and written under `stateLock`.
+final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable {
     private let stateLock = NSLock()
 
     private func withStateLock<T>(_ work: () throws -> T) rethrows -> T {

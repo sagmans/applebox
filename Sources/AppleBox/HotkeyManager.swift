@@ -69,7 +69,8 @@ final class HotkeyManager {
         self.callback = callback
     }
 
-    deinit {
+    /// Isolated so teardown can unregister hot keys, which are only touched on the main actor.
+    isolated deinit {
         stop()
     }
 
