@@ -65,6 +65,7 @@ struct ClipboardItem: Codable {
 }
 
 final class ClipboardManager {
+    private static let capturePausedKey = "ClipboardCapturePaused"
     private let maxHistoryCount = 50
 
     /// Keep private, temporary, and generated content out of user copy history.
@@ -81,6 +82,8 @@ final class ClipboardManager {
 
     private let pasteboard: PasteboardProtocol
     private let fileSystem: FileSystemProtocol
+    private let capturePreferences: UserDefaults?
+    private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
     private var monitoringTimer: Timer?
     private let storageURL: URL
@@ -101,10 +104,13 @@ final class ClipboardManager {
     init(
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         fileSystem: FileSystemProtocol = SystemFileManager(),
+        capturePreferences: UserDefaults? = nil,
         loadSynchronously: Bool = true
     ) {
         self.pasteboard = pasteboard
         self.fileSystem = fileSystem
+        self.capturePreferences = capturePreferences
+        isCapturePaused = capturePreferences?.bool(forKey: Self.capturePausedKey) ?? false
 
         // Store in Application Support directory
         let appSupportURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -123,8 +129,10 @@ final class ClipboardManager {
             loadHistoryAsync()
         }
 
-        // Start monitoring
-        startMonitoring()
+        // Respect a previous pause before scheduling the first clipboard read.
+        if !isCapturePaused {
+            startMonitoring()
+        }
     }
 
     deinit {
@@ -135,6 +143,17 @@ final class ClipboardManager {
 
     func getHistory() -> [ClipboardItem] {
         historyQueue.sync { history }
+    }
+
+    /// Restart the monitor from the current change count so paused copies stay excluded.
+    func toggleCapturePaused() {
+        isCapturePaused.toggle()
+        capturePreferences?.set(isCapturePaused, forKey: Self.capturePausedKey)
+        if isCapturePaused {
+            stopMonitoring()
+        } else {
+            startMonitoring()
+        }
     }
 
     /// Result of a clipboard search with score and matched indices.
@@ -194,6 +213,7 @@ final class ClipboardManager {
     /// Polls the pasteboard once. The monitoring timer calls this every 0.5 s;
     /// tests call it directly so they do not race the timer.
     func checkForChanges() {
+        guard !isCapturePaused else { return }
         let change = pasteboard.changeCount
         guard change != lastChangeCount else { return }
         lastChangeCount = change

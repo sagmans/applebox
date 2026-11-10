@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.setSearchService(searchService)
 
         // Load clipboard history asynchronously and start monitoring.
-        let clipboardManager = ClipboardManager(loadSynchronously: false)
+        let clipboardManager = ClipboardManager(capturePreferences: .standard, loadSynchronously: false)
         self.clipboardManager = clipboardManager
         windowManager.setClipboardManager(clipboardManager)
 

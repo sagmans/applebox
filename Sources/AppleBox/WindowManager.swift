@@ -297,6 +297,13 @@ class WindowManager: NSObject {
     private let emptyClipboardHistoryMessage = "Clipboard history is empty"
     private let copyClipMenuTitle = "Copy to Clipboard"
     private let clipboardMenu = NSMenu()
+    private var captureButton: NSButton?
+    private var fullSearchFieldWidth: CGFloat?
+    private let pauseCaptureTitle = "Pause Capture"
+    private let resumeCaptureTitle = "Resume Capture"
+    private let capturePausedHelp = "Capture is paused. Resume to save new copies."
+    private let captureActiveHelp = "Pause saving new clipboard copies."
+    private let captureButtonSpacing: CGFloat = 12
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = []
@@ -1196,9 +1203,45 @@ class WindowManager: NSObject {
         tableView?.reloadData()
         tableView?.menu = searchMode == .clipboard ? clipboardMenu : nil
         updateEmptyResultsLabel()
+        updateCaptureControl()
         if animate {
             animateResultsUpdateIfAppropriate()
         }
+    }
+
+    private func updateCaptureControl() {
+        guard let searchField else { return }
+        guard searchMode == .clipboard, let clipboardManager, let headerPanel else {
+            captureButton?.isHidden = true
+            if let fullSearchFieldWidth {
+                searchField.frame.size.width = fullSearchFieldWidth
+            }
+            return
+        }
+
+        let button = captureButton ?? makeCaptureButton(in: headerPanel, beside: searchField)
+        let paused = clipboardManager.isCapturePaused
+        button.title = paused ? resumeCaptureTitle : pauseCaptureTitle
+        button.setAccessibilityHelp(paused ? capturePausedHelp : captureActiveHelp)
+        button.isHidden = false
+        searchField.frame.size.width = button.frame.minX - searchField.frame.minX - captureButtonSpacing
+    }
+
+    private func makeCaptureButton(in headerPanel: NSView, beside searchField: NSSearchField) -> NSButton {
+        // Size for the longer title to keep the query field stable across a pause.
+        let button = NSButton(title: resumeCaptureTitle, target: self, action: #selector(toggleCapture))
+        button.sizeToFit()
+        let frame = headerPanel.bounds
+        button.setFrameOrigin(NSPoint(x: frame.maxX - button.frame.width - captureButtonSpacing, y: frame.midY - button.frame.height / 2))
+        headerPanel.addSubview(button)
+        fullSearchFieldWidth = searchField.frame.width
+        captureButton = button
+        return button
+    }
+
+    @objc private func toggleCapture() {
+        clipboardManager?.toggleCapturePaused()
+        updateCaptureControl()
     }
 
     /// Explain an empty query result while leaving the search field in place.
@@ -1824,7 +1867,7 @@ class WindowManager: NSObject {
         clipboardResults = items.map { ClipboardSearchResult(item: $0, relevanceScore: 0, matchedIndices: []) }
         selectedRowIndex = items.isEmpty ? -1 : 0
         searchField?.placeholderString = "Search clipboard history..."
-        tableView?.reloadData()
+        reloadResults(animate: false)
         if !items.isEmpty {
             tableView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }

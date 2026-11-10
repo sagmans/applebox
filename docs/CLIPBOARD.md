@@ -9,3 +9,7 @@ copies that other apps mark as generated, concealed, or transient.
 
 Press Option-Return on a selected clip or choose **Copy to Clipboard** from
 its context menu. Paste it yourself with Command-V wherever you need it.
+
+Choose **Pause Capture** in clipboard history to stop saving new copies.
+The pause survives restarting AppleBox. **Resume Capture** starts saving from
+the next copy. You can still search and replay saved clips while paused.
