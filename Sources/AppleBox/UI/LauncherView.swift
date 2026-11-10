@@ -8,6 +8,7 @@ struct LauncherView: View {
     @Namespace private var glassSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.launcherSnapshotMode) private var snapshotMode
+    @Environment(\.colorSchemeContrast) private var colorContrast
     @State private var phase = Phase.leaving
 
     /// Where the panel is in its open/close motion. Kept separate from `isPresented` so opening can start
@@ -20,6 +21,14 @@ struct LauncherView: View {
 
     private var tint: Color {
         model.mode == .clipboard ? DesignTokens.Palette.clipTint : DesignTokens.Palette.appTint
+    }
+
+    private var hairlineOpacity: Double {
+        DesignTokens.contrast(
+            DesignTokens.Palette.accentHairlineOpacity,
+            increased: DesignTokens.Palette.increasedAccentHairlineOpacity,
+            contrast: colorContrast
+        )
     }
 
     private var size: CGSize {
@@ -59,7 +68,7 @@ struct LauncherView: View {
             // The wash is the same in both modes, so the hairline carries the mode accent.
             .overlay {
                 RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
-                    .strokeBorder(tint.opacity(DesignTokens.Palette.accentHairlineOpacity), lineWidth: DesignTokens.Metrics.hairline)
+                    .strokeBorder(tint.opacity(hairlineOpacity), lineWidth: DesignTokens.Metrics.hairline)
                     .allowsHitTesting(false)
             }
         }

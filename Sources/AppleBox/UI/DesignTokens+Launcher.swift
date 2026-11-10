@@ -98,6 +98,11 @@ extension DesignTokens.Palette {
     static let iconGlowOpacity: Double = 0.45
     /// Strength of the outline around a color swatch, so a swatch close to the panel color keeps an edge.
     static let swatchOutlineOpacity: Double = 0.25
+    /// Selection capsule accent under Increase Contrast: the user asked for stronger edges, so the
+    /// highlighted row must stand out more than the subtle default allows.
+    static let increasedSelectionTintOpacity: Double = 0.8
+    /// Panel hairline accent under Increase Contrast, for the same reason.
+    static let increasedAccentHairlineOpacity: Double = 0.7
 
     /// Palette colors are opaque: any transparency would let the host's backdrop leak into the references.
     private static let fixedAlpha: CGFloat = 1
@@ -115,6 +120,12 @@ extension DesignTokens.Palette {
 }
 
 extension DesignTokens {
+    /// Picks a strength by the Increase Contrast setting, the contrast counterpart of `motion`, so views
+    /// state both values and never branch on the setting themselves.
+    static func contrast(_ standard: Double, increased: Double, contrast: ColorSchemeContrast) -> Double {
+        contrast == .increased ? increased : standard
+    }
+
     /// Key bindings that are behavior, not user copy, so changing wording can never change a key.
     enum Keys {
         /// Key that chooses Cancel in the clear-history sheet: Return, so a repeated press can never erase history.

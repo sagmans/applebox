@@ -21,6 +21,8 @@ struct ResultsList: View {
     /// read the cache again and pick up the thumbnail.
     @State private var imageLoads = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorContrast
+    @Environment(\.locale) private var locale
     @Environment(\.clipImages) private var images
     @Environment(\.referenceDate) private var referenceDate
     @Environment(\.calendar) private var calendar
@@ -42,6 +44,14 @@ struct ResultsList: View {
 
     private var tint: Color {
         model.mode == .clipboard ? DesignTokens.Palette.clipTint : DesignTokens.Palette.appTint
+    }
+
+    private var selectionOpacity: Double {
+        DesignTokens.contrast(
+            DesignTokens.Palette.selectionTintOpacity,
+            increased: DesignTokens.Palette.increasedSelectionTintOpacity,
+            contrast: colorContrast
+        )
     }
 
     private var emptySymbol: String {
@@ -108,7 +118,13 @@ struct ResultsList: View {
                             .clipped()
                             .transition(arrival(at: index))
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
-                            .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
+                            // The relative time is on screen under the clip text, so VoiceOver reads it too.
+                            .accessibilityLabel(Self.rowLabel(
+                                title: row.preview,
+                                subtitle: DesignTokens.relativeTime(row.timestamp, reference: referenceDate, locale: locale),
+                                index: index,
+                                count: model.resultCount
+                            ))
                             .accessibilityHint(Self.rowHint(for: .clipboard))
                             .contextMenu { menu(for: row.id) }
                         }
@@ -213,7 +229,7 @@ struct ResultsList: View {
             .background {
                 if isSelected {
                     Color.clear
-                        .launcherGlass(.regular.tint(tint.opacity(DesignTokens.Palette.selectionTintOpacity)).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
+                        .launcherGlass(.regular.tint(tint.opacity(selectionOpacity)).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
                         .matchedGeometryEffect(id: DesignTokens.Glass.selectionID, in: selectionSpace)
                 }
             }
