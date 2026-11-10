@@ -52,7 +52,7 @@ final class MockPasteboard: PasteboardProtocol {
         return mockImageData[dataType]
     }
 
-    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Int? {
+    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType, source _: String?) -> Int? {
         if dataType == .string {
             guard let text = String(data: data, encoding: .utf8) else { return nil }
             setStringCalls.append((string: text, type: dataType))

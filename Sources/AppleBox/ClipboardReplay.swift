@@ -52,7 +52,7 @@ final class ClipboardReplay {
             return
         }
 
-        guard let ownership = pasteboard.replayData(representation.data, forType: representation.type) else {
+        guard let ownership = pasteboard.replayData(representation.data, forType: representation.type, source: item.sourceBundleID) else {
             logger.error("Clipboard history replay could not take pasteboard ownership")
             showFeedback(copyFailureMessage, kind: .failure)
             return

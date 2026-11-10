@@ -35,11 +35,15 @@ public final class SystemPasteboard: PasteboardProtocol {
         pasteboard.data(forType: dataType)
     }
 
-    public func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Int? {
+    public func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType, source: String?) -> Int? {
         // Prepare the typed item before clearing the user's current clipboard.
         let item = NSPasteboardItem()
         guard item.setData(data, forType: dataType),
               item.setData(Data(), forType: .generatedClipboardContent) else { return nil }
+        // Without the original source, readers would credit AppleBox or whatever app is in front.
+        if let source, !item.setString(source, forType: .clipSource) {
+            return nil
+        }
 
         let ownership = pasteboard.clearContents()
         guard pasteboard.writeObjects([item]), pasteboard.changeCount == ownership else { return nil }

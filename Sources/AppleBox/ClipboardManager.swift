@@ -16,8 +16,10 @@ nonisolated struct ClipboardItem: Codable, Sendable {
     let contentType: ClipboardContentType
     /// Keep the original bytes so replay does not change the image encoding.
     let imageData: String?
-    /// Bundle id of the app that had focus at capture, so the preview can say where a clip came from.
-    /// Metadata only; optional because history saved by earlier versions has none.
+    /// Bundle id of the app the clip came from, so the preview can say where it was copied. The writer's
+    /// own `org.nspasteboard.source` declaration wins; without one it is the frontmost app when the poll
+    /// noticed the change, which can be wrong if focus moved within one poll interval or a background
+    /// tool wrote the clipboard. Metadata only; optional because history saved by earlier versions has none.
     let sourceBundleID: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -150,6 +152,12 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     private static let privateDirectoryMode = 0o700
     private static let captureInterval: TimeInterval = 0.2
     private static let captureTolerance: TimeInterval = 0.02
+    /// Longest bundle id accepted from a pasteboard declaration. The source is written by other apps, so
+    /// anything longer than a real bundle id is not trusted or stored.
+    private static let maximumBundleIDLength = 255
+    /// Characters a bundle id may contain (Apple's CFBundleIdentifier rule); a declaration with others is
+    /// ignored rather than shown in the preview.
+    private static let bundleIDCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.")
 
     /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
@@ -169,6 +177,9 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     /// frontmost app; the default asks the workspace, which names the app the user copied from because
     /// the launcher panel never takes focus.
     private let frontmostBundleID: @MainActor () -> String?
+    /// AppleBox's own bundle id. A copy made while AppleBox is in front (preview text, a replay) has no
+    /// meaningful origin, and crediting the launcher would be a false "Copied from".
+    private let ownBundleID: String?
     private let capturePreferences: UserDefaults?
     @MainActor private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
@@ -197,9 +208,11 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         fileSystem: FileSystemProtocol = SystemFileManager(),
         capturePreferences: UserDefaults? = nil,
         loadSynchronously: Bool = true,
-        frontmostBundleID: @escaping @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+        frontmostBundleID: @escaping @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+        ownBundleID: String? = Bundle.main.bundleIdentifier
     ) {
         self.frontmostBundleID = frontmostBundleID
+        self.ownBundleID = ownBundleID
         self.pasteboard = pasteboard
         readAccess = pasteboard.readAccess
         self.fileSystem = fileSystem
@@ -371,14 +384,14 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
               pasteboard.changeCount == change else { return }
 
         // Discard a payload if its privacy check belonged to a different clipboard change.
-        guard let item = readSupportedClipboardItem(), pasteboard.changeCount == change else { return }
+        guard let item = readSupportedClipboardItem(types: types), pasteboard.changeCount == change else { return }
         record(item)
     }
 
     @MainActor
-    private func readSupportedClipboardItem() -> ClipboardItem? {
+    private func readSupportedClipboardItem(types: [NSPasteboard.PasteboardType]) -> ClipboardItem? {
         // Check the raw image size before allocating its base64 representation.
-        let source = frontmostBundleID()
+        let source = captureSource(types: types)
         if let image = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             guard image.count <= ClipboardHistoryLimits.imageBytes else { return nil }
             return ClipboardItem(imageData: image, sourceBundleID: source)
@@ -386,6 +399,24 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         guard let text = pasteboard.string(forType: .string), !text.isEmpty,
               text.utf8.count <= ClipboardHistoryLimits.textBytes else { return nil }
         return ClipboardItem(content: text, sourceBundleID: source)
+    }
+
+    /// The declared source is exact, while the frontmost app is only a guess made at poll time, so a
+    /// declaration wins. A declaration that is empty or malformed means the writer gave no usable origin,
+    /// and guessing then would contradict it.
+    @MainActor
+    private func captureSource(types: [NSPasteboard.PasteboardType]) -> String? {
+        let candidate = types.contains(.clipSource)
+            ? pasteboard.string(forType: .clipSource).flatMap(Self.validBundleID)
+            : frontmostBundleID()
+        return candidate == ownBundleID ? nil : candidate
+    }
+
+    /// Other apps write the declaration, so it is checked like any untrusted input before it is stored.
+    private static func validBundleID(_ value: String) -> String? {
+        guard !value.isEmpty, value.utf8.count <= maximumBundleIDLength,
+              value.unicodeScalars.allSatisfy(bundleIDCharacters.contains) else { return nil }
+        return value
     }
 
     @MainActor
