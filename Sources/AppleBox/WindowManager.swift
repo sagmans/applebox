@@ -12,7 +12,8 @@ nonisolated struct ClipboardSearchResult: Sendable {
     let matchedIndices: [Int]
 }
 
-private enum CopyClipShortcut {
+/// The copy-clip key chord, shared by the legacy window and the launcher panel so both reserve the same keys.
+enum CopyClipShortcut {
     static let key = "\r"
     static let modifiers: NSEvent.ModifierFlags = .option
     static let relevantModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]

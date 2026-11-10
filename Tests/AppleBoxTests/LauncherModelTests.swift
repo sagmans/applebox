@@ -287,4 +287,103 @@ final class LauncherModelTests: XCTestCase {
         let row = try XCTUnwrap(model.clips.rows.first)
         XCTAssertEqual(row.runs.map { String(row.preview[$0.range]) }, ["[main]"])
     }
+
+    // MARK: - Panel Key Routing
+
+    /// Key codes of the keys under test, matching the hardware codes the panel reserves.
+    private enum TestKeyCode {
+        static let escape: UInt16 = 53
+        static let upArrow: UInt16 = 126
+        static let downArrow: UInt16 = 125
+        static let returnKey: UInt16 = 36
+    }
+
+    private func keyEvent(_ code: UInt16, characters: String = "", modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: code
+        ))
+    }
+
+    func testPanelEscapeWithTextClearsSelectionAndDismisses() throws {
+        try seedClipboardHistory([ClipboardItem(content: "hello")])
+        let controller = LauncherController(model: model)
+        model.show(mode: .clipboard)
+        XCTAssertEqual(model.selection, 0)
+        model.query = "abc"
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+
+        XCTAssertEqual(model.query, "")
+        XCTAssertNil(model.selection)
+        XCTAssertFalse(model.isPresented)
+    }
+
+    func testPanelEscapeWithEmptyTextDismisses() throws {
+        let controller = LauncherController(model: model)
+        model.show()
+        XCTAssertEqual(model.query, "")
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+
+        XCTAssertFalse(model.isPresented)
+    }
+
+    func testPanelArrowKeysNavigateSelection() throws {
+        try seedClipboardHistory([ClipboardItem(content: "one"), ClipboardItem(content: "two")])
+        let controller = LauncherController(model: model)
+        model.show(mode: .clipboard)
+        XCTAssertEqual(model.selection, 0)
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.downArrow))
+        XCTAssertEqual(model.selection, 1)
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.upArrow))
+        XCTAssertEqual(model.selection, 0)
+    }
+
+    func testPanelReturnActivatesSelection() throws {
+        try seedClipboardHistory([ClipboardItem(content: "hello")])
+        let controller = LauncherController(model: model)
+        model.show(mode: .clipboard)
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.returnKey, characters: "\r"))
+
+        XCTAssertEqual(mockPasteboard.string(forType: .string), "hello")
+    }
+
+    func testPanelOptionReturnCopiesClip() throws {
+        try seedClipboardHistory([ClipboardItem(content: "hello")])
+        let controller = LauncherController(model: model)
+        model.show(mode: .clipboard)
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.returnKey, characters: "\r", modifiers: .option))
+
+        XCTAssertEqual(mockPasteboard.string(forType: .string), "hello")
+        XCTAssertTrue(mockEventSource.pasteTargets.isEmpty, "Copy must not paste")
+    }
+
+    func testPanelLeavesReservedKeysToInputMethodWhileComposing() throws {
+        let controller = LauncherController(model: model)
+        model.show()
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        container.addSubview(textView)
+        controller.panel.contentView = container
+        XCTAssertTrue(controller.panel.makeFirstResponder(textView))
+        textView.setMarkedText("あ", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(textView.hasMarkedText())
+
+        try controller.panel.sendEvent(keyEvent(TestKeyCode.escape))
+
+        XCTAssertTrue(model.isPresented, "Esc must reach the input method, not dismiss the launcher")
+    }
 }
