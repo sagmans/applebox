@@ -205,6 +205,10 @@ bundle: build
 	@if [ -f "$(ENTITLEMENTS)" ]; then \
 		cp "$(ENTITLEMENTS)" "$(APP_BUNDLE)/Contents/Resources/"; \
 	fi
+	@# Seal the whole bundle: the linker signs only the binary, and macOS privacy grants
+	@# (Accessibility, Screen Recording) never match a bundle whose resources are unsealed.
+	@codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" "$(APP_BUNDLE)"
+	@codesign --verify --strict "$(APP_BUNDLE)"
 	@echo "$(GREEN)Bundle created: $(APP_BUNDLE)$(NC)"
 
 run: stop bundle
@@ -226,8 +230,6 @@ logs:
 # ==============================================================================
 
 install: bundle
-	@codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" "$(APP_BUNDLE)"
-	@codesign --verify --strict "$(APP_BUNDLE)"
 	@swift "$(LOCAL_INSTALLER)" install "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app" "$(BUNDLE_ID)"
 
 uninstall:
