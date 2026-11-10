@@ -29,6 +29,12 @@ final nonisolated class AppIconCache: @unchecked Sendable {
     private let loadQueue = DispatchQueue(label: "applebox.icons.load", qos: .utility)
 
     private let inFlightQueue = DispatchQueue(label: "applebox.icons.inflight")
+    /// Marks an average job in `inFlight`, which also holds icon paths; the prefix keeps the two kinds of
+    /// job from blocking each other for the same bundle.
+    private static let inFlightAveragePrefix = "avg:"
+    /// Bounds the average memo above the apps a typical Mac has installed, so scrolling the full list
+    /// never recomputes a glow, while memory stays capped.
+    private static let averageCountLimit = 1024
     private var inFlight: Set<String> = []
 
     /// Averages are cached apart from icons because they are derived data: a missing average must never
@@ -46,6 +52,7 @@ final nonisolated class AppIconCache: @unchecked Sendable {
 
     init(loader: AppIconProviding) {
         self.loader = loader
+        averages.countLimit = Self.averageCountLimit
         placeholder = NSImage(size: NSSize(width: 24, height: 24))
     }
 
@@ -87,7 +94,7 @@ final nonisolated class AppIconCache: @unchecked Sendable {
     }
 
     private func scheduleAverageIfNeeded(bundlePath: String, icon: NSImage) {
-        let key = "avg:" + bundlePath
+        let key = Self.inFlightAveragePrefix + bundlePath
         let shouldStart = inFlightQueue.sync { inFlight.insert(key).inserted }
         guard shouldStart else { return }
         loadQueue.async { [weak self] in
@@ -100,23 +107,32 @@ final nonisolated class AppIconCache: @unchecked Sendable {
         }
     }
 
-    /// Side in pixels of the bitmap an icon is squeezed into; one pixel makes the system's resampling
-    /// compute the mean for us.
-    private static let averageBitmapSide = 1
+    /// Side in pixels of the bitmap an icon is drawn into before averaging. Downsampling straight to one
+    /// pixel samples only a few source pixels, which skews high-contrast icons; 16x16 keeps the work tiny
+    /// while every region of the icon counts.
+    private static let averageBitmapSide = 16
     /// Pixels more transparent than this barely contribute to how an icon looks, so a mostly empty icon
     /// yields no glow instead of a muddy one.
     private static let minimumCoverage: CGFloat = 0.2
     private static let bytesPerPixel = 4
     private static let bitsPerComponent = 8
     private static let maxComponent: CGFloat = 255
+    /// Byte order of one premultiplied RGBA pixel in the bitmap.
+    private static let redOffset = 0
+    private static let greenOffset = 1
+    private static let blueOffset = 2
+    private static let alphaOffset = 3
+    /// Upper bound of a color component; rounding in premultiplied data can push a channel slightly over.
+    private static let maxUnitComponent: CGFloat = 1
 
     /// Mean color of the opaque part of the icon, or nil when it is too transparent to have one.
     private static func averageColor(of icon: NSImage) -> Color? {
         var rect = CGRect(origin: .zero, size: icon.size)
         guard let image = icon.cgImage(forProposedRect: &rect, context: nil, hints: nil),
               let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        var pixel = [UInt8](repeating: 0, count: bytesPerPixel)
-        let drawn = pixel.withUnsafeMutableBytes { buffer -> Bool in
+        let pixelCount = averageBitmapSide * averageBitmapSide
+        var pixels = [UInt8](repeating: 0, count: bytesPerPixel * pixelCount)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(
                 data: buffer.baseAddress,
                 width: averageBitmapSide,
@@ -126,15 +142,26 @@ final nonisolated class AppIconCache: @unchecked Sendable {
                 space: space,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
             ) else { return false }
-            context.interpolationQuality = .medium
+            context.interpolationQuality = .high
             context.draw(image, in: CGRect(x: 0, y: 0, width: averageBitmapSide, height: averageBitmapSide))
             return true
         }
-        let alpha = CGFloat(pixel[3]) / maxComponent
-        guard drawn, alpha >= minimumCoverage else { return nil }
-        // The bitmap is premultiplied; dividing by alpha recovers the color of the visible pixels.
-        let channels = pixel.prefix(3).map { CGFloat($0) / maxComponent / alpha }
-        return Color(.sRGB, red: min(channels[0], 1), green: min(channels[1], 1), blue: min(channels[2], 1))
+        guard drawn else { return nil }
+        var sums = (red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
+        for start in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+            sums.red += Double(pixels[start + redOffset])
+            sums.green += Double(pixels[start + greenOffset])
+            sums.blue += Double(pixels[start + blueOffset])
+            sums.alpha += Double(pixels[start + alphaOffset])
+        }
+        let coverage = CGFloat(sums.alpha) / (maxComponent * CGFloat(pixelCount))
+        guard coverage >= minimumCoverage else { return nil }
+        // The bitmap is premultiplied, so dividing the channel sums by the alpha sum weights each pixel by
+        // how visible it is and recovers the color of the opaque part.
+        func unit(_ sum: Double) -> CGFloat {
+            min(CGFloat(sum / sums.alpha), maxUnitComponent)
+        }
+        return Color(.sRGB, red: unit(sums.red), green: unit(sums.green), blue: unit(sums.blue))
     }
 
     /// Loads icons ahead of use without notifying: nothing is showing a placeholder for them yet, so a
@@ -177,39 +204,5 @@ final nonisolated class AppIconCache: @unchecked Sendable {
                 }
             }
         }
-    }
-}
-
-/// The app a clip was copied from, resolved from its bundle id for the preview header.
-struct SourceApp: Equatable {
-    let name: String
-    /// Bundle path, which keys the icon cache.
-    let path: String
-}
-
-/// Resolves bundle ids to installed apps. Results, including "not installed", are memoized because the
-/// header re-reads on every selection change and a Launch Services lookup per keystroke would be waste.
-final class SourceAppResolver: @unchecked Sendable {
-    static let shared = SourceAppResolver()
-
-    private final class Box {
-        let app: SourceApp?
-        init(_ app: SourceApp?) {
-            self.app = app
-        }
-    }
-
-    private let cache = NSCache<NSString, Box>()
-
-    /// nil when the app is gone, so the header simply omits the source instead of showing a stale name.
-    func app(forBundleID bundleID: String) -> SourceApp? {
-        if let known = cache.object(forKey: bundleID as NSString) {
-            return known.app
-        }
-        let resolved = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map {
-            SourceApp(name: $0.deletingPathExtension().lastPathComponent, path: $0.path)
-        }
-        cache.setObject(Box(resolved), forKey: bundleID as NSString)
-        return resolved
     }
 }

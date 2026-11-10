@@ -59,6 +59,14 @@ nonisolated enum ClipRowBuilder {
 private nonisolated struct ClipboardSnapshot: Sendable {
     let matches: [ClipboardManager.ClipboardSearchMatch]
     let rows: [ClipRowData]
+    /// True when a query ordered the rows by match quality instead of recency.
+    let isRanked: Bool
+
+    init(matches: [ClipboardManager.ClipboardSearchMatch], query: String) {
+        self.matches = matches
+        rows = ClipRowBuilder.rows(for: matches, query: query)
+        isRanked = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 /// Clip results, copy and paste, removal, and capture state.
@@ -69,6 +77,9 @@ private nonisolated struct ClipboardSnapshot: Sendable {
 final class ClipboardModel {
     /// Rows for the current query, ready to render without touching the history.
     private(set) var rows: [ClipRowData] = []
+    /// Whether the current rows are ranked by a query. Read instead of the live query because the field
+    /// runs ahead of an async search, and day headers over still-ranked rows would repeat.
+    private(set) var rowsAreRanked = false
 
     /// Mirrors the manager because the manager is not observable; refreshed whenever it can change.
     private(set) var isPaused = false
@@ -142,7 +153,7 @@ final class ClipboardModel {
     /// Replaces the results with matches computed elsewhere, such as snapshot fixtures.
     func setMatches(_ newMatches: [ClipboardManager.ClipboardSearchMatch], query: String = "") {
         invalidatePendingSearch()
-        publish(ClipboardSnapshot(matches: newMatches, rows: ClipRowBuilder.rows(for: newMatches, query: query)))
+        publish(ClipboardSnapshot(matches: newMatches, query: query))
     }
 
     /// Empties the list without announcing it, for callers that are about to publish the next set.
@@ -150,6 +161,7 @@ final class ClipboardModel {
         invalidatePendingSearch()
         matches = []
         rows = []
+        rowsAreRanked = false
     }
 
     /// Makes any search still in flight stale, so a late result cannot land after the list was reset.
@@ -161,12 +173,13 @@ final class ClipboardModel {
         let previousCount = rows.count
         matches = snapshot.matches
         rows = snapshot.rows
+        rowsAreRanked = snapshot.isRanked
         onPublish?(previousCount)
     }
 
     private nonisolated static func snapshot(manager: ClipboardManager?, query: String) -> ClipboardSnapshot {
         let found = manager?.searchHistoryWithMatches(query: query) ?? []
-        return ClipboardSnapshot(matches: found, rows: ClipRowBuilder.rows(for: found, query: query))
+        return ClipboardSnapshot(matches: found, query: query)
     }
 
     /// Fuzzy matching and classification scale with history size, so they run on the global executor.

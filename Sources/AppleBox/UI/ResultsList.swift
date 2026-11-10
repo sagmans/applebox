@@ -73,7 +73,7 @@ struct ResultsList: View {
                     switch model.mode {
                     case .applications:
                         ForEach(Array(model.apps.rows.enumerated()), id: \.element.id) { index, row in
-                            if hasNoQuery, let title = ListSections.appHeader(in: model.apps.rows, at: index) {
+                            if showsSections, let title = ListSections.appHeader(in: model.apps.rows, at: index) {
                                 sectionHeader(title)
                             }
                             container(index: index, id: row.id) {
@@ -86,7 +86,7 @@ struct ResultsList: View {
                         }
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
-                            if hasNoQuery, let title = clipHeader(at: index) {
+                            if showsSections, let title = clipHeader(at: index) {
                                 sectionHeader(title)
                             }
                             container(index: index, id: row.id) {
@@ -104,6 +104,7 @@ struct ResultsList: View {
                     }
                 }
                 .padding(DesignTokens.Metrics.listInset)
+                .id(Self.listTopID)
                 // Opens the transaction that lets the per-row arrival transitions run; rows that stay
                 // keep their place, since only their own transition carries timing.
                 .animation(.linear(duration: 0), value: shownIDs)
@@ -117,6 +118,12 @@ struct ResultsList: View {
             }
             .onChange(of: model.selection) { _, selected in
                 guard let selected, let id = rowID(at: selected) else { return }
+                // The first row's header sits above it; scrolling to the row alone would leave the header
+                // clipped when the user returns to the top.
+                if selected == 0, showsSections {
+                    proxy.scrollTo(Self.listTopID, anchor: .top)
+                    return
+                }
                 // A nil anchor scrolls the least distance, so a held arrow key does not recenter every row.
                 proxy.scrollTo(id)
             }
@@ -124,11 +131,22 @@ struct ResultsList: View {
     }
 
     /// Sections only describe an unfiltered list: a typed query orders rows by match quality, and a day
-    /// caption over a ranked list would be wrong.
-    private var hasNoQuery: Bool {
-        model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// caption over a ranked list would be wrong. Clips ask the rows themselves, since the live query can
+    /// run one async search ahead of them; ranked app rows carry no recents, so the query is enough there.
+    private var showsSections: Bool {
+        switch model.mode {
+        case .applications: model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .clipboard: !model.clips.rowsAreRanked
+        }
     }
 
+    /// Scroll target of the padded list as a whole, so returning to the first row shows its header and the
+    /// list inset instead of stopping at the row's own edge.
+    private static let listTopID = "results-list-top"
+
+    /// Buckets count calendar days while the row's relative time counts elapsed time, so "13 hr. ago" can
+    /// sit under "Yesterday"; both are true, and the panel is short-lived, so neither is re-rendered as
+    /// the clock moves.
     private func clipHeader(at index: Int) -> String? {
         var zoned = calendar
         zoned.timeZone = timeZone
