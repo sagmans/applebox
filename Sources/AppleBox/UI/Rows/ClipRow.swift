@@ -4,7 +4,7 @@ import SwiftUI
 /// how long ago it was copied on a second line, laid out like an app row so both lists share one rhythm.
 ///
 /// Equatable on its inputs only, for the same reason as `AppRow`. The thumbnail is passed in rather than
-/// looked up here because the row value carries no clip content, and decoding belongs to the list.
+/// looked up here because the row value carries no clip content; `ThumbnailClipRow` does the lookup.
 struct ClipRow: View, Equatable {
     let data: ClipRowData
     let isSelected: Bool
@@ -66,5 +66,47 @@ struct ClipRow: View, Equatable {
 
     static func == (lhs: ClipRow, rhs: ClipRow) -> Bool {
         lhs.data == rhs.data && lhs.isSelected == rhs.isSelected && lhs.thumbnail === rhs.thumbnail && lhs.reference == rhs.reference
+    }
+}
+
+/// A clip row that looks up its own thumbnail and redraws only when that thumbnail finishes decoding.
+///
+/// Decode notifications used to bump a counter on the whole list, so each finished image redrew every
+/// row. Each row now filters the notification by its clip id; text clips never decode, so they never match.
+struct ThumbnailClipRow: View, Equatable {
+    let data: ClipRowData
+    let isSelected: Bool
+    let clips: ClipboardModel
+    var reference: Date?
+
+    @Environment(\.clipImages) private var images
+    /// Bumped when this row's image finishes decoding, so the body asks the cache again.
+    @State private var loads = 0
+
+    var body: some View {
+        ClipRow(data: data, isSelected: isSelected, thumbnail: thumbnail, reference: reference).equatable()
+            .onReceive(NotificationCenter.default.publisher(for: ClipboardImageCache.didLoad).filter(isOwnLoad)) { _ in
+                loads &+= 1
+            }
+    }
+
+    /// Only image clips need content from the history; looking up text clips would be wasted work per row.
+    /// Reads `loads` so a finished decode makes the body ask the cache again.
+    private var thumbnail: NSImage? {
+        _ = loads
+        guard data.kind == .image, let item = clips.item(id: data.id) else { return nil }
+        let scale = NSScreen.main?.backingScaleFactor ?? DesignTokens.Metrics.fallbackBackingScale
+        return images.thumbnail(for: item, pixelSize: DesignTokens.Metrics.thumbnailSize * scale)
+    }
+
+    /// Text clips never decode, so the kind check spares them the user-info lookup on every decode.
+    private func isOwnLoad(_ note: Notification) -> Bool {
+        data.kind == .image && note.userInfo?[ClipboardImageCache.clipIDKey] as? UUID == data.id
+    }
+
+    /// Lets the list skip this row's body, and its history lookup, when a list pass leaves its inputs as
+    /// they were. The model is compared by identity: it is the one history the row reads from.
+    static func == (lhs: ThumbnailClipRow, rhs: ThumbnailClipRow) -> Bool {
+        lhs.data == rhs.data && lhs.isSelected == rhs.isSelected && lhs.clips === rhs.clips && lhs.reference == rhs.reference
     }
 }

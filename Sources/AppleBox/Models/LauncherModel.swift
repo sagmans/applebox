@@ -37,6 +37,9 @@ final class LauncherModel {
     var searchShortcutHelp = ""
     /// Index of the highlighted row, or nil when focus is on the search field.
     private(set) var selection: Int?
+    /// Per-row view of `selection`, written together with it so a selection move invalidates only the
+    /// row losing it and the row gaining it; see `RowSelectionFlags`.
+    @ObservationIgnored let rowSelection = RowSelectionFlags()
 
     /// Application results and launching, split out so each list owns its own search.
     let apps: AppSearchModel
@@ -295,6 +298,7 @@ final class LauncherModel {
 
     private func setSelection(_ index: Int?) {
         selection = index
+        rowSelection.select(index)
         selectedRowID = index.flatMap(rowID(at:))
     }
 

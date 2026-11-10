@@ -42,6 +42,9 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// Posted on the main queue when a decode finishes, whatever its result, so views showing the
     /// pending state can redraw.
     static let didLoad = Notification.Name("applebox.clipboardImageCache.didLoad")
+    /// `didLoad` user-info key holding the decoded clip's `UUID`, so a row redraws only for its own image
+    /// instead of every row redrawing for each decode.
+    static let clipIDKey = "clipID"
 
     /// Preview images kept at once. The preview shows one, so a few cover stepping back and forth through
     /// neighbouring clips; each holds a few megabytes at pane size, so more would pin memory nobody sees.
@@ -258,7 +261,7 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
                 state[keyPath: store].put(decoded, for: job.id)
             }
             DispatchQueue.main.async {
-                NotificationCenter.default.post(name: Self.didLoad, object: nil)
+                NotificationCenter.default.post(name: Self.didLoad, object: nil, userInfo: [Self.clipIDKey: job.id])
             }
         }
     }

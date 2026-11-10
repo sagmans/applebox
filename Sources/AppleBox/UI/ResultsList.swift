@@ -17,13 +17,12 @@ struct ResultsList: View {
     /// The result set `headers` was built for; captions are used only while it matches the shown rows,
     /// so a stale array can never put a caption over the wrong row.
     @State private var headersKey: SectionKey?
-    /// Bumped when a clip image finishes decoding in the background, so rows that showed their badge
-    /// read the cache again and pick up the thumbnail.
-    @State private var imageLoads = 0
+    /// Row positions, paired once per published result set; see `IndexedRowsMemo`.
+    @State private var appRows = IndexedRowsMemo<AppRowData>()
+    @State private var clipRows = IndexedRowsMemo<ClipRowData>()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var colorContrast
     @Environment(\.locale) private var locale
-    @Environment(\.clipImages) private var images
     @Environment(\.referenceDate) private var referenceDate
     @Environment(\.calendar) private var calendar
     @Environment(\.timeZone) private var timeZone
@@ -64,6 +63,11 @@ struct ResultsList: View {
         DesignTokens.motion(DesignTokens.Motion.selection, reduceMotion: reduceMotion)
     }
 
+    /// Resolved once per list pass and handed to every row, so rows need no environment reads of their own.
+    private var selectionStyle: SelectionStyle {
+        SelectionStyle(tint: tint, opacity: selectionOpacity, animation: selectionAnimation)
+    }
+
     /// Only the first rows are staggered, so a long list settles as fast as a short one.
     private func arrival(at index: Int) -> AnyTransition {
         guard index < DesignTokens.Motion.rowStaggerLimit else { return .identity }
@@ -88,17 +92,19 @@ struct ResultsList: View {
     private var list: some View {
         // Read once per pass; rows below only index into it.
         let shownHeaders = headersKey == sectionKey ? headers : []
+        let style = selectionStyle
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: DesignTokens.Metrics.rowSpacing) {
                     switch model.mode {
                     case .applications:
-                        ForEach(Array(model.apps.rows.enumerated()), id: \.element.id) { index, row in
+                        ForEach(appRows.rows(model.apps.rows, generation: model.apps.rowsGeneration)) { indexed in
+                            let index = indexed.index, row = indexed.row
                             if let title = header(at: index, in: shownHeaders) {
                                 sectionHeader(title)
                             }
-                            container(index: index, id: row.id) {
-                                AppRow(data: row, isSelected: model.selection == index).equatable()
+                            container(index: index, id: row.id, style: style) { isSelected in
+                                AppRow(data: row, isSelected: isSelected).equatable()
                             }
                             .transition(arrival(at: index))
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
@@ -106,12 +112,13 @@ struct ResultsList: View {
                             .accessibilityHint(Self.rowHint(for: .applications))
                         }
                     case .clipboard:
-                        ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
+                        ForEach(clipRows.rows(model.clips.rows, generation: model.clips.rowsGeneration)) { indexed in
+                            let index = indexed.index, row = indexed.row
                             if let title = header(at: index, in: shownHeaders) {
                                 sectionHeader(title)
                             }
-                            container(index: index, id: row.id) {
-                                ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row), reference: referenceDate).equatable()
+                            container(index: index, id: row.id, style: style) { isSelected in
+                                ThumbnailClipRow(data: row, isSelected: isSelected, clips: model.clips, reference: referenceDate).equatable()
                             }
                             .opacity(departing.contains(row.id) ? 0 : 1)
                             .frame(height: departing.contains(row.id) ? 0 : nil, alignment: .top)
@@ -136,29 +143,34 @@ struct ResultsList: View {
                 // keep their place, since only their own transition carries timing.
                 .animation(.linear(duration: 0), value: rowsGeneration)
             }
+            .background {
+                SelectionFollower(model: model) { selected in
+                    scroll(to: selected, with: proxy)
+                }
+            }
             // A finished delete either removed the row already or failed and must show it again; either
             // way nothing stays hidden, even when the failure repeats an earlier message.
-            .onReceive(NotificationCenter.default.publisher(for: ClipboardImageCache.didLoad)) { _ in
-                imageLoads &+= 1
-            }
             .onChange(of: model.clips.removalsFinished) { _, _ in
                 withAnimation(selectionAnimation) { departing.removeAll() }
             }
             .onChange(of: sectionKey, initial: true) { _, key in
                 rebuildHeaders(for: key)
             }
-            .onChange(of: model.selection) { _, selected in
-                guard let selected, let id = rowID(at: selected) else { return }
-                // The first row's header sits above it; scrolling to the row alone would leave the header
-                // clipped when the user returns to the top.
-                if selected == 0, header(at: 0, in: headers) != nil {
-                    proxy.scrollTo(Self.listTopID, anchor: .top)
-                    return
-                }
-                // A nil anchor scrolls the least distance, so a held arrow key does not recenter every row.
-                proxy.scrollTo(id)
-            }
         }
+    }
+
+    /// Keeps the selected row visible while the keyboard moves it; pointer selection lands on a visible row,
+    /// so the extra scroll is a no-op there.
+    private func scroll(to selected: Int?, with proxy: ScrollViewProxy) {
+        guard let selected, let id = rowID(at: selected) else { return }
+        // The first row's header sits above it; scrolling to the row alone would leave the header
+        // clipped when the user returns to the top.
+        if selected == 0, header(at: 0, in: headers) != nil {
+            proxy.scrollTo(Self.listTopID, anchor: .top)
+            return
+        }
+        // A nil anchor scrolls the least distance, so a held arrow key does not recenter every row.
+        proxy.scrollTo(id)
     }
 
     /// Sections only describe an unfiltered list: a typed query orders rows by match quality, and a day
@@ -222,30 +234,22 @@ struct ResultsList: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    /// Wraps a row with the selection capsule, pointer handling and accessibility traits.
-    private func container(index: Int, id: some Hashable, @ViewBuilder content: () -> some View) -> some View {
-        let isSelected = model.selection == index
-        return content()
-            .background {
-                if isSelected {
-                    Color.clear
-                        .launcherGlass(.regular.tint(tint.opacity(selectionOpacity)).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
-                        .matchedGeometryEffect(id: DesignTokens.Glass.selectionID, in: selectionSpace)
-                }
-            }
-            .animation(selectionAnimation, value: model.selection)
-            .contentShape(Rectangle())
-            // With a double-tap gesture present, the single tap waits for the double tap to fail, so selection
-            // lands after the system double-click interval; registering the double tap first keeps both working.
+    /// Wraps a row with the selection capsule, pointer handling and accessibility traits. The selection is
+    /// read inside `SelectableRow`, never here, so building rows does not depend on it.
+    private func container(index: Int, id: some Hashable, style: SelectionStyle, @ViewBuilder content: @escaping (Bool) -> some View) -> some View {
+        SelectableRow(
+            flag: model.rowSelection.flag(at: index),
+            style: style,
+            namespace: selectionSpace,
+            onSelect: { model.select(index) },
             // The row acts by its id, not the selection, so a search landing meanwhile cannot redirect it.
-            .onTapGesture(count: DesignTokens.Metrics.activationClickCount) {
+            onActivate: {
                 model.select(index)
                 model.activate(id: AnyHashable(id))
-            }
-            .onTapGesture { model.select(index) }
-            .id(id)
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            },
+            content: content
+        )
+        .id(id)
     }
 
     private func rowID(at index: Int) -> AnyHashable? {
@@ -266,15 +270,6 @@ struct ResultsList: View {
     /// What Return does on a row, which depends on the list. Static for the same reason as the label.
     static func rowHint(for mode: SearchMode) -> String {
         mode == .clipboard ? DesignTokens.Copy.clipRowHint : DesignTokens.Copy.applicationRowHint
-    }
-
-    /// Only image clips need content from the history; looking up text clips would be wasted work per row.
-    /// Reads `imageLoads` so a decode finishing later redraws the rows that were waiting for it.
-    private func thumbnail(for row: ClipRowData) -> NSImage? {
-        _ = imageLoads
-        guard row.kind == .image, let item = model.clips.item(id: row.id) else { return nil }
-        let scale = NSScreen.main?.backingScaleFactor ?? DesignTokens.Metrics.fallbackBackingScale
-        return images.thumbnail(for: item, pixelSize: DesignTokens.Metrics.thumbnailSize * scale)
     }
 
     /// Menu items bind to the clip id so a live history update cannot retarget them to another row.
