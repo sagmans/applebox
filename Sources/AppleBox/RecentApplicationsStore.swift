@@ -12,8 +12,14 @@ final class RecentApplicationsStore {
 
     private let fileName = "recent_applications.json"
     private let maxCount = 50
+    /// Every Cmd-Tab is an activation, so saving each one rewrote and fsynced the file many times a
+    /// minute. One save per window bounds the rate; a crash loses at most this much ordering, which
+    /// only affects how the empty query is sorted.
+    private static let saveDelay: Duration = .seconds(5)
 
     private var recentBundlePaths: [String] = []
+    /// The delayed save, if one is waiting. Nil means the file already holds the latest order.
+    private var pendingSave: Task<Void, Never>?
     /// Records a failed save; the domain and code only, because the file lists which apps the user opens.
     private let logger = Logger(
         subsystem: LogSubsystem.name,
@@ -61,19 +67,39 @@ final class RecentApplicationsStore {
     }
 
     /// Moves an app to the front of the recents once it launched, so the order follows real use. Persisting
-    /// is asynchronous because a launch must not wait on disk.
-    func recordLaunch(bundlePath: String) {
-        let snapshot = queue.sync { () -> [String] in
+    /// is delayed and coalesced because a launch must not wait on disk, and app switching would otherwise
+    /// rewrite the file on every activation.
+    ///
+    /// Returns whether the order changed, so callers can skip refreshing views when it did not.
+    @discardableResult
+    func recordLaunch(bundlePath: String) -> Bool {
+        let changed = queue.sync { () -> Bool in
+            // Switching back to the app already in front leaves the order as it is.
+            guard recentBundlePaths.first != bundlePath else { return false }
             var updated = recentBundlePaths.filter { $0 != bundlePath }
             updated.insert(bundlePath, at: 0)
             if updated.count > maxCount {
                 updated = Array(updated.prefix(maxCount))
             }
             recentBundlePaths = updated
-            return updated
+            return true
         }
 
-        persistRecentsAsync(snapshot)
+        if changed {
+            scheduleSave()
+        }
+        return changed
+    }
+
+    /// Writes a waiting delayed save now and waits for every save to reach disk, so quitting inside the
+    /// save window keeps the latest order.
+    func flushPendingPersistence() {
+        if let pending = pendingSave {
+            pending.cancel()
+            pendingSave = nil
+            persistRecentsAsync(queue.sync { recentBundlePaths })
+        }
+        persistenceQueue.sync {}
     }
 
     /// Gives a first run something to show before the user has launched anything. Ignored once recents
@@ -99,7 +125,27 @@ final class RecentApplicationsStore {
         }
 
         guard let snapshot else { return }
+        // A seed is one write at startup, so it saves at once and never waits on the save window.
         persistRecentsAsync(snapshot)
+    }
+
+    /// Starts one delayed save unless one is already waiting. The save reads the order when it fires, so
+    /// every activation inside the window lands in that single write.
+    private func scheduleSave() {
+        guard pendingSave == nil else { return }
+        pendingSave = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.saveDelay)
+            } catch {
+                // Cancelled because a flush already wrote this order.
+                return
+            }
+            // A flush can cancel after the sleep ended but before this resumed; it already wrote, and
+            // clearing pendingSave here could drop a newer save it scheduled.
+            guard !Task.isCancelled, let self else { return }
+            pendingSave = nil
+            persistRecentsAsync(queue.sync { recentBundlePaths })
+        }
     }
 
     /// Saves owner-only, like the clipboard history: launch history shows what the user works with, and

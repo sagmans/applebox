@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("AppleBox terminating")
         hotkeyManager?.stop()
         clipboardManager?.flushPendingPersistence()
+        launcher?.flushPendingPersistence()
     }
 
     private func installStatusMenu() {

@@ -293,6 +293,11 @@ final class AppSearchModel {
 
     // MARK: - Recents
 
+    /// Saves recents still waiting in the store's save window, so a quit keeps the latest order.
+    func flushPendingRecents() {
+        recents.flushPendingPersistence()
+    }
+
     /// Keeps launch recency current for apps started outside AppleBox too, so the empty-query order
     /// reflects what the user actually used.
     private func observeWorkspaceActivity() {
@@ -315,8 +320,10 @@ final class AppSearchModel {
             let isSelf = app?.bundleIdentifier == Bundle.main.bundleIdentifier
             guard let self, let bundlePath, !isSelf else { return }
             MainActor.assumeIsolated {
-                recents.recordLaunch(bundlePath: bundlePath)
-                onRecentsChanged?()
+                // Most activations return to the app already in front; nothing to redraw then.
+                if recents.recordLaunch(bundlePath: bundlePath) {
+                    onRecentsChanged?()
+                }
             }
         }
 

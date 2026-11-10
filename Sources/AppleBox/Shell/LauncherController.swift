@@ -138,6 +138,11 @@ final class LauncherController: NSObject, NSWindowDelegate {
         model.setClipboardManager(manager)
     }
 
+    /// Lets the app delegate save delayed recents on quit without reaching into the model graph.
+    func flushPendingPersistence() {
+        model.apps.flushPendingRecents()
+    }
+
     /// Publishes the shortcut description for assistive technology on the search field.
     func setSearchShortcutHelp(_ help: String) {
         model.searchShortcutHelp = help
