@@ -210,7 +210,7 @@ final class ClipboardModel {
         query: String,
         kinds: ClipKindCache
     ) -> ClipboardSnapshot {
-        let found = manager?.searchHistoryWithMatches(query: query) ?? []
+        let found = manager?.searchHistoryWithMatches(query: query) { Task.isCancelled } ?? []
         return ClipboardSnapshot(matches: found, query: query, kinds: kinds)
     }
 

@@ -93,14 +93,24 @@ nonisolated enum FuzzyMatcher {
             query: query.characters,
             candidate: candidate.characters,
             normalize: { $0 },
-            isBoundary: { $0 == " " || $0 == "-" || $0 == "_" }
+            isBoundary: unicodeWordBoundaries.contains
         )
         guard case let .unicode(_, offsets) = candidate else { return match }
-        var originalIndices: [Int] = []
-        for index in match.matchedIndices where originalIndices.last != offsets[index] {
-            originalIndices.append(offsets[index])
+        return FuzzyMatchResult(score: match.score, matchedIndices: originalIndices(match.matchedIndices, offsets: offsets))
+    }
+
+    /// Maps folded positions back to the text the user sees. Several folded characters can come from
+    /// one original character, which is highlighted once. Shared with clip search's compact folds so
+    /// both report the same highlights.
+    static func originalIndices(_ foldedIndices: [Int], offsets: ContiguousArray<some BinaryInteger>) -> [Int] {
+        var result: [Int] = []
+        for index in foldedIndices {
+            let original = Int(offsets[index])
+            if result.last != original {
+                result.append(original)
+            }
         }
-        return FuzzyMatchResult(score: match.score, matchedIndices: originalIndices)
+        return result
     }
 
     /// Ultra-fast path using pre-computed byte arrays.
@@ -114,6 +124,11 @@ nonisolated enum FuzzyMatcher {
         matchUnits(query: queryBytes, candidate: candidateBytes, normalize: asciiLowercase, isBoundary: asciiWordBoundary)
     }
 
+    /// Shared with clip search's compact folds, so both score word starts the same way.
+    /// Mirrors `asciiWordBoundary` for folded characters. An array: three equality checks are cheaper
+    /// than hashing a `Character` at every matched position.
+    static let unicodeWordBoundaries: [Character] = [" ", "-", "_"]
+
     fileprivate static func asciiLowercase(_ byte: UInt8) -> UInt8 {
         (byte >= 65 && byte <= 90) ? byte + 32 : byte
     }
@@ -122,7 +137,8 @@ nonisolated enum FuzzyMatcher {
         byte == 32 || byte == 45 || byte == 95
     }
 
-    private static func matchUnits<Unit: Equatable>(
+    /// Internal so clip search can match its compact cached folds with exactly this scoring.
+    static func matchUnits<Unit: Equatable>(
         query: ContiguousArray<Unit>,
         candidate: ContiguousArray<Unit>,
         normalize: (Unit) -> Unit,

@@ -223,6 +223,8 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
 
     private let historyQueue = DispatchQueue(label: "applebox.clipboard.history", qos: .userInitiated)
     private var history: [ClipboardItem] = []
+    /// Search state outlives one keystroke, so it lives with the history it indexes.
+    private let searchIndex = ClipSearchIndex()
 
     private let persistenceQueue = DispatchQueue(label: "applebox.clipboard.persistence", qos: .utility)
     private var storageWritesAllowed = true
@@ -359,30 +361,16 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     }
 
     /// Search history returning full match results (score + indices) to avoid duplicate fuzzy matching.
-    func searchHistoryWithMatches(query: String) -> [ClipboardSearchMatch] {
+    /// `isCancelled` lets a newer keystroke stop this search: the result is then empty, and the caller
+    /// is expected to discard it.
+    func searchHistoryWithMatches(query: String, isCancelled: () -> Bool = { false }) -> [ClipboardSearchMatch] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshot = getHistory()
 
         guard !trimmedQuery.isEmpty else {
             return snapshot.map { ClipboardSearchMatch(item: $0, score: 0, matchedIndices: []) }
         }
-
-        let query = FuzzyText(trimmedQuery)
-        let scored = snapshot.enumerated().compactMap { index, item -> (index: Int, match: ClipboardSearchMatch)? in
-            let result = FuzzyMatcher.matchWithIndices(query: query, candidate: FuzzyText(item.content))
-            guard result.score > 0 else { return nil }
-            return (index: index, match: ClipboardSearchMatch(item: item, score: result.score, matchedIndices: result.matchedIndices))
-        }
-
-        return scored
-            .sorted {
-                if $0.match.score != $1.match.score {
-                    return $0.match.score > $1.match.score
-                }
-                // Preserve recency (history is already most-recent-first)
-                return $0.index < $1.index
-            }
-            .map(\.match)
+        return searchIndex.search(trimmedQuery, in: snapshot, isCancelled: isCancelled)
     }
 
     /// The launcher calls this as it opens and closes, so the poll is fast only while the list is on screen.
@@ -535,6 +523,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     }
 
     private func postHistoryUpdated() {
+        searchIndex.historyDidChange { [weak self] in self?.getHistory() ?? [] }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: Self.historyDidUpdate, object: nil)
         }
