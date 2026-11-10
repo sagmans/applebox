@@ -8,6 +8,10 @@ public final class SystemWorkspace: WorkspaceProtocol {
         self.workspace = workspace
     }
 
+    public var frontmostApplication: NSRunningApplication? {
+        workspace.frontmostApplication
+    }
+
     public func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: ((NSRunningApplication?, Error?) -> Void)?) {
         workspace.openApplication(at: applicationURL, configuration: configuration, completionHandler: completionHandler)
     }

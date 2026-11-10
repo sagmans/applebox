@@ -50,9 +50,9 @@ final class MockPasteboard: PasteboardProtocol {
         return mockImageData[dataType]
     }
 
-    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Int? {
         if dataType == .string {
-            guard let text = String(data: data, encoding: .utf8) else { return false }
+            guard let text = String(data: data, encoding: .utf8) else { return nil }
             setStringCalls.append((string: text, type: dataType))
             simulateExternalChange(content: text)
         } else {
@@ -60,7 +60,7 @@ final class MockPasteboard: PasteboardProtocol {
         }
         clearContentsCalls += 1
         didReplay = true
-        return true
+        return changeCount
     }
 
     // MARK: - Helper Methods

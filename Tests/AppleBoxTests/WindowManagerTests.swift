@@ -430,7 +430,7 @@ final class WindowManagerTests: XCTestCase {
         // Note: pasteToFrontmostApp is called after copyToClipboard
 
         // Verify mock is ready to track events
-        XCTAssertEqual(mockEventSource.keyboardEventCount, 0)
+        XCTAssertTrue(mockEventSource.pasteTargets.isEmpty)
     }
 
     // MARK: - Window Handler Configuration Tests

@@ -24,13 +24,14 @@ public final class SystemPasteboard: PasteboardProtocol {
         pasteboard.data(forType: dataType)
     }
 
-    public func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+    public func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Int? {
         // Prepare the typed item before clearing the user's current clipboard.
         let item = NSPasteboardItem()
         guard item.setData(data, forType: dataType),
-              item.setData(Data(), forType: .generatedClipboardContent) else { return false }
+              item.setData(Data(), forType: .generatedClipboardContent) else { return nil }
 
-        pasteboard.clearContents()
-        return pasteboard.writeObjects([item])
+        let ownership = pasteboard.clearContents()
+        guard pasteboard.writeObjects([item]), pasteboard.changeCount == ownership else { return nil }
+        return ownership
     }
 }

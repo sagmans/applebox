@@ -19,6 +19,6 @@ public protocol PasteboardProtocol {
     /// Returns data for the specified type from the first item in the pasteboard
     func data(forType dataType: NSPasteboard.PasteboardType) -> Data?
 
-    /// Keep the original representation and mark it so monitors can skip the replay.
-    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Bool
+    /// Return the ownership count so delayed paste can reject a replacement clipboard.
+    func replayData(_ data: Data, forType dataType: NSPasteboard.PasteboardType) -> Int?
 }

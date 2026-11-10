@@ -1,11 +1,9 @@
 import CoreGraphics
 
-/// Protocol abstracting CGEventSource and CGEvent posting for testability
+/// Keep clipboard replay from posting keyboard events to an unspecified app.
 public protocol EventSourceProtocol {
-    /// Posts a keyboard event with the specified parameters
-    /// - Parameters:
-    ///   - keyCode: The virtual key code of the key to simulate
-    ///   - keyDown: Whether this is a key down (true) or key up (false) event
-    ///   - flags: The modifier flags (e.g., Command, Shift, etc.)
-    func postKeyboardEvent(keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags)
+    var canPostPaste: Bool { get }
+
+    /// A successful request does not confirm that the destination handled paste.
+    func postPaste(to process: pid_t) -> Bool
 }

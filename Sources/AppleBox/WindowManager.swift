@@ -313,8 +313,7 @@ class WindowManager: NSObject {
 
     // Injected dependencies
     private let workspace: WorkspaceProtocol
-    private let pasteboard: PasteboardProtocol
-    private let eventSource: EventSourceProtocol
+    private let clipboardReplay: ClipboardReplay
     private let fileSystem: FileSystemProtocol
     private let iconProvider: AppIconProviding
     private let iconCache: AppIconCache
@@ -328,8 +327,7 @@ class WindowManager: NSObject {
         iconProvider: AppIconProviding = SystemAppIconProvider()
     ) {
         self.workspace = workspace
-        self.pasteboard = pasteboard
-        self.eventSource = eventSource
+        clipboardReplay = ClipboardReplay(workspace: workspace, pasteboard: pasteboard, eventSource: eventSource)
         self.fileSystem = fileSystem
         self.iconProvider = iconProvider
         iconCache = AppIconCache(loader: iconProvider)
@@ -1342,6 +1340,7 @@ class WindowManager: NSObject {
 
     func show(mode: SearchMode? = nil) {
         guard let window else { return }
+        clipboardReplay.begin()
 
         // Center on the active screen
         if let screen = NSScreen.main {
@@ -1401,6 +1400,7 @@ class WindowManager: NSObject {
     }
 
     func hide() {
+        clipboardReplay.end()
         hideSidecar()
         window?.orderOut(nil)
         NSApp.hide(nil)
@@ -1632,7 +1632,7 @@ class WindowManager: NSObject {
 
         if searchMode == .clipboard {
             let item = clipboardResults[selectedRowIndex].item
-            copyToClipboard(item)
+            clipboardReplay.replay(item, dismiss: hide)
         } else {
             let appInfo = searchResults[selectedRowIndex].application
             launchApplication(appInfo)
@@ -1645,7 +1645,7 @@ class WindowManager: NSObject {
         if searchMode == .clipboard {
             if clickedRow >= 0, clickedRow < clipboardResults.count {
                 let item = clipboardResults[clickedRow].item
-                copyToClipboard(item)
+                clipboardReplay.replay(item, dismiss: hide)
             }
         } else {
             if clickedRow >= 0, clickedRow < searchResults.count {
@@ -1689,49 +1689,6 @@ class WindowManager: NSObject {
             DispatchQueue.main.async {
                 self?.hide()
             }
-        }
-    }
-
-    /// Replay the stored representation so display labels never become paste content.
-    private func copyToClipboard(_ item: ClipboardItem) {
-        let representation: (data: Data, type: NSPasteboard.PasteboardType)
-        switch item.contentType {
-        case .text:
-            representation = (Data(item.content.utf8), .string)
-        case .image:
-            guard let image = item.imageRepresentation() else {
-                logger.error("Cannot replay clipboard history image with invalid or unsupported data")
-                return
-            }
-            representation = image
-        }
-
-        let didWrite = pasteboard.replayData(representation.data, forType: representation.type)
-        // Report the write outcome without retaining the clipboard payload in logs.
-        logger.debug("Clipboard history replay write succeeded: \(didWrite, privacy: .public)")
-        guard didWrite else { return }
-
-        // Close the window after copying
-        hide()
-
-        // Auto-paste to frontmost app
-        pasteToFrontmostApp()
-    }
-
-    /// Simulate Cmd+V to paste content
-    private func pasteToFrontmostApp() {
-        // Wait briefly for the window to hide and previous app to activate
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-            // kVK_ANSI_V is 0x09
-            let vKeyCode: CGKeyCode = 0x09
-
-            // Post key down with Command flag
-            eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: true, flags: .maskCommand)
-            // Post key up with Command flag
-            eventSource.postKeyboardEvent(keyCode: vKeyCode, keyDown: false, flags: .maskCommand)
-
-            print("Simulated Cmd+V")
         }
     }
 

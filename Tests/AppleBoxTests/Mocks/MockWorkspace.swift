@@ -3,6 +3,8 @@ import AppKit
 
 /// Mock implementation of WorkspaceProtocol for testing
 final class MockWorkspace: WorkspaceProtocol {
+    var frontmostApplication: NSRunningApplication?
+
     // MARK: - Configurable Properties
 
     /// If set, the completion handler will be called with this running application
