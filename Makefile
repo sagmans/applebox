@@ -44,6 +44,7 @@ SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift
 SEARCH_BENCHMARK := .build/applebox-search-benchmark
 SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 	Sources/AppleBox/SearchService.swift Sources/AppleBox/ApplicationIndexer.swift \
+	Sources/AppleBox/ApplicationFolderMonitor.swift \
 	Sources/AppleBox/Protocols/FileSystemProtocol.swift Sources/AppleBox/System/SystemFileManager.swift
 SWIFT_SCAN_TIMEOUT := 120
 

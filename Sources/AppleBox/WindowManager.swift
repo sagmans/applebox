@@ -465,13 +465,12 @@ class WindowManager: NSObject {
         }
 
         NotificationCenter.default.addObserver(
-            forName: Notification.Name("applebox.applicationIndex.didUpdate"),
+            forName: ApplicationIndexer.didUpdate,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self, isWindowVisible, searchMode == .applications else { return }
 
-            searchService?.resetCache()
             scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
         }
 

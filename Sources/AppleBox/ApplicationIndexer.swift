@@ -40,14 +40,20 @@ private struct ApplicationIndexCache: Codable {
 }
 
 final class ApplicationIndexer {
+    static let didUpdate = Notification.Name("applebox.applicationIndex.didUpdate")
+
     private let fileSystem: FileSystemProtocol
     private let storageURL: URL
 
     private let applicationsQueue = DispatchQueue(label: "applebox.applicationIndexer.apps", attributes: .concurrent)
     private var applications: [ApplicationInfo] = []
+    private var revision: UInt64 = 0
 
     private let scanQueue = DispatchQueue(label: "applebox.applicationIndexer.scan", qos: .utility)
     private let persistenceQueue = DispatchQueue(label: "applebox.applicationIndexer.persistence", qos: .utility)
+    private var folderMonitor: ApplicationFolderMonitor?
+    private var folderRefreshPending = false
+    private let refreshDelay: DispatchTimeInterval = .milliseconds(250)
 
     private let cacheFileName = "applications_cache.json"
     private let cacheVersion = 2
@@ -81,7 +87,12 @@ final class ApplicationIndexer {
     }
 
     var allApplications: [ApplicationInfo] {
-        applicationsQueue.sync { applications }
+        snapshot.applications
+    }
+
+    /// Pair candidates with their revision so an equal-count replacement invalidates searches.
+    var snapshot: (applications: [ApplicationInfo], revision: UInt64) {
+        applicationsQueue.sync { (applications, revision) }
     }
 
     init(fileSystem: FileSystemProtocol = SystemFileManager(), scanSynchronously: Bool = true) {
@@ -104,25 +115,69 @@ final class ApplicationIndexer {
 
     func scanForApplicationsAsync(completion: (([ApplicationInfo]) -> Void)? = nil) {
         scanQueue.async { [weak self] in
-            guard let self else { return }
-            let scanned = scanForApplicationsInternal()
-            applicationsQueue.async(flags: .barrier) {
+            self?.publishScan(completion: completion)
+        }
+    }
+
+    func startMonitoring() {
+        guard folderMonitor == nil else { return }
+        let paths = searchPaths.map(\.path)
+        folderMonitor = ApplicationFolderMonitor(paths: paths) { [weak self] in
+            self?.scheduleFolderRefresh()
+        }
+        if folderMonitor == nil {
+            logger.error("Cannot start application folder monitoring for \(paths.count, privacy: .public) roots")
+        }
+    }
+
+    func refreshIfMonitoringUnavailable() {
+        if folderMonitor == nil {
+            scanForApplicationsAsync()
+        }
+    }
+
+    private func scheduleFolderRefresh() {
+        scanQueue.async { [weak self] in
+            guard let self, !folderRefreshPending else { return }
+            folderRefreshPending = true
+            // A copy or move can emit several batches while bundle contents settle.
+            scanQueue.asyncAfter(deadline: .now() + refreshDelay) { [weak self] in
+                guard let self else { return }
+                folderRefreshPending = false
+                publishScan(completion: nil)
+            }
+        }
+    }
+
+    private func publishScan(completion: (([ApplicationInfo]) -> Void)?) {
+        let scanned = scanForApplicationsInternal()
+        applicationsQueue.async(flags: .barrier) {
+            let changed = !self.applications.elementsEqual(scanned) {
+                $0.bundlePath == $1.bundlePath && $0.name == $1.name
+            }
+            if changed {
                 self.applications = scanned
+                self.revision &+= 1
                 self.persistApplicationsAsync(scanned)
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: Notification.Name("applebox.applicationIndex.didUpdate"), object: nil)
-                    completion?(scanned)
+            }
+            DispatchQueue.main.async {
+                if changed {
+                    NotificationCenter.default.post(name: Self.didUpdate, object: self)
                 }
+                completion?(scanned)
             }
         }
     }
 
     func scanForApplications() {
-        let scanned = scanForApplicationsInternal()
-        applicationsQueue.sync(flags: .barrier) {
-            self.applications = scanned
+        scanQueue.sync {
+            let scanned = scanForApplicationsInternal()
+            applicationsQueue.sync(flags: .barrier) {
+                self.applications = scanned
+                revision &+= 1
+            }
+            persistApplicationsAsync(scanned)
         }
-        persistApplicationsAsync(scanned)
     }
 
     private func loadCachedApplications() {

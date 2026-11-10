@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.clipboardManager = clipboardManager
         windowManager.setClipboardManager(clipboardManager)
 
-        // Warm icons as soon as the index is ready.
+        // Start watching before the scan so an install during startup queues a refresh.
+        appIndexer.startMonitoring()
         appIndexer.scanForApplicationsAsync { [weak windowManager] apps in
             windowManager?.prewarmAppIcons(applications: apps)
         }
@@ -50,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func toggleWindow(mode: SearchMode? = nil) {
+        if mode != .clipboard {
+            appIndexer?.refreshIfMonitoringUnavailable()
+        }
         windowManager?.toggle(mode: mode)
     }
 }

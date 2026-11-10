@@ -228,7 +228,7 @@ final class SearchService {
     private let indexer: ApplicationIndexer
     private var cachedQuery: ContiguousArray<UInt8> = []
     private var cachedCandidates: [ApplicationInfo] = []
-    private var cachedIndexerCount: Int = 0
+    private var cachedIndexerRevision: UInt64?
 
     init(indexer: ApplicationIndexer) {
         self.indexer = indexer
@@ -241,7 +241,7 @@ final class SearchService {
     func resetCache() {
         cachedQuery = []
         cachedCandidates = []
-        cachedIndexerCount = 0
+        cachedIndexerRevision = nil
     }
 
     /// Search applications using fuzzy matching
@@ -264,15 +264,14 @@ final class SearchService {
 
         // Pre-compute lowercased query bytes once
         let queryBytes = ContiguousArray(trimmedQuery.lowercased().utf8)
-        let allApps = indexer.allApplications
+        let snapshot = indexer.snapshot
         let candidates: [ApplicationInfo]
 
-        // Invalidate cache if indexer data changed (app added/removed)
-        let currentCount = allApps.count
-        if currentCount != cachedIndexerCount {
+        // A rename or move can change the candidate set without changing its size.
+        if snapshot.revision != cachedIndexerRevision {
             cachedQuery = []
             cachedCandidates = []
-            cachedIndexerCount = currentCount
+            cachedIndexerRevision = snapshot.revision
         }
 
         // Use cached candidates if query is a refinement (prefix match)
@@ -282,7 +281,7 @@ final class SearchService {
         {
             candidates = cachedCandidates
         } else {
-            candidates = allApps
+            candidates = snapshot.applications
         }
 
         if isCancelled() {
