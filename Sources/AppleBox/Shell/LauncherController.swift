@@ -39,7 +39,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
         }
         if let mode, mode != model.mode {
             model.switchMode(to: mode)
-            resizeAndPosition()
+            resizeAndPosition(on: panel.screen)
         } else {
             hide()
         }
@@ -89,10 +89,11 @@ final class LauncherController: NSObject, NSWindowDelegate {
     }
 
     /// Sizes the panel for the current mode and puts it on the screen holding the mouse, centered
-    /// horizontally with the top edge at the anchor. Returns false when no screen exists.
+    /// horizontally with the top edge at the anchor. A mode switch passes the panel's current screen so the
+    /// panel does not jump if the mouse moved meanwhile. Returns false when no screen exists.
     @discardableResult
-    private func resizeAndPosition() -> Bool {
-        guard let screen = Self.activeScreen() else { return false }
+    private func resizeAndPosition(on current: NSScreen? = nil) -> Bool {
+        guard let screen = current ?? Self.activeScreen() else { return false }
         let size = model.mode == .clipboard
             ? DesignTokens.Layout.clipPanelSize
             : DesignTokens.Layout.appPanelSize

@@ -51,23 +51,31 @@ final class LauncherPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
+        // The panel never activates the app, so a deactivate-hide would hide it while the model still
+        // thinks it is presented; dismissal is owned by the controller.
+        hidesOnDeactivate = false
         // The controller owns the lifetime; a released-on-close panel would dangle behind it.
         isReleasedWhenClosed = false
     }
 
-    /// Maps an event to a reserved key, or nil when the panel should leave it alone. Plain Return and
-    /// Option-Return are told apart here because the search field would otherwise consume both as a
-    /// text command before any handler saw them.
+    /// Maps an event to a reserved key, or nil when the panel should leave it alone. Only the plain keys
+    /// and the copy chord are reserved: Shift, Command or Control combinations belong to the search
+    /// field, and a stray modifier must never turn a copy into a paste. Function and numeric-pad flags
+    /// are ignored because arrow events always carry them.
     static func launcherKey(for event: NSEvent) -> LauncherKey? {
         guard event.type == .keyDown else { return nil }
+        let held = event.modifierFlags.intersection(CopyClipShortcut.relevantModifiers)
         switch event.keyCode {
         case LauncherKeyCode.escape: return .escape
-        case LauncherKeyCode.upArrow: return .up
-        case LauncherKeyCode.downArrow: return .down
+        case LauncherKeyCode.upArrow: return held.isEmpty ? .up : nil
+        case LauncherKeyCode.downArrow: return held.isEmpty ? .down : nil
         case LauncherKeyCode.returnKey:
+            if held.isEmpty {
+                return .activate
+            }
             let isCopyChord = event.charactersIgnoringModifiers == CopyClipShortcut.key
-                && event.modifierFlags.intersection(CopyClipShortcut.relevantModifiers) == CopyClipShortcut.modifiers
-            return isCopyChord ? .copy : .activate
+                && held == CopyClipShortcut.modifiers
+            return isCopyChord ? .copy : nil
         default: return nil
         }
     }
