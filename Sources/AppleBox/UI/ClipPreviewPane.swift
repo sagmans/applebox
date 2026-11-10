@@ -64,7 +64,7 @@ struct ClipPreviewPane: View {
                 // The row's kind already applied the code rule to the clip's start; re-running it over
                 // a 256 KiB clip on every model change would cost more than the rule is worth.
                 isMonospaced: row.kind == .code,
-                tint: DesignTokens.Palette.clipTint
+                tint: DesignTokens.Palette.matchText
             )
         }
     }

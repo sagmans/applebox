@@ -66,19 +66,20 @@ extension DesignTokens.Palette {
     /// Strength of the fill behind the link host in the preview header; its own value so retuning match
     /// underlays does not change the link badge.
     static let linkHostOpacity: Double = 0.18
-    /// Opaque stand-in for glass in snapshot mode. Fixed sRGB grays keep the references independent of the
+    /// Opaque stand-in for glass in snapshot mode. Fixed sRGB warm tones keep the references independent of the
     /// display profile and of whatever sits behind the panel (ASG-1279); the light and dark values differ
     /// so text keeps the contrast it has over real glass in each appearance.
-    static let snapshotSurface = fixedColor(light: (0.93, 0.93, 0.95), dark: (0.2, 0.2, 0.22))
+    static let snapshotSurface = dynamicColor(light: (0.96, 0.93, 0.88), dark: (0.20, 0.16, 0.13))
     /// Stand-in for the selection capsule in snapshot mode; set apart from the surface so the highlighted
     /// row is visible in the references.
-    static let snapshotSelection = fixedColor(light: (0.72, 0.8, 0.95), dark: (0.35, 0.45, 0.7))
+    static let snapshotSelection = dynamicColor(light: (0.93, 0.78, 0.55), dark: (0.55, 0.38, 0.20))
 
-    /// Snapshot colors are opaque: any transparency would let the host's backdrop leak into the references.
+    /// Palette colors are opaque: any transparency would let the host's backdrop leak into the references.
     private static let fixedAlpha: CGFloat = 1
 
-    /// A color that resolves to one of two fixed sRGB values by appearance, so snapshots stay stable.
-    private static func fixedColor(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> Color {
+    /// A color that resolves to one of two fixed sRGB values by appearance, so snapshots stay stable and
+    /// the palette does not depend on the display profile.
+    static func dynamicColor(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua])
                 .map { $0 == .darkAqua || $0 == .accessibilityHighContrastDarkAqua } ?? false

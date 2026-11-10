@@ -46,9 +46,15 @@ struct LauncherView: View {
             }
             .frame(width: size.width, height: size.height)
             .launcherGlass(
-                .regular.tint(tint.opacity(DesignTokens.Palette.glassTintOpacity)),
+                .regular.tint(DesignTokens.Palette.surfaceTint.opacity(DesignTokens.Palette.surfaceTintOpacity)),
                 in: .rect(cornerRadius: DesignTokens.Layout.cornerRadius)
             )
+            // The wash is the same in both modes, so the hairline carries the mode accent.
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
+                    .strokeBorder(tint.opacity(DesignTokens.Palette.accentHairlineOpacity), lineWidth: DesignTokens.Metrics.hairline)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .scaleEffect(scale, anchor: .top)

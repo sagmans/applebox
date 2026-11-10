@@ -64,13 +64,25 @@ enum DesignTokens {
     /// Colors for tint, highlight and clip kinds (spec section 4, "Palette"). Semantic names let a theme
     /// change happen here without touching views.
     enum Palette {
-        /// Tint of the glass while searching apps; follows the user's accent color.
-        static let appTint: Color = .accentColor
-        /// Tint of the glass in clipboard mode, so the two modes are told apart at a glance.
-        static let clipTint: Color = .indigo
-        /// Strength of the tint over the glass; low so the material stays readable.
-        static let glassTintOpacity: Double = 0.08
-        /// Strength of the highlight behind matched characters.
+        /// Accent of apps mode: amber/honey. Warm on purpose so the launcher reads as one family instead of
+        /// borrowing the user's system accent. Each mode keeps a light and a dark value for contrast.
+        static let appTint = dynamicColor(light: (0.80, 0.52, 0.16), dark: (0.96, 0.70, 0.32))
+        /// Accent of clipboard mode: copper/terracotta, close enough to amber to belong to the family yet
+        /// distinct enough that the two modes are told apart at a glance.
+        static let clipTint = dynamicColor(light: (0.72, 0.36, 0.20), dark: (0.90, 0.52, 0.34))
+        /// Ivory (light) or espresso (dark) wash over the body glass; gives the panel a calm warm base.
+        static let surfaceTint = dynamicColor(light: (0.99, 0.95, 0.88), dark: (0.22, 0.16, 0.12))
+        /// Match characters on rows that are not selected; dark enough (light) or bright enough (dark) to
+        /// reach 4.5:1 against the warm surface where the plain accent would not.
+        static let matchText = dynamicColor(light: (0.55, 0.30, 0.06), dark: (1.00, 0.80, 0.45))
+        /// Strength of the warm wash over the glass; low enough that the material still shows through.
+        static let surfaceTintOpacity: Double = 0.35
+        /// Strength of the mode accent on the panel's hairline border; subtle so it signals the mode
+        /// without competing with the content.
+        static let accentHairlineOpacity: Double = 0.35
+        /// Strength of the mode accent in the selection capsule; below full so text on it stays readable.
+        static let selectionTintOpacity: Double = 0.55
+        /// Strength of the highlight behind matched characters in the preview pane.
         static let matchUnderlayOpacity: Double = 0.18
         /// Color for guidance that needs attention but is not a failure.
         static let warning: Color = .orange

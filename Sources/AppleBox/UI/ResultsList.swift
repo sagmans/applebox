@@ -82,7 +82,7 @@ struct ResultsList: View {
             .background {
                 if isSelected {
                     Color.clear
-                        .launcherGlass(.regular.tint(tint).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
+                        .launcherGlass(.regular.tint(tint.opacity(DesignTokens.Palette.selectionTintOpacity)).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
                         .matchedGeometryEffect(id: DesignTokens.Glass.selectionID, in: selectionSpace)
                 }
             }
