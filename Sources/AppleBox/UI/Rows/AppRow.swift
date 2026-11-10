@@ -2,11 +2,11 @@ import SwiftUI
 
 /// One application result: icon, highlighted name, and a caption that tells same-named apps apart.
 ///
-/// Equatable on its data and tint only, so typing re-renders the rows whose text changed instead of the
+/// Equatable on its data and selection only, so typing re-renders the rows whose text changed instead of the
 /// whole list. The icon cache arrives through the environment because it never changes for a given list.
 struct AppRow: View, Equatable {
     let data: AppRowData
-    let tint: Color
+    let isSelected: Bool
 
     @Environment(\.appIcons) private var icons
 
@@ -14,7 +14,7 @@ struct AppRow: View, Equatable {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             AppIconView(bundlePath: data.id, icons: icons)
             VStack(alignment: .leading, spacing: DesignTokens.Metrics.rowTextSpacing) {
-                HighlightedText(data.name, runs: data.runs, tint: tint, font: DesignTokens.Typography.rowTitle)
+                HighlightedText(data.name, runs: data.runs, isSelected: isSelected, font: DesignTokens.Typography.rowTitle)
                 if let caption {
                     Text(caption)
                         .font(DesignTokens.Typography.rowSubtitle)
@@ -39,7 +39,7 @@ struct AppRow: View, Equatable {
     }
 
     static func == (lhs: AppRow, rhs: AppRow) -> Bool {
-        lhs.data == rhs.data && lhs.tint == rhs.tint
+        lhs.data == rhs.data && lhs.isSelected == rhs.isSelected
     }
 }
 

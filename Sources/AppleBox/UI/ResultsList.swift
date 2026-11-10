@@ -47,7 +47,7 @@ struct ResultsList: View {
                     case .applications:
                         ForEach(Array(model.apps.rows.enumerated()), id: \.element.id) { index, row in
                             container(index: index, id: row.id) {
-                                AppRow(data: row, tint: tint).equatable()
+                                AppRow(data: row, isSelected: model.selection == index).equatable()
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
@@ -56,7 +56,7 @@ struct ResultsList: View {
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
                             container(index: index, id: row.id) {
-                                ClipRow(data: row, tint: tint, thumbnail: thumbnail(for: row)).equatable()
+                                ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row)).equatable()
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))

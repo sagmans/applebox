@@ -54,8 +54,6 @@ enum DesignTokens {
         static let iconSize: CGFloat = 32
         /// Height of the footer that carries status and key hints.
         static let footerHeight: CGFloat = 30
-        /// Corner radius of the highlight behind matched characters, kept small so it reads as a marker.
-        static let matchUnderlayRadius: CGFloat = 3
         /// Fraction of the screen height, measured from the top, where the panel's top edge sits. A
         /// third up keeps the panel in the eye line without covering the menu bar.
         static let verticalAnchor: CGFloat = 1.0 / 3.0

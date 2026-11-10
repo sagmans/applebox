@@ -6,14 +6,14 @@ import SwiftUI
 /// looked up here because the row value carries no clip content, and decoding belongs to the list.
 struct ClipRow: View, Equatable {
     let data: ClipRowData
-    let tint: Color
+    let isSelected: Bool
     /// Decoded image for image clips; nil for text, or when decoding failed, which falls back to the badge.
     var thumbnail: NSImage?
 
     var body: some View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             leading
-            HighlightedText(data.preview, runs: data.runs, tint: tint, font: DesignTokens.Typography.rowTitle)
+            HighlightedText(data.preview, runs: data.runs, isSelected: isSelected, font: DesignTokens.Typography.rowTitle)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, DesignTokens.Metrics.rowHorizontalPadding)
@@ -40,6 +40,6 @@ struct ClipRow: View, Equatable {
     }
 
     static func == (lhs: ClipRow, rhs: ClipRow) -> Bool {
-        lhs.data == rhs.data && lhs.tint == rhs.tint && lhs.thumbnail === rhs.thumbnail
+        lhs.data == rhs.data && lhs.isSelected == rhs.isSelected && lhs.thumbnail === rhs.thumbnail
     }
 }
