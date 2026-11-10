@@ -186,7 +186,9 @@ Return pastes into the previous app.
 
 To check that the grant survives a rebuild, sign with the local identity
 (`make local-signing` once), grant the permission, run `make install` again,
-and press Return on a clip. It must paste with no new grant.
+and press Return on a clip. It must paste with no new grant. If AppleBox was
+granted while it had another signature, remove it with **−** and add it again
+with **+** first; turning the switch off and on keeps the old signature.
 
 ---
 

@@ -31,6 +31,11 @@ it once. Without it, builds are ad-hoc signed and macOS forgets the permission
 after each build. The identity is for local builds only: releases are signed
 with the Developer ID and notarized (`make ship`).
 
+If you granted the permission to an earlier build with a different signature,
+turning the switch off and on is not enough: macOS keeps the old signature. In
+System Settings → Privacy & Security, select AppleBox in the paste permission
+pane, remove it with **−**, then add `~/Applications/AppleBox.app` with **+**.
+
 Dev and release builds share the bundle ID, saved data, and hotkeys, so run
 one at a time. Because their signatures differ, macOS asks for the paste
 permission again when you switch between them.
