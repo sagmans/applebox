@@ -152,6 +152,10 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     private static let privateDirectoryMode = 0o700
     private static let captureInterval: TimeInterval = 0.2
     private static let captureTolerance: TimeInterval = 0.02
+    /// Share of the expiry sweep interval the system may delay a sweep by. Reads already hide expired clips,
+    /// so only the on-disk removal waits a few minutes against a retention of days, and the slack lets macOS
+    /// fold the wakeup into one it already has; Apple's energy guide suggests at least 10%.
+    private static let expiryToleranceFraction = 0.1
     /// Longest bundle id accepted from a pasteboard declaration. The source is written by other apps, so
     /// anything longer than a real bundle id is not trusted or stored.
     private static let maximumBundleIDLength = 255
@@ -243,6 +247,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
             // Scheduled on the main run loop, which the compiler cannot see through the Sendable block.
             MainActor.assumeIsolated { self?.pruneExpiredHistory() }
         }
+        expiryTimer?.tolerance = ClipboardHistoryLimits.expirySweepInterval * Self.expiryToleranceFraction
     }
 
     /// Not `isolated deinit`: the compiler rejects it because the class opts out of main-actor isolation
