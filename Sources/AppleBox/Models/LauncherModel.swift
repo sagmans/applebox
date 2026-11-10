@@ -22,15 +22,6 @@ nonisolated enum LauncherStatus: Equatable, Sendable {
     }
 }
 
-/// What changed, for a shell that cannot observe the models and must update its views by hand.
-nonisolated enum LauncherChange: Equatable, Sendable {
-    /// Rows were replaced. `preservedSelection` tells whether the user's row was kept, which decides
-    /// whether the view should jump back to the top or stay where the user was.
-    case results(preservedSelection: Bool)
-    /// The footer message or the capture state changed.
-    case status
-}
-
 /// Mode, query, selection and status for the launcher, in terms of intents rather than views.
 ///
 /// Keys, focus and windows stay with the shell; it translates them into these intents and draws what
@@ -58,14 +49,8 @@ final class LauncherModel {
     /// Set by the shell; called after a launch, a paste and `escape()` so the shell can close the window.
     @ObservationIgnored var onDismiss: () -> Void = {}
 
-    /// Set by shells that cannot observe the models; see `LauncherChange`.
-    @ObservationIgnored var onChange: ((LauncherChange) -> Void)?
-
     /// The search a query change started. Awaiting it is how a caller knows the rows are final.
     @ObservationIgnored private(set) var inFlightSearch: Task<Void, Never>?
-
-    /// The launch an activation started. Awaiting it is how a caller knows the outcome is final.
-    @ObservationIgnored private(set) var inFlightLaunch: Task<Void, Never>?
 
     /// Whether the search in flight keeps the selection when it publishes; nil when none is pending. A
     /// typed query must never inherit a refresh's preserve flag, or it would keep the old query's row.
@@ -331,7 +316,7 @@ final class LauncherModel {
         let token = UUID()
         pendingActivation = token
         let modeAtPress = mode
-        inFlightLaunch = Task { [weak self] in
+        Task { [weak self] in
             var awaited: Task<Void, Never>?
             while let self, pendingSearchPreserves != nil, let search = inFlightSearch, search != awaited {
                 awaited = search
@@ -356,7 +341,7 @@ final class LauncherModel {
             clips.replay(id: clipID, pasteAutomatically: true) { onDismiss() }
         case .applications:
             guard let bundlePath = id as? String else { return }
-            inFlightLaunch = Task { [apps] in _ = await apps.launch(bundlePath: bundlePath) }
+            Task { [apps] in _ = await apps.launch(bundlePath: bundlePath) }
         }
     }
 
@@ -473,20 +458,17 @@ final class LauncherModel {
         }
     }
 
-    /// Runs `publish`, then starts selection at the first row and announces the result once.
+    /// Runs `publish`, then starts selection at the first row once the whole set is in.
     private func resetResults(_ publish: () -> Void) {
         isResettingResults = true
         publish()
         isResettingResults = false
         setSelection(resultCount == 0 ? nil : 0)
-        onChange?(.results(preservedSelection: false))
     }
 
     private func wireSubmodels() {
         apps.onPublish = { [weak self] previousCount in self?.resultsPublished(in: .applications, previousCount: previousCount) }
         clips.onPublish = { [weak self] previousCount in self?.resultsPublished(in: .clipboard, previousCount: previousCount) }
-        apps.onStatusChange = { [weak self] in self?.onChange?(.status) }
-        clips.onStatusChange = { [weak self] in self?.onChange?(.status) }
         apps.onLaunched = { [weak self] in self?.onDismiss() }
         apps.onRecentsChanged = { [weak self] in
             guard let self, isPresented, mode == .applications,
@@ -516,7 +498,6 @@ final class LauncherModel {
         } else {
             setSelection(resultCount == 0 ? nil : 0)
         }
-        onChange?(.results(preservedSelection: preserving))
     }
 
     private func observeBackgroundUpdates() {

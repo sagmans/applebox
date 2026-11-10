@@ -153,10 +153,6 @@ private final class ClipboardPasteFeedback {
         panel.setContentSize(size)
         panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.minY + bottomInset))
 
-        // The launcher hides the application during replay. The notice must not restore focus.
-        if NSApp.isHidden {
-            NSApp.unhideWithoutActivation()
-        }
         panel.orderFrontRegardless()
         state.visible = true
         if kind == .confirmation {

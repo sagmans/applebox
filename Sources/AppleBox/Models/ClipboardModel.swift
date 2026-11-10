@@ -98,9 +98,6 @@ final class ClipboardModel {
     /// Told the previous row count after rows are replaced, so the owner can fix its selection.
     @ObservationIgnored var onPublish: ((_ previousCount: Int) -> Void)?
 
-    /// Told when status inputs change, so the owner can refresh whatever shows status.
-    @ObservationIgnored var onStatusChange: (() -> Void)?
-
     @ObservationIgnored private(set) var manager: ClipboardManager?
     @ObservationIgnored private let replayer: ClipboardReplay
     /// Full matches back the rows: previews and highlights need the clip text and its unshortened offsets.
@@ -221,14 +218,12 @@ final class ClipboardModel {
     /// Removal is confirmed by the store, so a failure is surfaced rather than assumed away.
     func remove(_ removal: ClipboardManager.HistoryRemoval) {
         removalStatus = nil
-        onStatusChange?()
         manager?.removeHistory(removal) { [weak self] succeeded in
             guard let self else { return }
             if succeeded {
                 dropRows(for: removal)
             } else {
                 removalStatus = .error(DesignTokens.Copy.removalFailed)
-                onStatusChange?()
             }
             removalsFinished &+= 1
         }
@@ -269,6 +264,5 @@ final class ClipboardModel {
         guard let manager else { return }
         isPaused = manager.isCapturePaused
         access = manager.readAccess
-        onStatusChange?()
     }
 }

@@ -75,9 +75,6 @@ final class AppSearchModel {
     /// Told the previous row count after rows are replaced, so the owner can fix its selection.
     @ObservationIgnored var onPublish: ((_ previousCount: Int) -> Void)?
 
-    /// Told when `launchStatus` changes, so the owner can refresh whatever shows status.
-    @ObservationIgnored var onStatusChange: (() -> Void)?
-
     /// Told when a launch the user still cares about succeeded, so the owner can dismiss the launcher.
     @ObservationIgnored var onLaunched: (() -> Void)?
 
@@ -284,7 +281,6 @@ final class AppSearchModel {
         let status = LauncherStatus.error(message)
         launchStatus = status
         launchFailureCount &+= 1
-        onStatusChange?()
         return status
     }
 
@@ -293,7 +289,6 @@ final class AppSearchModel {
         pendingLaunch = nil
         guard launchStatus != nil else { return }
         launchStatus = nil
-        onStatusChange?()
     }
 
     // MARK: - Recents
