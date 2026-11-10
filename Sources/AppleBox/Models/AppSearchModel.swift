@@ -29,6 +29,51 @@ nonisolated enum AppRowBuilder {
     }
 }
 
+/// The empty-query rows without recents, built once per index revision.
+///
+/// Every panel show and every app activation while the panel is open re-shows the recents. Sorting all
+/// installed apps by Unicode name and building their rows each time cost about 1 ms on the main actor,
+/// although only the short recents prefix changes between shows.
+nonisolated struct AlphabeticalAppRows {
+    /// The index revision these rows were built from; a different one means apps were added, removed
+    /// or renamed.
+    let revision: UInt64
+    /// One row per bundle path, alphabetical, none flagged recent.
+    private let rows: [AppRowData]
+    /// Lets the recents be found without a scan of `rows`.
+    private let positionByPath: [String: Int]
+
+    init(applications: [ApplicationInfo], revision: UInt64) {
+        self.revision = revision
+        // A restored cache can repeat a path. Keep the first record so recents still open.
+        let unique = Dictionary(applications.map { ($0.bundlePath, $0) }, uniquingKeysWith: { first, _ in first })
+        // Bundle paths are unique here, so this order is total and the same on every rebuild.
+        let sorted = unique.values.sorted { $0.isOrderedBefore($1) }
+        rows = AppRowBuilder.rows(from: sorted.map { SearchResult(application: $0, score: 0, matchedIndices: []) })
+        positionByPath = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+    }
+
+    /// Puts recently launched apps first in launch order and the rest alphabetically, so the empty query
+    /// shows what the user is most likely to want. Linear in the app count; nothing is sorted.
+    func ordered(recentPaths: [String]) -> [AppRowData] {
+        var placed = Set<String>(minimumCapacity: recentPaths.count)
+        var ordered: [AppRowData] = []
+        ordered.reserveCapacity(rows.count)
+
+        for path in recentPaths {
+            // A stored path can be repeated or name an app that is gone; neither may add a row.
+            guard let position = positionByPath[path], placed.insert(path).inserted else { continue }
+            let row = rows[position]
+            ordered.append(AppRowData(id: row.id, name: row.name, location: row.location, runs: row.runs, isRecent: true))
+        }
+
+        for row in rows where !placed.contains(row.id) {
+            ordered.append(row)
+        }
+        return ordered
+    }
+}
+
 /// How a launch request ended, kept as plain values so it can cross from the workspace callback.
 private nonisolated enum LaunchOutcome: Sendable {
     case opened
@@ -70,7 +115,13 @@ final class AppSearchModel {
     private(set) var launchFailureCount = 0
 
     /// Set by the shell once indexing exists, because the UI must be usable before the index is.
-    @ObservationIgnored var searchService: SearchService?
+    @ObservationIgnored var searchService: SearchService? {
+        // Revisions count per indexer, so a new service's revision can match rows built from the old one.
+        didSet { alphabeticalRows = nil }
+    }
+
+    /// Reused by `showRecents` until the index revision changes.
+    @ObservationIgnored private var alphabeticalRows: AlphabeticalAppRows?
 
     /// Told the previous row count after rows are replaced, so the owner can fix its selection.
     @ObservationIgnored var onPublish: ((_ previousCount: Int) -> Void)?
@@ -145,10 +196,16 @@ final class AppSearchModel {
     func showRecents() {
         guard let searchService else { return }
 
-        let ordered = recents.orderedApplications(from: searchService.allApplications())
-        let results = ordered.map { SearchResult(application: $0, score: 0, matchedIndices: []) }
+        let snapshot = searchService.applicationSnapshot()
+        let base: AlphabeticalAppRows
+        if let cached = alphabeticalRows, cached.revision == snapshot.revision {
+            base = cached
+        } else {
+            base = AlphabeticalAppRows(applications: snapshot.applications, revision: snapshot.revision)
+            alphabeticalRows = base
+        }
         invalidatePendingSearch()
-        publish(AppRowBuilder.rows(from: results, recentPaths: recents.recentSnapshot()))
+        publish(base.ordered(recentPaths: recents.recentOrder()))
     }
 
     /// Replaces the rows with results computed elsewhere, such as snapshot fixtures.

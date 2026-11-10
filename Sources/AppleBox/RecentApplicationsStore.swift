@@ -40,30 +40,10 @@ final class RecentApplicationsStore {
         recentBundlePaths = loadRecentsFromDisk()
     }
 
-    /// Puts recently launched apps first in launch order and the rest alphabetically, so the empty query
-    /// shows what the user is most likely to want.
-    func orderedApplications(from applications: [ApplicationInfo]) -> [ApplicationInfo] {
-        let snapshot = queue.sync { recentBundlePaths }
-        // A restored cache can repeat a path. Keep the first record so recents still open.
-        var remaining = Dictionary(applications.map { ($0.bundlePath, $0) }, uniquingKeysWith: { first, _ in first })
-        var ordered: [ApplicationInfo] = []
-        ordered.reserveCapacity(applications.count)
-
-        for bundlePath in snapshot {
-            if let app = remaining.removeValue(forKey: bundlePath) {
-                ordered.append(app)
-            }
-        }
-
-        let tail = remaining.values.sorted { $0.isOrderedBefore($1) }
-        ordered.append(contentsOf: tail)
-        return ordered
-    }
-
-    /// Lets row builders flag recents without re-deriving them from the sorted order, which would
-    /// make an alphabetical tail indistinguishable from launch history.
-    func recentSnapshot() -> Set<String> {
-        queue.sync { Set(recentBundlePaths) }
+    /// Launch order, most recent first, so the empty-query list can put these apps ahead of the
+    /// alphabetical rest. May name apps that are no longer installed; the caller skips those.
+    func recentOrder() -> [String] {
+        queue.sync { recentBundlePaths }
     }
 
     /// Moves an app to the front of the recents once it launched, so the order follows real use. Persisting

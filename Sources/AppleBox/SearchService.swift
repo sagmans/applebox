@@ -299,8 +299,10 @@ final nonisolated class SearchService: @unchecked Sendable {
         self.indexer = indexer
     }
 
-    func allApplications() -> [ApplicationInfo] {
-        indexer.allApplications
+    /// Pairs the apps with the index revision, so callers that derive data from the list (the
+    /// empty-query rows) know when their copy went stale.
+    func applicationSnapshot() -> (applications: [ApplicationInfo], revision: UInt64) {
+        indexer.snapshot
     }
 
     /// Marks the cache stale for the next search instead of clearing it in place, so the caller never
