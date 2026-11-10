@@ -48,22 +48,22 @@ struct ResultsList: View {
     /// Only the first rows are staggered, so a long list settles as fast as a short one.
     private func arrival(at index: Int) -> AnyTransition {
         guard index < DesignTokens.Motion.rowStaggerLimit else { return .identity }
-        if reduceMotion {
-            return .opacity.animation(.easeInOut(duration: DesignTokens.Motion.reducedFade))
-        }
         let delay = Double(index) * DesignTokens.Motion.rowStagger
         let rise = Animation.easeOut(duration: DesignTokens.Motion.rowRiseDuration).delay(delay)
         // Removal is immediate: rows leaving while the user types must not hold the new results back.
-        return .asymmetric(
-            insertion: .offset(y: DesignTokens.Motion.rowRise).combined(with: .opacity).animation(rise),
-            removal: .identity
+        return DesignTokens.motion(
+            .asymmetric(
+                insertion: .offset(y: DesignTokens.Motion.rowRise).combined(with: .opacity).animation(rise),
+                removal: .identity
+            ),
+            reduceMotion: reduceMotion
         )
     }
 
-    /// Identity of the shown rows. Animating on it, and not on selection, keeps a held arrow key free of
-    /// stagger work: moving the highlight never changes the set.
-    private var shownIDs: [AnyHashable] {
-        model.mode == .clipboard ? model.clips.rows.map(\.id) : model.apps.rows.map(\.id)
+    /// Changes only when the shown rows are replaced. Animating on it, and not on selection, keeps a held
+    /// arrow key free of stagger work, and comparing it costs nothing on each redraw.
+    private var rowsGeneration: Int {
+        model.mode == .clipboard ? model.clips.rowsGeneration : model.apps.rowsGeneration
     }
 
     private var list: some View {
@@ -107,14 +107,12 @@ struct ResultsList: View {
                 .id(Self.listTopID)
                 // Opens the transaction that lets the per-row arrival transitions run; rows that stay
                 // keep their place, since only their own transition carries timing.
-                .animation(.linear(duration: 0), value: shownIDs)
+                .animation(.linear(duration: 0), value: rowsGeneration)
             }
-            .onChange(of: shownIDs) { _, _ in departing.removeAll() }
-            .onChange(of: model.status) { _, status in
-                // A failed delete leaves the row in the history, so it must come back.
-                if case .error = status, !departing.isEmpty {
-                    withAnimation(selectionAnimation) { departing.removeAll() }
-                }
+            // A finished delete either removed the row already or failed and must show it again; either
+            // way nothing stays hidden, even when the failure repeats an earlier message.
+            .onChange(of: model.clips.removalsFinished) { _, _ in
+                withAnimation(selectionAnimation) { departing.removeAll() }
             }
             .onChange(of: model.selection) { _, selected in
                 guard let selected, let id = rowID(at: selected) else { return }

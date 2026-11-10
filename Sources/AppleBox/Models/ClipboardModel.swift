@@ -80,6 +80,11 @@ final class ClipboardModel {
     /// Whether the current rows are ranked by a query. Read instead of the live query because the field
     /// runs ahead of an async search, and day headers over still-ranked rows would repeat.
     private(set) var rowsAreRanked = false
+    /// Bumped whenever `rows` is replaced; see `AppSearchModel.rowsGeneration`.
+    private(set) var rowsGeneration = 0
+    /// Bumped when a removal finishes, whatever the result, so a view that hid a row while waiting can
+    /// always restore or forget it instead of guessing from status or row changes.
+    private(set) var removalsFinished = 0
 
     /// Mirrors the manager because the manager is not observable; refreshed whenever it can change.
     private(set) var isPaused = false
@@ -162,6 +167,7 @@ final class ClipboardModel {
         matches = []
         rows = []
         rowsAreRanked = false
+        rowsGeneration &+= 1
     }
 
     /// Makes any search still in flight stale, so a late result cannot land after the list was reset.
@@ -174,6 +180,7 @@ final class ClipboardModel {
         matches = snapshot.matches
         rows = snapshot.rows
         rowsAreRanked = snapshot.isRanked
+        rowsGeneration &+= 1
         onPublish?(previousCount)
     }
 
@@ -216,10 +223,32 @@ final class ClipboardModel {
         removalStatus = nil
         onStatusChange?()
         manager?.removeHistory(removal) { [weak self] succeeded in
-            guard let self, !succeeded else { return }
-            removalStatus = .error(DesignTokens.Copy.removalFailed)
-            onStatusChange?()
+            guard let self else { return }
+            if succeeded {
+                dropRows(for: removal)
+            } else {
+                removalStatus = .error(DesignTokens.Copy.removalFailed)
+                onStatusChange?()
+            }
+            removalsFinished &+= 1
         }
+    }
+
+    /// Removes the deleted rows at once. The history's own refresh arrives a search later, and without
+    /// this a row the view stopped hiding would flash back until then.
+    private func dropRows(for removal: ClipboardManager.HistoryRemoval) {
+        let previousCount = rows.count
+        switch removal {
+        case let .item(id):
+            rows.removeAll { $0.id == id }
+            matches.removeAll { $0.item.id == id }
+        case .all:
+            rows = []
+            matches = []
+        }
+        guard rows.count != previousCount else { return }
+        rowsGeneration &+= 1
+        onPublish?(previousCount)
     }
 
     /// A stale failure message would follow the user into the next session.

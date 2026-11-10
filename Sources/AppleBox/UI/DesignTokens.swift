@@ -141,4 +141,10 @@ enum DesignTokens {
     static func motion(_ animation: Animation, reduceMotion: Bool) -> Animation? {
         reduceMotion ? .easeInOut(duration: Motion.reducedFade) : animation
     }
+
+    /// The same rule for transitions, so travel and scale in an insertion or removal also become a plain
+    /// fade, and no view has to branch on the setting itself.
+    static func motion(_ transition: AnyTransition, reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? AnyTransition.opacity.animation(.easeInOut(duration: Motion.reducedFade)) : transition
+    }
 }

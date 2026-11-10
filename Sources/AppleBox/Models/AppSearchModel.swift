@@ -59,9 +59,15 @@ private final class LaunchRace {
 final class AppSearchModel {
     /// Rows for the current query, ready to render without touching services.
     private(set) var rows: [AppRowData] = []
+    /// Bumped whenever `rows` is replaced. Views key row animations on it because comparing it is O(1),
+    /// while comparing row identities would cost a pass over the list on every redraw.
+    private(set) var rowsGeneration = 0
 
     /// Latest launch failure, or nil while nothing is wrong; cleared when the user moves on.
     private(set) var launchStatus: LauncherStatus?
+    /// Counts failed launches. Two failures with the same message are equal statuses, so views that react
+    /// to each failure (the search bar shake) watch this instead of the status.
+    private(set) var launchFailureCount = 0
 
     /// Set by the shell once indexing exists, because the UI must be usable before the index is.
     @ObservationIgnored var searchService: SearchService?
@@ -158,6 +164,7 @@ final class AppSearchModel {
     func clear() {
         invalidatePendingSearch()
         rows = []
+        rowsGeneration &+= 1
     }
 
     /// Makes any search still in flight stale, so a late result cannot land after the list was reset.
@@ -173,6 +180,7 @@ final class AppSearchModel {
     private func publish(_ newRows: [AppRowData]) {
         let previousCount = rows.count
         rows = newRows
+        rowsGeneration &+= 1
         onPublish?(previousCount)
     }
 
@@ -275,6 +283,7 @@ final class AppSearchModel {
         pendingLaunch = nil
         let status = LauncherStatus.error(message)
         launchStatus = status
+        launchFailureCount &+= 1
         onStatusChange?()
         return status
     }

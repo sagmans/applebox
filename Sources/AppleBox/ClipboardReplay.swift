@@ -146,7 +146,9 @@ private final class ClipboardPasteFeedback {
         state.message = message
         state.kind = kind
 
-        // The panel must fit the wrapped text, so it is measured after the message is set.
+        // The panel must fit the wrapped text. The observed message reaches the view only on its next
+        // update, so layout is forced first; otherwise the previous message's size would be measured.
+        host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
         panel.setContentSize(size)
         panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.minY + bottomInset))
@@ -157,6 +159,9 @@ private final class ClipboardPasteFeedback {
         }
         panel.orderFrontRegardless()
         state.visible = true
+        if kind == .confirmation {
+            state.bounces &+= 1
+        }
 
         // VoiceOver users get no focus change from a non-activating panel, so the notice is announced.
         NSAccessibility.post(
@@ -166,6 +171,8 @@ private final class ClipboardPasteFeedback {
         )
 
         dismissal = Task { @MainActor [weak self] in
+            // Cancellation is the normal way out (a newer notice or `hide()`), so the sleep's error carries
+            // nothing to log; the guard below stops the fade.
             try? await Task.sleep(for: kind.lifetime)
             guard !Task.isCancelled else { return }
             await self?.fadeOut()
@@ -175,6 +182,7 @@ private final class ClipboardPasteFeedback {
     /// Fades first so the notice never vanishes abruptly, then removes the panel once the fade is done.
     private func fadeOut() async {
         state.visible = false
+        // Cancelled only when a new notice takes over, which the guard below handles.
         try? await Task.sleep(for: .seconds(PasteToastMetrics.fadeOut))
         guard !Task.isCancelled, !state.visible else { return }
         panel.orderOut(nil)

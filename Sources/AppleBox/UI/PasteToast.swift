@@ -56,6 +56,9 @@ final class PasteToastState {
     var message = ""
     var kind = PasteToastKind.confirmation
     var visible = false
+    /// Bumped once per shown confirmation. The bounce keys on it, not on visibility, so hiding never
+    /// bounces and two notices in a row both bounce.
+    var bounces = 0
 }
 
 /// The notice itself: a glass capsule in the launcher's warm family. It sits in a panel that never takes
@@ -70,9 +73,8 @@ struct PasteToastView: View {
         HStack(spacing: PasteToastMetrics.iconSpacing) {
             Image(systemName: state.kind.symbol)
                 .foregroundStyle(state.kind.color)
-                // A bounce on the checkmark confirms the copy; the value stays fixed for other kinds and
-                // for Reduce Motion, so those never bounce.
-                .symbolEffect(.bounce, value: state.kind == .confirmation && !reduceMotion && state.visible)
+                // A bounce on the checkmark confirms the copy; Reduce Motion pins the value so it never bounces.
+                .symbolEffect(.bounce, value: reduceMotion ? 0 : state.bounces)
                 .font(DesignTokens.Typography.toast)
                 .accessibilityHidden(true)
             Text(state.message)

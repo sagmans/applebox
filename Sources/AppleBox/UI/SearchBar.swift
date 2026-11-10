@@ -8,16 +8,11 @@ struct SearchBar: View {
     @Bindable var model: LauncherModel
 
     @FocusState private var isFocused: Bool
-    /// Bumped per failed launch; the shake restarts on every change, including repeated identical failures.
-    @State private var shakeCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var tint: Color {
         model.mode == .clipboard ? DesignTokens.Palette.clipTint : DesignTokens.Palette.appTint
     }
-
-    /// Rest, left, right, rest: three steps that end where the field began.
-    private static let shakeOffsets: [CGFloat] = [0, -DesignTokens.Motion.shakeDistance, DesignTokens.Motion.shakeDistance, 0]
 
     private var modeSymbol: String {
         model.mode == .clipboard ? DesignTokens.Symbol.clipMode : DesignTokens.Symbol.appMode
@@ -58,17 +53,7 @@ struct SearchBar: View {
         }
         .padding(.horizontal, DesignTokens.Metrics.barHorizontalPadding)
         .padding(.vertical, DesignTokens.Metrics.searchVerticalPadding)
-        .phaseAnimator(Self.shakeOffsets, trigger: shakeCount) { content, offset in
-            content.offset(x: reduceMotion ? 0 : offset)
-        } animation: { _ in
-            .easeInOut(duration: DesignTokens.Motion.shakeStep)
-        }
-        .onChange(of: model.apps.launchStatus) { _, status in
-            // Launch failures belong to apps mode; clipboard errors must not shake the field.
-            if model.mode == .applications, case .error = status {
-                shakeCount += 1
-            }
-        }
+        .modifier(Shake(trigger: model.apps.launchFailureCount, enabled: !reduceMotion))
         .animation(DesignTokens.motion(DesignTokens.Motion.selection, reduceMotion: reduceMotion), value: model.mode)
         .onAppear { isFocused = true }
         // Showing again during the close fade posts no didBecomeKey, so presentation itself refocuses.
@@ -101,5 +86,28 @@ struct SearchBar: View {
         .accessibilityHint(paused ? DesignTokens.Copy.capturePausedHelp : DesignTokens.Copy.captureActiveHelp)
         // The field keeps the keyboard; the button is a pointer control so Tab never strands typing.
         .focusable(false)
+    }
+}
+
+/// Shakes the search bar once per failed launch. The trigger is a failure counter, not the status, so a
+/// repeated identical failure still shakes. Only launches fail this way, so clipboard errors never shake.
+/// Under Reduce Motion the animator is left out entirely rather than run with zero travel.
+private struct Shake: ViewModifier {
+    let trigger: Int
+    let enabled: Bool
+
+    /// Rest, left, right, rest: three steps that end where the field began.
+    private static let offsets: [CGFloat] = [0, -DesignTokens.Motion.shakeDistance, DesignTokens.Motion.shakeDistance, 0]
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.phaseAnimator(Self.offsets, trigger: trigger) { view, offset in
+                view.offset(x: offset)
+            } animation: { _ in
+                .easeInOut(duration: DesignTokens.Motion.shakeStep)
+            }
+        } else {
+            content
+        }
     }
 }
