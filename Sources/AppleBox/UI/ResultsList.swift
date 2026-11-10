@@ -17,6 +17,9 @@ struct ResultsList: View {
     /// The result set `headers` was built for; captions are used only while it matches the shown rows,
     /// so a stale array can never put a caption over the wrong row.
     @State private var headersKey: SectionKey?
+    /// Bumped when a clip image finishes decoding in the background, so rows that showed their badge
+    /// read the cache again and pick up the thumbnail.
+    @State private var imageLoads = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.clipImages) private var images
     @Environment(\.referenceDate) private var referenceDate
@@ -119,6 +122,9 @@ struct ResultsList: View {
             }
             // A finished delete either removed the row already or failed and must show it again; either
             // way nothing stays hidden, even when the failure repeats an earlier message.
+            .onReceive(NotificationCenter.default.publisher(for: ClipboardImageCache.didLoad)) { _ in
+                imageLoads &+= 1
+            }
             .onChange(of: model.clips.removalsFinished) { _, _ in
                 withAnimation(selectionAnimation) { departing.removeAll() }
             }
@@ -247,7 +253,9 @@ struct ResultsList: View {
     }
 
     /// Only image clips need content from the history; looking up text clips would be wasted work per row.
+    /// Reads `imageLoads` so a decode finishing later redraws the rows that were waiting for it.
     private func thumbnail(for row: ClipRowData) -> NSImage? {
+        _ = imageLoads
         guard row.kind == .image, let item = model.clips.item(id: row.id) else { return nil }
         let scale = NSScreen.main?.backingScaleFactor ?? DesignTokens.Metrics.fallbackBackingScale
         return images.thumbnail(for: item, pixelSize: DesignTokens.Metrics.thumbnailSize * scale)

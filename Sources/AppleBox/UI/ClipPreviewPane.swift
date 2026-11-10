@@ -11,6 +11,9 @@ struct ClipPreviewPane: View {
     @Environment(\.appIcons) private var icons
     /// Memo of character counts so a keystroke does not recount a clip of hundreds of KiB.
     @State private var counts = CharacterCountMemo()
+    /// Bumped when a clip image finishes decoding in the background, so a pane showing the pending
+    /// state reads the cache again.
+    @State private var imageLoads = 0
 
     private var selectedRow: ClipRowData? {
         guard let index = model.selection, model.clips.rows.indices.contains(index) else { return nil }
@@ -20,21 +23,26 @@ struct ClipPreviewPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Metrics.previewSpacing) {
             if let row = selectedRow, let item = model.clips.item(id: row.id) {
+                // Read so a finished background decode redraws the pane.
+                let _ = imageLoads
                 // One cache lookup per evaluation, shared by header and body.
-                let image = item.contentType == .image ? images.image(for: item) : nil
+                let image = item.contentType == .image ? images.image(for: item) : .unavailable
                 header(row: row, item: item, image: image)
                 content(row: row, item: item, image: image)
             }
         }
         .padding(DesignTokens.Metrics.previewPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onReceive(NotificationCenter.default.publisher(for: ClipboardImageCache.didLoad)) { _ in
+            imageLoads &+= 1
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(DesignTokens.Copy.previewPaneLabel)
         .accessibilityHint(DesignTokens.Copy.previewPaneHelp)
     }
 
     /// Kind, copy time and size, in a quiet row so the content stays the focus.
-    private func header(row: ClipRowData, item: ClipboardItem, image: NSImage?) -> some View {
+    private func header(row: ClipRowData, item: ClipboardItem, image: ClipImageLookup) -> some View {
         HStack(spacing: DesignTokens.Metrics.tightSpacing) {
             Image(systemName: DesignTokens.Symbol.badge(for: row.kind))
                 .foregroundStyle(DesignTokens.Palette.badge(for: row.kind))
@@ -71,7 +79,7 @@ struct ClipPreviewPane: View {
     }
 
     @ViewBuilder
-    private func content(row: ClipRowData, item: ClipboardItem, image: NSImage?) -> some View {
+    private func content(row: ClipRowData, item: ClipboardItem, image: ClipImageLookup) -> some View {
         if item.contentType == .image {
             imageBody(image: image)
         } else {
@@ -87,10 +95,15 @@ struct ClipPreviewPane: View {
         }
     }
 
-    /// A decode failure shows a visible message, because an empty pane reads as "still loading".
+    /// A decode failure shows a visible message, because an empty pane reads as "still loading". While the
+    /// background decode runs the pane stays empty, which is what loading looks like.
     @ViewBuilder
-    private func imageBody(image: NSImage?) -> some View {
-        if let image {
+    private func imageBody(image: ClipImageLookup) -> some View {
+        switch image {
+        case .pending:
+            Color.clear
+                .accessibilityHidden(true)
+        case let .ready(image):
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -98,16 +111,16 @@ struct ClipPreviewPane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier(DesignTokens.Identifier.previewImage)
                 .accessibilityLabel(DesignTokens.Copy.previewLabel)
-        } else {
+        case .unavailable:
             ContentUnavailableView(DesignTokens.Copy.imageUnavailable, systemImage: DesignTokens.Symbol.missingImage)
                 .accessibilityIdentifier(DesignTokens.Identifier.previewImage)
         }
     }
 
     /// Characters for text and pixels for images, the two sizes a user can reason about.
-    private func sizeDescription(item: ClipboardItem, image: NSImage?) -> String {
+    private func sizeDescription(item: ClipboardItem, image: ClipImageLookup) -> String {
         if item.contentType == .image {
-            guard let rep = image?.representations.first else { return "" }
+            guard case let .ready(decoded) = image, let rep = decoded.representations.first else { return "" }
             return DesignTokens.Copy.pixelSize(width: rep.pixelsWide, height: rep.pixelsHigh)
         }
         return DesignTokens.Copy.characterCount(counts.characters(in: item))
