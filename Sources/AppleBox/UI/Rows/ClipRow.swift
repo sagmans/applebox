@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// One clipboard result: a kind badge or image thumbnail and the highlighted first line of the clip.
+/// One clipboard result: a kind badge or image thumbnail, the highlighted first line of the clip, and
+/// how long ago it was copied on a second line, laid out like an app row so both lists share one rhythm.
 ///
 /// Equatable on its inputs only, for the same reason as `AppRow`. The thumbnail is passed in rather than
 /// looked up here because the row value carries no clip content, and decoding belongs to the list.
@@ -17,14 +18,16 @@ struct ClipRow: View, Equatable {
     var body: some View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             leading
-            HighlightedText(data.preview, runs: data.runs, isSelected: isSelected, font: DesignTokens.Typography.rowTitle)
-            Spacer(minLength: DesignTokens.Metrics.timeLeadingSpacing)
-            // Quiet and fixed-width-friendly so it never competes with the clip text, which truncates first.
-            Text(verbatim: DesignTokens.relativeTime(data.timestamp, reference: reference, locale: locale))
-                .font(DesignTokens.Typography.rowSubtitle)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
+            // The time sits under the text, not beside it, so the narrow clip list gives the clip text the
+            // whole row width before truncating it.
+            VStack(alignment: .leading, spacing: DesignTokens.Metrics.rowTextSpacing) {
+                HighlightedText(data.preview, runs: data.runs, isSelected: isSelected, font: DesignTokens.Typography.rowTitle)
+                Text(verbatim: DesignTokens.relativeTime(data.timestamp, reference: reference, locale: locale))
+                    .font(DesignTokens.Typography.rowSubtitle)
+                    .foregroundStyle(RowSubtitle.style(isSelected: isSelected))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, DesignTokens.Metrics.rowHorizontalPadding)
         .frame(height: DesignTokens.Layout.rowHeight)

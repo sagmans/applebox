@@ -248,8 +248,6 @@ extension DesignTokens {
         static let sourceIconSize: CGFloat = 14
         /// Corner radius of a color swatch in a clip row, matching the badge it replaces.
         static let swatchCornerRadius: CGFloat = 8
-        /// Gap between a clip's text and its relative time at the row's trailing edge.
-        static let timeLeadingSpacing: CGFloat = 8
         /// Space above a section header, so each group is set apart from the rows before it.
         static let sectionHeaderTopPadding: CGFloat = 8
         /// Space below a section header, small so the caption stays attached to its own group.

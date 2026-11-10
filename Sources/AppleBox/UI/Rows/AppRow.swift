@@ -18,7 +18,7 @@ struct AppRow: View, Equatable {
                 if let caption {
                     Text(caption)
                         .font(DesignTokens.Typography.rowSubtitle)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(RowSubtitle.style(isSelected: isSelected))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -37,6 +37,14 @@ struct AppRow: View, Equatable {
 
     static func == (lhs: AppRow, rhs: AppRow) -> Bool {
         lhs.data == rhs.data && lhs.isSelected == rhs.isSelected
+    }
+}
+
+/// Subtitle color shared by app and clip rows. Secondary text on the darker selection capsule loses
+/// contrast, so a selected row uses the label color, as `HighlightedText` does for its matches.
+enum RowSubtitle {
+    static func style(isSelected: Bool) -> HierarchicalShapeStyle {
+        isSelected ? .primary : .secondary
     }
 }
 
