@@ -8,6 +8,7 @@ final class ClipboardReplay {
     private let eventSource: EventSourceProtocol
     private let pasteDelay = DispatchTimeInterval.milliseconds(100)
     private let manualPasteMessage = "Copied. Press ⌘V to paste."
+    private let permissionPasteMessage = "Copied. Allow AppleBox in Accessibility settings to paste automatically."
     private let copiedMessage = "Copied to Clipboard."
     private let changedClipboardMessage = "Clipboard changed before paste."
     private let copyFailureMessage = "Couldn't copy the clip. Try again."
@@ -19,6 +20,8 @@ final class ClipboardReplay {
     private var origin: NSRunningApplication?
     private var pendingPaste: DispatchWorkItem?
     private var feedback: ClipboardPasteFeedback?
+    /// Asking on every paste would nag; once per launch is enough to put the app in the Accessibility list.
+    private var requestedPostAccess = false
 
     init(workspace: WorkspaceProtocol, pasteboard: PasteboardProtocol, eventSource: EventSourceProtocol) {
         self.workspace = workspace
@@ -80,15 +83,24 @@ final class ClipboardReplay {
             return
         }
 
-        guard canPost,
-              let target,
+        guard canPost else {
+            if !requestedPostAccess {
+                requestedPostAccess = true
+                eventSource.requestPostAccess()
+            }
+            logger.info("Clipboard history paste unavailable: no permission to post keyboard events")
+            showFeedback(permissionPasteMessage)
+            return
+        }
+
+        guard let target,
               !target.isTerminated,
               target.processIdentifier > 0,
               target.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               target.isEqual(workspace.frontmostApplication),
               eventSource.postPaste(to: target.processIdentifier)
         else {
-            logger.debug("Clipboard history paste unavailable; the clip is available for manual paste")
+            logger.info("Clipboard history paste unavailable: no verified target; the clip is available for manual paste")
             showFeedback(manualPasteMessage)
             return
         }
@@ -104,7 +116,8 @@ final class ClipboardReplay {
 
 /// Keep fallback instructions visible without taking focus from the destination.
 private final class ClipboardPasteFeedback {
-    private static let size = NSSize(width: 300, height: 44)
+    /// Wide enough for the longest message on one line, which is the permission hint.
+    private static let size = NSSize(width: 520, height: 44)
     private let bottomInset: CGFloat = 32
     private let lifetime = DispatchTimeInterval.seconds(3)
     private let label = NSTextField(labelWithString: "")

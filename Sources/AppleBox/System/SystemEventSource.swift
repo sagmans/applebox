@@ -14,6 +14,11 @@ public final class SystemEventSource: EventSourceProtocol {
         CGPreflightPostEventAccess()
     }
 
+    public func requestPostAccess() {
+        // The answer is not needed: the next paste preflights again, and the prompt is the point.
+        _ = CGRequestPostEventAccess()
+    }
+
     public func postPaste(to process: pid_t) -> Bool {
         // Prepare the pair before sending either event to the verified process.
         guard process > 0, let source,

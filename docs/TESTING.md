@@ -174,6 +174,15 @@ Accessibility tests ensure the UI works with VoiceOver and keyboard navigation.
 | -------------------------- | ------------------------------------------------------------------------------ |
 | `AccessibilityTests.swift` | Row labels and hints, panel label, hosted AppKit controls, keyboard navigation |
 
+### Paste permission (manual check)
+
+Automatic paste needs the Accessibility grant, which tests cannot give.
+`MockEventSource` stands in for it. To check the real prompt, run a dev build
+without the grant, open clipboard history, and press Return on a clip. The
+footer toast must say to allow AppleBox in Accessibility settings, and
+AppleBox must appear under System Settings, Privacy & Security, Accessibility.
+After you turn it on, Return pastes into the previous app.
+
 ---
 
 ## Dependency Injection

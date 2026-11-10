@@ -5,6 +5,11 @@ import CoreGraphics
 final class MockEventSource: EventSourceProtocol {
     var canPostPaste = true
     private(set) var pasteTargets: [pid_t] = []
+    private(set) var accessRequestCount = 0
+
+    func requestPostAccess() {
+        accessRequestCount += 1
+    }
 
     func postPaste(to process: pid_t) -> Bool {
         pasteTargets.append(process)
@@ -13,5 +18,6 @@ final class MockEventSource: EventSourceProtocol {
 
     func resetInvocations() {
         pasteTargets = []
+        accessRequestCount = 0
     }
 }
