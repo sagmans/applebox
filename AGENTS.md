@@ -17,8 +17,11 @@ template (`templates/githooks/`); change them there, not here.
 
 - `pre-commit`: `make format-check`, `make lint`
 - `pre-push` runs format and lint, audits the Swift dependency revisions, scans
-  Swift code, builds, and runs the test suite and search benchmark on each
-  pushed commit. The suite includes the app search and clipboard smoke flows.
+  Swift code, builds, and runs the test suite and search benchmark once on
+  each pushed tip. A push is one commit or a group of commits with one goal;
+  the generic signature, sign-off, message and secret checks still run on
+  every pushed commit. The suite includes the app search and clipboard smoke
+  flows.
 - Both repo checks need macOS. On another host they fail with a clear reason;
   they do not skip.
 - `make format` and `make format-check` need the exact SwiftFormat release in

@@ -473,8 +473,9 @@ make hooks   # same as ./scripts/setup-hooks
 `scripts/setup-hooks` sets the local `core.hooksPath=.githooks`; it needs
 nothing outside this repo. Each hook runs the generic checks first (sign-off,
 message structure, gitleaks secret scan, signed commits on push), then every
-script in `.githooks/<hook>.d/`. `pre-push` checks each pushed commit, not just
-HEAD.
+script in `.githooks/<hook>.d/`. `pre-push` checks signature, sign-off,
+message and secrets on each pushed commit, and runs the build, tests and
+benchmark once on each pushed tip.
 
 ### What the Hooks Run
 

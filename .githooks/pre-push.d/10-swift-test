@@ -1,6 +1,9 @@
 #!/bin/sh
-# Each pushed commit must be safe to check out and use, including the commits
-# between the remote tip and HEAD.
+# The pushed tip of each ref is what lands on the remote, so the full Swift
+# suite runs there once per push. A push is a commit or a group of commits
+# with one goal; testing each commit in between multiplied the time without
+# guarding anything the tip does not. Per-commit signature, DCO, message and
+# secret checks still run in the generic hook.
 set -eu
 # shellcheck disable=SC1090,SC1091  # path exported by .githooks/lib/run-local.sh
 . "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
@@ -18,12 +21,22 @@ if [ "$host_os" != "$REQUIRED_OS" ]; then
 	exit 1
 fi
 
+# pushed_shas validates every ref line and fails closed on bad input; its
+# output is not needed beyond that.
+pushed_shas <"$HOOK_STDIN_FILE" >/dev/null || exit 1
+# Field 2 of each ref line is the local tip; a branch deletion pushes nothing.
+tips=''
+while read -r _lr local_sha _rr _rs; do
+	[ -n "$local_sha" ] || continue
+	is_null_oid "$local_sha" && continue
+	tips="$tips $local_sha"
+done <"$HOOK_STDIN_FILE"
+# shellcheck disable=SC2086  # split the space-joined SHAs, one per line
+tips=$(printf '%s\n' $tips | sort -u)
 # for loop, not `| while`: a failure must exit this script (fail closed).
-shas=$(pushed_shas <"$HOOK_STDIN_FILE") || exit 1
-shas=$(printf '%s\n' "$shas" | sort -u)
 # shellcheck disable=SC2086  # one SHA per word
-for sha in $shas; do
-	echo "pre-push: Swift checks at $(git rev-parse --short "$sha")"
+for sha in $tips; do
+	echo "pre-push: Swift checks at pushed tip $(git rev-parse --short "$sha")"
 	at_sha "$sha" sh -c '
 		make format-check lint audit-swift-dependencies swift-sast &&
 		swift build && make test benchmark-search
