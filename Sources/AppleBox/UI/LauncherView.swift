@@ -7,6 +7,7 @@ struct LauncherView: View {
 
     @Namespace private var glassSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.launcherSnapshotMode) private var snapshotMode
     @State private var phase = Phase.leaving
 
     /// Where the panel is in its open/close motion. Kept separate from `isPresented` so opening can start
@@ -35,7 +36,7 @@ struct LauncherView: View {
                         .frame(width: model.mode == .clipboard ? DesignTokens.Layout.clipListWidth : nil)
                     if model.mode == .clipboard {
                         ClipPreviewPane(model: model)
-                            .glassEffect(.regular, in: .rect(cornerRadius: DesignTokens.Metrics.previewCornerRadius))
+                            .launcherGlass(.regular, in: .rect(cornerRadius: DesignTokens.Metrics.previewCornerRadius))
                             .glassEffectID(DesignTokens.Glass.previewID, in: glassSpace)
                             .padding(DesignTokens.Metrics.previewInset)
                     }
@@ -44,24 +45,30 @@ struct LauncherView: View {
                 FooterBar(model: model)
             }
             .frame(width: size.width, height: size.height)
-            .glassEffect(
+            .launcherGlass(
                 .regular.tint(tint.opacity(DesignTokens.Palette.glassTintOpacity)),
                 in: .rect(cornerRadius: DesignTokens.Layout.cornerRadius)
             )
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .scaleEffect(scale, anchor: .top)
-        .opacity(phase == .shown ? 1 : 0)
+        .opacity(displayedPhase == .shown ? 1 : 0)
         .animation(DesignTokens.motion(DesignTokens.Motion.open, reduceMotion: reduceMotion), value: model.mode)
         .onChange(of: model.isPresented, initial: true) { _, presented in
             present(presented)
         }
     }
 
+    /// Snapshots render the finished state at once; waiting for the open motion would need a run loop
+    /// spin that a headless render does not have, and would capture a half-faded frame.
+    private var displayedPhase: Phase {
+        snapshotMode ? .shown : phase
+    }
+
     /// Reduce Motion drops the scale entirely, leaving only the fade.
     private var scale: CGFloat {
         guard !reduceMotion else { return 1 }
-        return switch phase {
+        return switch displayedPhase {
         case .entering: DesignTokens.Motion.openScale
         case .shown: 1
         case .leaving: DesignTokens.Motion.closeScale

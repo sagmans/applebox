@@ -1,375 +1,40 @@
 import AppKit
 @testable import AppleBox
 import SnapshotTesting
+import SwiftUI
 import XCTest
 
-/// Snapshot tests for UI components to catch visual regressions.
-/// These tests create images of views in various states and compare them to reference images.
+/// Snapshot tests for the glass launcher views, to catch visual regressions.
+///
+/// The views render with `launcherSnapshotMode`, which swaps every glass surface for a fixed background:
+/// glass samples what is behind it and follows the display profile, so references with real glass never
+/// matched from one machine to the next (ASG-1279). The test therefore covers layout, text, selection and
+/// colors of the content, not the glass material itself.
 @MainActor
 final class SnapshotTests: XCTestCase {
-    private var previousAppearance: NSAppearance?
-    private var mockFileSystem: MockFileSystem!
-    private var mockPasteboard: MockPasteboard!
-    private var mockWorkspace: MockWorkspace!
-    private var mockEventSource: MockEventSource!
-    private var windowManager: WindowManager!
-    private var searchService: SearchService!
-    private var applicationIndexer: ApplicationIndexer!
+    // MARK: - Constants
 
-    private var shouldRecordSnapshots: Bool {
-        let value = ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"]
-        return value == "1" || value == "true"
-    }
-
-    private struct SnapshotIconProvider: AppIconProviding {
-        func icon(forBundlePath _: String) -> NSImage {
-            let size = NSSize(width: 32, height: 32)
-            let image = NSImage(size: size)
-
-            image.lockFocus()
-            NSColor(calibratedRed: 0.25, green: 0.55, blue: 0.95, alpha: 1.0).setFill()
-            NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
-            image.unlockFocus()
-
-            return image
-        }
-    }
-
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-
-        // Skip in CI - snapshot rendering differs between environments (fonts, antialiasing, etc.)
-        try XCTSkipIf(
-            ProcessInfo.processInfo.environment["CI"] == "true",
-            "Snapshot tests are skipped in CI due to environment-specific rendering differences."
-        )
-
-        runOnMainActor { $0.createFixture() }
-    }
-
-    /// XCTest calls the setUp and tearDown overrides on the main thread, but their signatures are
-    /// nonisolated, so fixture work hops into the main actor explicitly.
-    private nonisolated func runOnMainActor(_ work: @MainActor (SnapshotTests) -> Void) {
-        // The case outlives the call and XCTest never runs it elsewhere, so sharing it is safe.
-        nonisolated(unsafe) let test = self
-        MainActor.assumeIsolated { work(test) }
-    }
-
-    private func createFixture() {
-        // Snapshot tests are sensitive to OS appearance settings. Force a stable baseline.
-        // The committed reference images are recorded in Dark Mode.
-        _ = NSApplication.shared
-        previousAppearance = NSApp.appearance
-        NSApp.appearance = NSAppearance(named: .darkAqua)
-
-        // Create mock dependencies
-        mockFileSystem = MockFileSystem()
-        mockPasteboard = MockPasteboard()
-        mockWorkspace = MockWorkspace()
-        mockEventSource = MockEventSource()
-
-        // Configure mock file system for Application Support directory
-        let appSupportURL = URL(fileURLWithPath: "/Users/test/Library/Application Support")
-        mockFileSystem.mockURLs = [appSupportURL]
-
-        // Create WindowManager with mocks
-        windowManager = WindowManager(
-            workspace: mockWorkspace,
-            pasteboard: mockPasteboard,
-            eventSource: mockEventSource,
-            fileSystem: mockFileSystem,
-            iconProvider: SnapshotIconProvider()
-        )
-
-        // A display profile is a property of the host, so render both windows in standard RGB.
-        windowManager.getContentView()?.window?.colorSpace = .sRGB
-        windowManager.getSidecarWindow()?.colorSpace = .sRGB
-
-        // Create ApplicationIndexer and SearchService
-        applicationIndexer = ApplicationIndexer(fileSystem: mockFileSystem)
-        searchService = SearchService(indexer: applicationIndexer)
-        windowManager.setSearchService(searchService)
-
-        // Set up clipboard manager
-        let clipboardManager = ClipboardManager(
-            pasteboard: mockPasteboard,
-            fileSystem: mockFileSystem
-        )
-        windowManager.setClipboardManager(clipboardManager)
-    }
-
-    override func tearDown() {
-        runOnMainActor { $0.destroyFixture() }
-        super.tearDown()
-    }
-
-    private func destroyFixture() {
-        // Only restore appearance if setup completed (test wasn't skipped)
-        if windowManager != nil {
-            NSApp.appearance = previousAppearance
-        }
-        previousAppearance = nil
-
-        windowManager = nil
-        searchService = nil
-        applicationIndexer = nil
-        mockFileSystem = nil
-        mockPasteboard = nil
-        mockWorkspace = nil
-        mockEventSource = nil
-    }
-
-    // MARK: - Helper Methods
-
-    /// Pins every scroll view in `view`'s subtree to hidden overlay scrollers.
-    ///
-    /// AppKit picks the scroller style from the "Show scroll bars" setting and the
-    /// attached pointing devices, and it can change while the suite runs. A legacy
-    /// scroller takes width from the list, so overflowing rows render narrower and
-    /// the snapshot depends on the machine and on test order. The references were
-    /// recorded with overlay scrollers and no visible knob; pinning that keeps the
-    /// comparison about the app's own drawing.
-    private func pinOverlayScrollers(in view: NSView) {
-        if let scrollView = view as? NSScrollView {
-            scrollView.scrollerStyle = .overlay
-            scrollView.verticalScroller?.isHidden = true
-        }
-        view.subviews.forEach { pinOverlayScrollers(in: $0) }
-    }
-
-    /// Creates sample ApplicationInfo for testing
-    private func createSampleApps() -> [ApplicationInfo] {
-        [
-            ApplicationInfo(name: "Safari", bundlePath: "/Applications/Safari.app"),
-            ApplicationInfo(name: "Mail", bundlePath: "/Applications/Mail.app"),
-            ApplicationInfo(name: "Notes", bundlePath: "/Applications/Notes.app"),
-            ApplicationInfo(name: "Calendar", bundlePath: "/Applications/Calendar.app"),
-            ApplicationInfo(name: "Reminders", bundlePath: "/Applications/Reminders.app"),
+    private enum Fixture {
+        /// Fake application support folder; nothing is read from or written to the real one.
+        static let appSupportPath = "/Users/test/Library/Application Support"
+        /// Fixed copy times, so the preview header never depends on the day the test runs.
+        static let copyTimes = [
+            "2026-01-15T09:30:00Z",
+            "2026-02-03T14:05:00Z",
+            "2026-03-21T18:45:00Z",
+            "2026-04-09T07:15:00Z",
+            "2026-05-27T22:50:00Z",
         ]
-    }
-
-    /// Creates sample SearchResults for testing
-    private func createSampleSearchResults() -> [SearchResult] {
-        let apps = createSampleApps()
-        return apps.enumerated().map { index, app in
-            SearchResult(application: app, score: 100 - index * 10, matchedIndices: [])
-        }
-    }
-
-    /// Creates sample ClipboardItems for testing
-    private func createSampleClipboardItems() -> [ClipboardItem] {
-        [
-            ClipboardItem(content: "Hello, World!"),
-            ClipboardItem(content: "https://example.com/path/to/resource"),
-            ClipboardItem(content: "Some longer text that might appear in clipboard history that the user copied recently."),
-            ClipboardItem(content: "{ \"key\": \"value\", \"number\": 42 }"),
-            ClipboardItem(content: "user@example.com"),
-        ]
-    }
-
-    // MARK: - Snapshot Tests for Empty State
-
-    func testSnapshotEmptySearchState() {
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot of empty state
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    // MARK: - Snapshot Tests for Populated Search Results
-
-    func testSnapshotPopulatedSearchResults() {
-        // Set up search results
-        let results = createSampleSearchResults()
-        windowManager.setSearchResultsForTesting(results)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot of populated state
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    // MARK: - Snapshot Tests for Clipboard Mode Results
-
-    func testSnapshotClipboardModeResults() {
-        // Set up clipboard results
-        let items = createSampleClipboardItems()
-        windowManager.setClipboardResultsForTesting(items)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot of clipboard mode
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    // MARK: - Snapshot Tests for Selected Row Highlighting
-
-    func testSnapshotSelectedRowHighlighting() {
-        // Set up search results
-        let results = createSampleSearchResults()
-        windowManager.setSearchResultsForTesting(results)
-
-        // Select a specific row (middle item)
-        windowManager.selectRowForTesting(2)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot with selection
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    // MARK: - Additional Snapshot Tests
-
-    func testSnapshotClipboardModeWithSelection() {
-        // Set up clipboard results
-        let items = createSampleClipboardItems()
-        windowManager.setClipboardResultsForTesting(items)
-
-        // Select a specific row
-        windowManager.selectRowForTesting(1)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot with clipboard selection
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    func testSnapshotManySearchResults() {
-        // Create many results to test scrolling appearance
-        var apps: [ApplicationInfo] = []
-        for i in 1 ... 15 {
-            apps.append(ApplicationInfo(name: "Application \(i)", bundlePath: "/Applications/App\(i).app"))
-        }
-        let results = apps.enumerated().map { index, app in
-            SearchResult(application: app, score: 200 - index * 10, matchedIndices: [])
-        }
-        windowManager.setSearchResultsForTesting(results)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // 15 rows overflow the list, the only case here where a scroller can
-        // take width; pin it before layout so row widths match the reference.
-        pinOverlayScrollers(in: contentView)
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot with many results
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    func testSnapshotFirstRowSelected() {
-        // Set up search results
-        let results = createSampleSearchResults()
-        windowManager.setSearchResultsForTesting(results)
-
-        // First row is selected by default, but explicitly select it
-        windowManager.selectRowForTesting(0)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot with first row selected
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    func testSnapshotLastRowSelected() {
-        // Set up search results
-        let results = createSampleSearchResults()
-        windowManager.setSearchResultsForTesting(results)
-
-        // Select the last row
-        windowManager.selectRowForTesting(results.count - 1)
-
-        // Get the content view
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("Content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        contentView.layoutSubtreeIfNeeded()
-
-        // Take snapshot with last row selected
-        assertSnapshot(of: contentView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    // MARK: - Sidecar Panel Snapshot Tests
-
-    func testSnapshotSidecarPanel() {
-        // Set up clipboard mode (sidecar only shows in clipboard mode)
-        let items = createSampleClipboardItems()
-        windowManager.setClipboardResultsForTesting(items)
-
-        // Get the sidecar content view
-        guard let sidecarContentView = windowManager.getSidecarContentView() else {
-            XCTFail("Sidecar content view should exist")
-            return
-        }
-
-        // Get the sidecar window for snapshot
-        guard let sidecarWindow = windowManager.getSidecarWindow(),
-              let sidecarGlassView = sidecarWindow.contentView
-        else {
-            XCTFail("Sidecar window content view should exist")
-            return
-        }
-
-        // Ensure the view has proper layout
-        sidecarGlassView.layoutSubtreeIfNeeded()
-
-        // Take snapshot of sidecar panel
-        assertSnapshot(of: sidecarGlassView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
-    }
-
-    func testSnapshotSidecarPanelWithHighlightedMatches() {
-        // Create a long multiline item (triggers sidecar visibility)
-        let longText = """
+        /// Pinned so the date format in the header renders the same wherever the suite runs.
+        static let localeIdentifier = "en_US"
+        static let timeZoneIdentifier = "UTC"
+        static let manyApplicationCount = 15
+        static let iconSide: CGFloat = 32
+        static let iconRed: CGFloat = 0.25
+        static let iconGreen: CGFloat = 0.55
+        static let iconBlue: CGFloat = 0.95
+        static let highlightQuery = "total"
+        static let codeClip = """
         func calculateTotal(items: [Item]) -> Double {
             var total = 0.0
             for item in items {
@@ -378,27 +43,291 @@ final class SnapshotTests: XCTestCase {
             return total
         }
         """
-        let item = ClipboardItem(content: longText)
+        static let clipTexts = [
+            "Hello, World!",
+            "https://example.com/path/to/resource",
+            "Some longer text that might appear in clipboard history that the user copied recently.",
+            "{ \"key\": \"value\", \"number\": 42 }",
+            "user@example.com",
+        ]
+        static let applicationNames = ["Safari", "Mail", "Notes", "Calendar", "Reminders"]
+    }
 
-        // Compute match indices for query "total"
-        let matchResult = FuzzyMatcher.matchWithIndices(query: "total", candidate: longText)
-        let result = ClipboardSearchResult(item: item, relevanceScore: matchResult.score, matchedIndices: matchResult.matchedIndices)
+    private enum Look: String, CaseIterable {
+        case dark
+        case light
 
-        // Set up clipboard search results with highlights
-        windowManager.setClipboardSearchResultsForTesting([result])
+        var appearanceName: NSAppearance.Name {
+            self == .dark ? .darkAqua : .aqua
+        }
+    }
 
-        // Get the sidecar window for snapshot
-        guard let sidecarWindow = windowManager.getSidecarWindow(),
-              let sidecarGlassView = sidecarWindow.contentView
-        else {
-            XCTFail("Sidecar window content view should exist")
-            return
+    /// Name of the Increase Contrast variant; kept apart from `Look` because it is one extra case, not a
+    /// second pass over every case.
+    private static let increasedContrastName = "increased-contrast"
+    /// Matching tolerance of the references: loose enough for anti-aliasing noise, tight enough that a
+    /// moved row or a lost highlight fails.
+    private static let precision: Float = 0.99
+    private static let perceptualPrecision: Float = 0.98
+    /// Time given to the run loop so lazy rows and AppKit-backed controls finish their first layout.
+    private static let settleInterval: TimeInterval = 0.3
+
+    private var shouldRecordSnapshots: Bool {
+        let value = ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"]
+        return value == "1" || value == "true"
+    }
+
+    /// Records when asked to; otherwise nil keeps the library default of comparing against references.
+    private var recordMode: SnapshotTestingConfiguration.Record? {
+        shouldRecordSnapshots ? .all : nil
+    }
+
+    private struct SnapshotIconProvider: AppIconProviding {
+        func icon(forBundlePath _: String) -> NSImage {
+            let size = NSSize(width: Fixture.iconSide, height: Fixture.iconSide)
+            let image = NSImage(size: size)
+            image.lockFocus()
+            NSColor(
+                calibratedRed: Fixture.iconRed,
+                green: Fixture.iconGreen,
+                blue: Fixture.iconBlue,
+                alpha: 1.0
+            ).setFill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+            image.unlockFocus()
+            return image
+        }
+    }
+
+    /// Encodes only what the history file stores, so a fixed copy time can be decoded back; the item type
+    /// stamps the current time on creation and offers no other way in.
+    private struct StoredClip: Encodable {
+        let content: String
+        let timestamp: Date
+        let contentType = "text"
+    }
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        // Skip in CI - snapshot rendering differs between environments (fonts, antialiasing, etc.)
+        try XCTSkipIf(
+            ProcessInfo.processInfo.environment["CI"] == "true",
+            "Snapshot tests are skipped in CI due to environment-specific rendering differences."
+        )
+    }
+
+    // MARK: - Fixtures
+
+    private func makeModel() -> LauncherModel {
+        let fileSystem = MockFileSystem()
+        fileSystem.mockURLs = [URL(fileURLWithPath: Fixture.appSupportPath)]
+        return LauncherModel(
+            workspace: MockWorkspace(),
+            pasteboard: MockPasteboard(),
+            eventSource: MockEventSource(),
+            fileSystem: fileSystem
+        )
+    }
+
+    private func applicationResults(count: Int? = nil) -> [SearchResult] {
+        let applications: [ApplicationInfo] = if let count {
+            (1 ... count).map { ApplicationInfo(name: "Application \($0)", bundlePath: "/Applications/App\($0).app") }
+        } else {
+            Fixture.applicationNames.map { ApplicationInfo(name: $0, bundlePath: "/Applications/\($0).app") }
+        }
+        return applications.enumerated().map { index, application in
+            SearchResult(application: application, score: 100 - index * 10, matchedIndices: [])
+        }
+    }
+
+    /// Builds a clip with a fixed copy time by decoding what the history file would hold.
+    private func clip(_ content: String, copiedAt isoTime: String) throws -> ClipboardItem {
+        let formatter = ISO8601DateFormatter()
+        let date = try XCTUnwrap(formatter.date(from: isoTime))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ClipboardItem.self, from: encoder.encode(StoredClip(content: content, timestamp: date)))
+    }
+
+    /// Matches with fixed copy times. They go straight to the model because the history drops clips older
+    /// than its retention window, which would make any fixed date expire.
+    private func clipMatches(_ texts: [String] = Fixture.clipTexts, query: String = "") throws -> [ClipboardManager.ClipboardSearchMatch] {
+        try texts.enumerated().map { index, text in
+            let item = try clip(text, copiedAt: Fixture.copyTimes[index % Fixture.copyTimes.count])
+            let match = query.isEmpty ? nil : FuzzyMatcher.matchWithIndices(query: query, candidate: text)
+            return ClipboardManager.ClipboardSearchMatch(
+                item: item,
+                score: match?.score ?? 0,
+                matchedIndices: match?.matchedIndices ?? []
+            )
+        }
+    }
+
+    // MARK: - Rendering
+
+    /// Hosts the launcher at its mode size with an explicit frame, because an unsized hosting view
+    /// renders as zero-size and the references would be empty. Returns the window, which the caller must
+    /// keep alive: a view does not retain the window that holds it.
+    private func hostLauncher(model: LauncherModel, look: Look, highContrast: Bool = false) -> NSWindow {
+        let size = model.mode == .clipboard ? DesignTokens.Layout.clipPanelSize : DesignTokens.Layout.appPanelSize
+        let root = LauncherView(model: model)
+            .environment(\.launcherSnapshotMode, true)
+            .environment(\.appIcons, AppIconCache(loader: SnapshotIconProvider()))
+            .environment(\.locale, Locale(identifier: Fixture.localeIdentifier))
+            .environment(\.timeZone, TimeZone(identifier: Fixture.timeZoneIdentifier) ?? .gmt)
+        let host = NSHostingView(rootView: root)
+        host.sizingOptions = []
+        host.frame = CGRect(origin: .zero, size: size)
+        if highContrast {
+            host.appearance = NSAppearance(named: look == .dark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua)
+        } else {
+            host.appearance = NSAppearance(named: look.appearanceName)
         }
 
-        // Ensure the view has proper layout
-        sidecarGlassView.layoutSubtreeIfNeeded()
+        // A display profile is a property of the host machine, so the window pins standard RGB. The window
+        // is never shown; the caller keeps it alive for the length of the render.
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        return window
+    }
 
-        // Take snapshot of sidecar panel with highlighted matches
-        assertSnapshot(of: sidecarGlassView, as: .image(precision: 0.99, perceptualPrecision: 0.98), record: shouldRecordSnapshots)
+    /// Lets lazy rows and the AppKit-backed field finish their first layout.
+    private func settle(_ view: NSView) {
+        view.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: Self.settleInterval))
+        view.layoutSubtreeIfNeeded()
+    }
+
+    /// Renders one scenario for `look` and returns the window whose content view is the settled launcher.
+    ///
+    /// The search field reports its own empty text back to the model while it first appears, and in
+    /// clipboard mode that search would replace fixture rows with an empty history. The view therefore
+    /// renders first and `arrange` runs after that has settled, so the fixture is the last write.
+    private func renderScenario(
+        mode: SearchMode,
+        look: Look,
+        highContrast: Bool = false,
+        arrange: (LauncherModel) throws -> Void
+    ) throws -> NSWindow {
+        let model = makeModel()
+        model.switchMode(to: mode)
+        let window = hostLauncher(model: model, look: look, highContrast: highContrast)
+        let view = try XCTUnwrap(window.contentView)
+        settle(view)
+        try arrange(model)
+        settle(view)
+        return window
+    }
+
+    /// Snapshots a scenario in dark and light, naming each so a failure says which look broke.
+    private func assertLauncher(
+        _ mode: SearchMode,
+        file: StaticString = #filePath,
+        testName: String = #function,
+        line: UInt = #line,
+        arrange: (LauncherModel) throws -> Void = { _ in }
+    ) throws {
+        for look in Look.allCases {
+            let window = try renderScenario(mode: mode, look: look, arrange: arrange)
+            try assertSnapshot(
+                of: XCTUnwrap(window.contentView),
+                as: .image(precision: Self.precision, perceptualPrecision: Self.perceptualPrecision),
+                named: look.rawValue,
+                record: recordMode,
+                file: file,
+                testName: testName,
+                line: line
+            )
+        }
+    }
+
+    // MARK: - Snapshot Tests for Empty State
+
+    func testSnapshotEmptySearchState() throws {
+        try assertLauncher(.applications)
+    }
+
+    // MARK: - Snapshot Tests for Populated Search Results
+
+    func testSnapshotPopulatedSearchResults() throws {
+        try assertLauncher(.applications) { $0.setApplicationResults(applicationResults()) }
+    }
+
+    /// The one case that also renders with Increase Contrast. The appearance override is the supported
+    /// way to force it; Reduce Transparency has no override, so it has no variant (see the task report).
+    func testSnapshotPopulatedSearchResultsIncreasedContrast() throws {
+        let window = try renderScenario(mode: .applications, look: .dark, highContrast: true) {
+            $0.setApplicationResults(applicationResults())
+        }
+        try assertSnapshot(
+            of: XCTUnwrap(window.contentView),
+            as: .image(precision: Self.precision, perceptualPrecision: Self.perceptualPrecision),
+            named: Self.increasedContrastName,
+            record: recordMode,
+            testName: "testSnapshotPopulatedSearchResults"
+        )
+    }
+
+    // MARK: - Snapshot Tests for Clipboard Mode Results
+
+    func testSnapshotClipboardModeResults() throws {
+        try assertLauncher(.clipboard) { try $0.setClipboardMatches(clipMatches()) }
+    }
+
+    // MARK: - Snapshot Tests for Selected Row Highlighting
+
+    func testSnapshotSelectedRowHighlighting() throws {
+        try assertLauncher(.applications) {
+            $0.setApplicationResults(applicationResults())
+            $0.select(2)
+        }
+    }
+
+    // MARK: - Additional Snapshot Tests
+
+    func testSnapshotClipboardModeWithSelection() throws {
+        try assertLauncher(.clipboard) {
+            try $0.setClipboardMatches(clipMatches())
+            $0.select(1)
+        }
+    }
+
+    func testSnapshotManySearchResults() throws {
+        // More rows than fit, so the list scrolls; the scroll bar is an overlay in the views and cannot
+        // take width, which keeps the reference independent of the "Show scroll bars" setting.
+        try assertLauncher(.applications) { $0.setApplicationResults(applicationResults(count: Fixture.manyApplicationCount)) }
+    }
+
+    func testSnapshotFirstRowSelected() throws {
+        try assertLauncher(.applications) {
+            $0.setApplicationResults(applicationResults())
+            $0.select(0)
+        }
+    }
+
+    func testSnapshotLastRowSelected() throws {
+        let results = applicationResults()
+        try assertLauncher(.applications) {
+            $0.setApplicationResults(results)
+            $0.select(results.count - 1)
+        }
+    }
+
+    // MARK: - Clip Preview Snapshot Tests
+
+    func testSnapshotClipPreview() throws {
+        // A multi-line code clip exercises the monospaced preview with the header's kind, time and size.
+        try assertLauncher(.clipboard) { try $0.setClipboardMatches(clipMatches([Fixture.codeClip])) }
+    }
+
+    func testSnapshotClipPreviewWithHighlightedMatches() throws {
+        // The query stays out of the field: the field echoes its text back as a search, which would
+        // replace these fixture rows. The highlights come from the matches themselves.
+        try assertLauncher(.clipboard) {
+            try $0.setClipboardMatches(clipMatches([Fixture.codeClip], query: Fixture.highlightQuery), query: Fixture.highlightQuery)
+        }
     }
 }

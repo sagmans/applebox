@@ -46,7 +46,7 @@ struct FooterBar: View {
             ForEach(symbols, id: \.self) { symbol in
                 Image(systemName: symbol)
                     .padding(DesignTokens.Metrics.keyCapPadding)
-                    .glassEffect(.clear, in: .capsule)
+                    .launcherGlass(.clear, in: .capsule)
             }
             Text(action)
                 .foregroundStyle(.secondary)

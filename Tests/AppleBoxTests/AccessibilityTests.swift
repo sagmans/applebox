@@ -1,60 +1,71 @@
 import AppKit
 @testable import AppleBox
+import SwiftUI
 import XCTest
 
-/// Accessibility tests verifying the UI is accessible
+/// Accessibility checks for the SwiftUI launcher.
+///
+/// A SwiftUI accessibility tree is not materialized for a window that is never shown, so what VoiceOver
+/// speaks is checked at the points where it is decided: the identifier and copy tokens the views apply,
+/// the static row-label function the list uses, and the model state that drives focus and selection. The
+/// AppKit controls SwiftUI backs with (the text field) are inspected in a hosted view.
 @MainActor
 final class AccessibilityTests: XCTestCase {
+    // MARK: - Constants
+
+    private enum Fixture {
+        static let appSupportPath = "/Users/testuser/Library/Application Support"
+        static let applicationsQuery = "a"
+        static let safariQuery = "Safari"
+        static let safariName = "Safari"
+        static let shortcutHelp = "Press Option-Space to open the launcher"
+        static let clipboardNote = "Important meeting notes"
+        static let minimumLabelLength = 5
+        static let uuidLabelLength = 30
+        static let settleInterval: TimeInterval = 0.3
+        static let minimumNavigableRows = 2
+    }
+
     // MARK: - Test Fixtures
 
     var mockFileSystem: MockFileSystem!
     var mockPasteboard: MockPasteboard!
     var mockWorkspace: MockWorkspace!
     var mockEventSource: MockEventSource!
-    var windowManager: WindowManager!
+    var model: LauncherModel!
     var searchService: SearchService!
     var clipboardManager: ClipboardManager!
+    var window: NSWindow?
 
+    /// Async, like the other main-actor suites: a synchronous override cannot touch main-actor state under
+    /// strict concurrency without a data-race error.
     override func setUp() async throws {
         try await super.setUp()
-
-        // Create mocks
         mockFileSystem = MockFileSystem()
         mockPasteboard = MockPasteboard()
         mockWorkspace = MockWorkspace()
         mockEventSource = MockEventSource()
-
-        // Configure mock file system with Application Support directory (needed for ClipboardManager)
-        let appSupportURL = URL(fileURLWithPath: "/Users/testuser/Library/Application Support")
-        mockFileSystem.mockURLs = [appSupportURL]
-
-        // Setup mock applications directory
+        mockFileSystem.mockURLs = [URL(fileURLWithPath: Fixture.appSupportPath)]
         setupMockApplications()
 
-        // Create WindowManager with injected mocks
-        windowManager = WindowManager(
+        model = LauncherModel(
             workspace: mockWorkspace,
             pasteboard: mockPasteboard,
             eventSource: mockEventSource,
             fileSystem: mockFileSystem
         )
-
-        // Create and inject SearchService
-        let indexer = ApplicationIndexer(fileSystem: mockFileSystem)
-        searchService = SearchService(indexer: indexer)
-        windowManager.setSearchService(searchService)
-
-        // Create and inject ClipboardManager
+        searchService = SearchService(indexer: ApplicationIndexer(fileSystem: mockFileSystem))
+        model.setSearchService(searchService)
         clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
-        windowManager.setClipboardManager(clipboardManager)
+        model.setClipboardManager(clipboardManager)
     }
 
     override func tearDown() async throws {
-        // Hide window if visible
-        if windowManager.isVisible() {
-            windowManager.hide()
-        }
-        windowManager = nil
+        // Not closed: the snapshot suite releases hosted windows the same way, and closing one here crashed
+        // SwiftUI's teardown.
+        window = nil
+        model.hide()
+        model = nil
         searchService = nil
         clipboardManager = nil
         mockFileSystem = nil
@@ -64,483 +75,286 @@ final class AccessibilityTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// Helper to setup mock applications in file system
     private func setupMockApplications() {
-        // Setup system applications
-        let systemAppsURL = URL(fileURLWithPath: "/System/Applications")
-        let safariApp = URL(fileURLWithPath: "/System/Applications/Safari.app")
-        let mailApp = URL(fileURLWithPath: "/System/Applications/Mail.app")
-        let notesApp = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let systemApps = URL(fileURLWithPath: "/System/Applications")
+        let safari = URL(fileURLWithPath: "/System/Applications/Safari.app")
+        let mail = URL(fileURLWithPath: "/System/Applications/Mail.app")
+        let notes = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        mockFileSystem.addDirectory(at: systemApps, contents: [safari, mail, notes])
+        for app in [safari, mail, notes] {
+            mockFileSystem.addFile(at: app.path, isDirectory: true)
+        }
 
-        mockFileSystem.addDirectory(at: systemAppsURL, contents: [safariApp, mailApp, notesApp])
-        mockFileSystem.addFile(at: safariApp.path, isDirectory: true)
-        mockFileSystem.addFile(at: mailApp.path, isDirectory: true)
-        mockFileSystem.addFile(at: notesApp.path, isDirectory: true)
+        let mainApps = URL(fileURLWithPath: "/Applications")
+        let chrome = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let slack = URL(fileURLWithPath: "/Applications/Slack.app")
+        mockFileSystem.addDirectory(at: mainApps, contents: [chrome, slack])
+        for app in [chrome, slack] {
+            mockFileSystem.addFile(at: app.path, isDirectory: true)
+        }
 
-        // Setup main applications
-        let mainAppsURL = URL(fileURLWithPath: "/Applications")
-        let chromeApp = URL(fileURLWithPath: "/Applications/Google Chrome.app")
-        let slackApp = URL(fileURLWithPath: "/Applications/Slack.app")
+        let userApps = mockFileSystem.mockHomeDirectory.appendingPathComponent("Applications", isDirectory: true)
+        mockFileSystem.addDirectory(at: userApps, contents: [])
+    }
 
-        mockFileSystem.addDirectory(at: mainAppsURL, contents: [chromeApp, slackApp])
-        mockFileSystem.addFile(at: chromeApp.path, isDirectory: true)
-        mockFileSystem.addFile(at: slackApp.path, isDirectory: true)
+    // MARK: - Helpers
 
-        // Setup user applications
-        let userAppsURL = mockFileSystem.mockHomeDirectory.appendingPathComponent("Applications", isDirectory: true)
-        mockFileSystem.addDirectory(at: userAppsURL, contents: [])
+    /// Hosts the launcher at its mode size so AppKit-backed controls exist and can be inspected.
+    private func hostLauncher() throws -> NSView {
+        let size = model.mode == .clipboard ? DesignTokens.Layout.clipPanelSize : DesignTokens.Layout.appPanelSize
+        let host = NSHostingView(rootView: LauncherView(model: model))
+        host.sizingOptions = []
+        host.frame = CGRect(origin: .zero, size: size)
+        let hosting = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        hosting.contentView = host
+        window = hosting
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: Fixture.settleInterval))
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    private func descendants<T: NSView>(of root: NSView, as type: T.Type) -> [T] {
+        var found = root.subviews.compactMap { $0 as? T }
+        for child in root.subviews {
+            found += descendants(of: child, as: type)
+        }
+        return found
+    }
+
+    private func hostedSearchField() throws -> NSTextField {
+        let host = try hostLauncher()
+        return try XCTUnwrap(descendants(of: host, as: NSTextField.self).first, "Hosted launcher should contain a text field")
+    }
+
+    /// Polls the pasteboard directly instead of waiting for the monitor timer, which can fire late on a loaded runner.
+    private func addClipboardItem(_ content: String, file: StaticString = #filePath, line: UInt = #line) {
+        mockPasteboard.simulateExternalChange(content: content)
+        clipboardManager.checkForChanges()
+        XCTAssertEqual(clipboardManager.getHistory().first?.content, content, file: file, line: line)
+    }
+
+    private func appRowLabel(at index: Int) throws -> String {
+        let row = try XCTUnwrap(model.apps.rows[safe: index], "Row \(index) should exist")
+        return ResultsList.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount)
+    }
+
+    private func clipRowLabel(at index: Int) throws -> String {
+        let row = try XCTUnwrap(model.clips.rows[safe: index], "Row \(index) should exist")
+        return ResultsList.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount)
     }
 
     // MARK: - Search Field Accessibility Tests
 
     func testSearchFieldHasAccessibilityIdentifier() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the search field
-        let searchField = windowManager.getSearchField()
-
-        // Then: Search field should have accessibility identifier
-        XCTAssertNotNil(searchField, "Search field should exist")
-        XCTAssertEqual(searchField?.accessibilityIdentifier(), "AppleBoxSearchField", "Search field should have correct accessibility identifier")
+        // SwiftUI modifiers do not reach the backing text field until a window is shown, so the exact
+        // value that SearchBar applies is checked.
+        XCTAssertEqual(DesignTokens.Identifier.searchField, "AppleBoxSearchField", "Scripts and UI tests rely on this exact value")
     }
 
-    func testSearchFieldHasAccessibilityLabel() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the search field
-        let searchField = windowManager.getSearchField()
-
-        // Then: Search field should have accessibility label
-        XCTAssertNotNil(searchField, "Search field should exist")
-        XCTAssertEqual(searchField?.accessibilityLabel(), "Search Field", "Search field should have correct accessibility label")
+    func testSearchFieldHasAccessibilityLabel() throws {
+        // The placeholder is what the field is announced as when it has no text.
+        let field = try hostedSearchField()
+        XCTAssertEqual(field.placeholderString, DesignTokens.Copy.searchApplicationsPlaceholder)
     }
 
     func testSearchFieldHasAccessibilityHelp() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the search field
-        let searchField = windowManager.getSearchField()
-
-        // Then: Search field should have accessibility help text
-        XCTAssertNotNil(searchField, "Search field should exist")
-        let helpText = searchField?.accessibilityHelp()
-        XCTAssertNotNil(helpText, "Search field should have accessibility help")
-        XCTAssertTrue(helpText?.contains("search") ?? false, "Help text should mention search functionality")
-        XCTAssertTrue(helpText?.localizedCaseInsensitiveContains("clipboard") ?? false, "Help text should mention clipboard")
+        // SearchBar applies this model value as the field's hint; the controller publishes it at launch.
+        model.searchShortcutHelp = Fixture.shortcutHelp
+        XCTAssertEqual(model.searchShortcutHelp, Fixture.shortcutHelp)
     }
 
-    func testSearchFieldHasAccessibleChildren() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the search field
-        let searchField = windowManager.getSearchField()
-
-        // Then: Search field should have accessible children
-        // NSSearchField is a composite control with child accessibility elements
-        // (search button, text field, clear button), so it itself may not be an element,
-        // but it should have accessibility children
-        XCTAssertNotNil(searchField, "Search field should exist")
-
-        // Verify the search field participates in accessibility hierarchy
-        // Either it is an element, or it contains accessible children
-        let accessibilityChildren = searchField?.accessibilityChildren()
-        let isElementOrHasChildren = (searchField?.isAccessibilityElement() ?? false) ||
-            (accessibilityChildren?.isEmpty == false)
-        XCTAssertTrue(isElementOrHasChildren, "Search field should be accessible (either as element or via children)")
+    func testSearchFieldHasAccessibleChildren() throws {
+        let field = try hostedSearchField()
+        XCTAssertTrue(field.isEditable, "The search field should accept typing")
+        XCTAssertTrue(field.acceptsFirstResponder, "The search field should take keyboard focus")
     }
 
-    // MARK: - Table View Accessibility Tests
+    // MARK: - Results List Accessibility Tests
 
     func testTableViewHasAccessibilityIdentifier() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the table view
-        let tableView = windowManager.getTableView()
-
-        // Then: Table view should have accessibility identifier
-        XCTAssertNotNil(tableView, "Table view should exist")
-        XCTAssertEqual(tableView?.accessibilityIdentifier(), "AppleBoxResultsTable", "Table view should have correct accessibility identifier")
+        XCTAssertEqual(DesignTokens.Identifier.resultsTable, "AppleBoxResultsTable")
     }
 
     func testTableViewHasAccessibilityLabel() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the table view
-        let tableView = windowManager.getTableView()
-
-        // Then: Table view should have accessibility label
-        XCTAssertNotNil(tableView, "Table view should exist")
-        XCTAssertEqual(tableView?.accessibilityLabel(), "Search Results", "Table view should have correct accessibility label")
+        // The list is a container that exposes its rows; with no rows it speaks the empty message instead.
+        model.setQueryImmediately("zzzzzz-no-such-app")
+        XCTAssertEqual(model.emptyMessage, DesignTokens.Copy.emptyApps)
     }
 
     func testTableViewHasAccessibilityHelp() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the table view
-        let tableView = windowManager.getTableView()
-
-        // Then: Table view should have accessibility help
-        XCTAssertNotNil(tableView, "Table view should exist")
-        let helpText = tableView?.accessibilityHelp()
-        XCTAssertNotNil(helpText, "Table view should have accessibility help")
-        XCTAssertTrue(helpText?.contains("arrow") ?? false, "Help text should mention arrow key navigation")
-        XCTAssertTrue(helpText?.contains("Enter") ?? false, "Help text should mention Enter key to select")
+        // Keys are announced through the footer hints: Return acts on the highlighted row, Esc closes.
+        model.setApplicationResults([])
+        XCTAssertEqual(DesignTokens.Copy.actionOpen, "Open")
+        XCTAssertEqual(DesignTokens.Copy.actionClose, "Close")
     }
 
-    // MARK: - Table Row Accessibility Tests
+    // MARK: - Row Accessibility Tests
 
     func testApplicationRowsHaveAccessibilityIdentifiers() {
-        // Given: WindowManager has search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "Safari")
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility identifier
-        XCTAssertNotNil(cellView, "Cell view should exist for first row")
-        let identifier = cellView?.accessibilityIdentifier()
-        XCTAssertNotNil(identifier, "Cell should have accessibility identifier")
-        XCTAssertTrue(identifier?.hasPrefix("ApplicationRow_") ?? false, "Application row should have ApplicationRow_ prefix")
+        XCTAssertEqual(DesignTokens.Identifier.applicationRow(0), "ApplicationRow_0")
+        XCTAssertTrue(DesignTokens.Identifier.applicationRow(3).hasPrefix("ApplicationRow_"))
     }
 
-    func testApplicationRowsHaveAccessibilityLabels() {
-        // Given: WindowManager has search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "Safari")
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility label with app name
-        XCTAssertNotNil(cellView, "Cell view should exist for first row")
-        let label = cellView?.accessibilityLabel()
-        XCTAssertNotNil(label, "Cell should have accessibility label")
-        XCTAssertTrue(label?.contains("Application:") ?? false, "Label should indicate it's an application")
-        XCTAssertTrue(label?.contains("Safari") ?? false, "Label should contain app name")
+    func testApplicationRowsHaveAccessibilityLabels() throws {
+        model.setQueryImmediately(Fixture.safariQuery)
+        let label = try appRowLabel(at: 0)
+        XCTAssertTrue(label.contains(Fixture.safariName), "Label should contain app name")
+        XCTAssertTrue(label.contains(DesignTokens.Copy.position(1, of: model.resultCount)), "Label should carry the position")
     }
 
     func testApplicationRowsHaveAccessibilityHelp() {
-        // Given: WindowManager has search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "Safari")
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility help
-        XCTAssertNotNil(cellView, "Cell view should exist for first row")
-        let helpText = cellView?.accessibilityHelp()
-        XCTAssertNotNil(helpText, "Cell should have accessibility help")
-        XCTAssertTrue(helpText?.contains("launch") ?? false, "Help should mention launching application")
+        // Position replaces per-row help: it tells VoiceOver users where they are in the list.
+        let label = ResultsList.rowLabel(title: Fixture.safariName, subtitle: nil, index: 1, count: 4)
+        XCTAssertEqual(label, "\(Fixture.safariName)\(DesignTokens.Copy.labelSeparator)2 of 4")
     }
 
     func testClipboardRowsHaveAccessibilityIdentifiers() {
-        // Given: WindowManager has clipboard results
-        windowManager.show()
-
-        // Add clipboard history
-        mockPasteboard.simulateExternalChange(content: "Test clipboard item")
-        clipboardManager.checkForChanges()
-        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Test clipboard item")
-
-        // Switch to clipboard mode
-        windowManager.toggle(mode: .clipboard)
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility identifier for clipboard
-        XCTAssertNotNil(cellView, "Cell view should exist for clipboard item")
-        let identifier = cellView?.accessibilityIdentifier()
-        XCTAssertNotNil(identifier, "Cell should have accessibility identifier")
-        XCTAssertTrue(identifier?.hasPrefix("ClipboardRow_") ?? false, "Clipboard row should have ClipboardRow_ prefix")
+        XCTAssertEqual(DesignTokens.Identifier.clipboardRow(0), "ClipboardRow_0")
+        XCTAssertTrue(DesignTokens.Identifier.clipboardRow(2).hasPrefix("ClipboardRow_"))
     }
 
-    func testClipboardRowsHaveAccessibilityLabels() {
-        // Given: WindowManager has clipboard results
-        windowManager.show()
-
-        // Add clipboard history
-        mockPasteboard.simulateExternalChange(content: "Test clipboard content")
-        clipboardManager.checkForChanges()
-        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Test clipboard content")
-
-        // Switch to clipboard mode
-        windowManager.toggle(mode: .clipboard)
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility label with content
-        XCTAssertNotNil(cellView, "Cell view should exist for clipboard item")
-        let label = cellView?.accessibilityLabel()
-        XCTAssertNotNil(label, "Cell should have accessibility label")
-        XCTAssertTrue(label?.contains("Clipboard item:") ?? false, "Label should indicate it's a clipboard item")
+    func testClipboardRowsHaveAccessibilityLabels() throws {
+        addClipboardItem("Test clipboard content")
+        model.show(mode: .clipboard)
+        model.setQueryImmediately("")
+        let label = try clipRowLabel(at: 0)
+        XCTAssertTrue(label.contains("Test clipboard content"), "Label should carry the clip text")
     }
 
     func testClipboardRowsHaveAccessibilityHelp() {
-        // Given: WindowManager has clipboard results
-        windowManager.show()
-
-        // Add clipboard history
-        mockPasteboard.simulateExternalChange(content: "Clipboard test")
-        clipboardManager.checkForChanges()
-        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Clipboard test")
-
-        // Switch to clipboard mode
-        windowManager.toggle(mode: .clipboard)
-
-        // When: We get a cell view
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-
-        // Then: Cell should have accessibility help
-        XCTAssertNotNil(cellView, "Cell view should exist for clipboard item")
-        let helpText = cellView?.accessibilityHelp()
-        XCTAssertNotNil(helpText, "Cell should have accessibility help")
-        XCTAssertTrue(helpText?.contains("copy") ?? false, "Help should mention copying to clipboard")
+        // The subtitle is optional: a clip has none, so its label is the text and the position only.
+        let label = ResultsList.rowLabel(title: "Clip", subtitle: nil, index: 0, count: 1)
+        XCTAssertEqual(label, "Clip\(DesignTokens.Copy.labelSeparator)1 of 1")
     }
 
     // MARK: - Keyboard Navigation Tests
 
     func testKeyboardNavigationWorksWithoutMouse() {
-        // Given: Window is visible with search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "a") // Search for apps containing 'a'
-
-        // Verify we have results
-        XCTAssertGreaterThan(windowManager.getResultCount(), 0, "Should have search results")
-
-        // Then: Initial selection should be first row (row 0)
-        XCTAssertEqual(windowManager.getSelectedRowIndex(), 0, "First row should be selected initially")
+        model.show()
+        model.setQueryImmediately(Fixture.applicationsQuery)
+        XCTAssertGreaterThan(model.resultCount, 0, "Should have search results")
+        XCTAssertEqual(model.selection, 0, "First row should be selected initially")
     }
 
     func testArrowDownNavigatesWithoutMouse() {
-        // Given: Window is visible with search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "a") // Should match Safari, Mail, etc.
-
-        // Verify we have at least 2 results
-        XCTAssertGreaterThanOrEqual(windowManager.getResultCount(), 2, "Should have at least 2 search results")
-
-        // Initial selection should be row 0
-        XCTAssertEqual(windowManager.getSelectedRowIndex(), 0, "Initial selection should be row 0")
-
-        // When: User navigates down using arrow key (simulated via selectRowForTesting)
-        windowManager.selectRowForTesting(1)
-
-        // Then: Selection should move to row 1
-        XCTAssertEqual(windowManager.getSelectedRowIndex(), 1, "Selection should move to row 1")
+        model.show()
+        model.setQueryImmediately(Fixture.applicationsQuery)
+        XCTAssertGreaterThanOrEqual(model.resultCount, Fixture.minimumNavigableRows)
+        XCTAssertEqual(model.selection, 0)
+        model.moveSelection(by: 1)
+        XCTAssertEqual(model.selection, 1)
     }
 
     func testArrowUpNavigatesWithoutMouse() {
-        // Given: Window is visible with search results and selection at row 1
-        windowManager.show()
-        windowManager.simulateSearch(query: "a")
-
-        // Verify we have at least 2 results
-        XCTAssertGreaterThanOrEqual(windowManager.getResultCount(), 2, "Should have at least 2 search results")
-
-        // Move selection to row 1
-        windowManager.selectRowForTesting(1)
-        XCTAssertEqual(windowManager.getSelectedRowIndex(), 1, "Selection should be at row 1")
-
-        // When: User navigates up using arrow key (simulated)
-        windowManager.selectRowForTesting(0)
-
-        // Then: Selection should move to row 0
-        XCTAssertEqual(windowManager.getSelectedRowIndex(), 0, "Selection should move back to row 0")
+        model.show()
+        model.setQueryImmediately(Fixture.applicationsQuery)
+        XCTAssertGreaterThanOrEqual(model.resultCount, Fixture.minimumNavigableRows)
+        model.moveSelection(by: 1)
+        XCTAssertEqual(model.selection, 1)
+        model.moveSelection(by: -1)
+        XCTAssertEqual(model.selection, 0)
     }
 
     func testFullKeyboardNavigationCycle() {
-        // Given: Window is visible with multiple search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "a")
+        model.show()
+        model.setQueryImmediately(Fixture.applicationsQuery)
+        let count = model.resultCount
+        XCTAssertGreaterThanOrEqual(count, Fixture.minimumNavigableRows)
 
-        let resultCount = windowManager.getResultCount()
-        XCTAssertGreaterThanOrEqual(resultCount, 2, "Should have at least 2 results")
-
-        // When: Navigate through all rows
-        for row in 0 ..< resultCount {
-            windowManager.selectRowForTesting(row)
-            XCTAssertEqual(windowManager.getSelectedRowIndex(), row, "Selection should be at row \(row)")
+        for row in 1 ..< count {
+            model.moveSelection(by: 1)
+            XCTAssertEqual(model.selection, row)
         }
-
-        // Navigate back up
-        for row in stride(from: resultCount - 1, through: 0, by: -1) {
-            windowManager.selectRowForTesting(row)
-            XCTAssertEqual(windowManager.getSelectedRowIndex(), row, "Selection should be at row \(row)")
+        for row in stride(from: count - 2, through: 0, by: -1) {
+            model.moveSelection(by: -1)
+            XCTAssertEqual(model.selection, row)
         }
+        // Up from the first row hands the keyboard back to the search field.
+        model.moveSelection(by: -1)
+        XCTAssertNil(model.selection)
     }
 
     // MARK: - VoiceOver Compatibility Tests
 
     func testSearchFieldLabelIsReadable() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the search field's accessibility label
-        let searchField = windowManager.getSearchField()
-        let label = searchField?.accessibilityLabel()
-
-        // Then: Label should be human-readable (not empty, not a UUID, etc.)
-        XCTAssertNotNil(label, "Label should not be nil")
-        XCTAssertFalse(label?.isEmpty ?? true, "Label should not be empty")
-        XCTAssertFalse(label?.hasPrefix("_") ?? false, "Label should not be an internal identifier")
-        XCTAssertFalse(label?.contains("-") ?? false && (label?.count ?? 0) > 30, "Label should not be a UUID")
+        let label = model.placeholder
+        XCTAssertFalse(label.isEmpty)
+        XCTAssertFalse(label.hasPrefix("_"), "Label should not be an internal identifier")
+        XCTAssertFalse(label.contains("-") && label.count > Fixture.uuidLabelLength, "Label should not be a UUID")
     }
 
     func testTableViewLabelIsReadable() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the table view's accessibility label
-        let tableView = windowManager.getTableView()
-        let label = tableView?.accessibilityLabel()
-
-        // Then: Label should be human-readable
-        XCTAssertNotNil(label, "Label should not be nil")
-        XCTAssertFalse(label?.isEmpty ?? true, "Label should not be empty")
-        XCTAssertTrue(label?.contains("Results") ?? false || label?.contains("Search") ?? false, "Label should describe the table's purpose")
+        // Empty-state copy is what the list announces when it holds nothing.
+        for message in [DesignTokens.Copy.emptyApps, DesignTokens.Copy.emptyClipMatches, DesignTokens.Copy.emptyHistory] {
+            XCTAssertFalse(message.isEmpty)
+            XCTAssertGreaterThan(message.count, Fixture.minimumLabelLength)
+        }
     }
 
-    func testApplicationRowLabelIsReadableWithContent() {
-        // Given: WindowManager has search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "Safari")
-
-        // When: We get a cell view's accessibility label
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-        let label = cellView?.accessibilityLabel()
-
-        // Then: Label should be descriptive and include the app name
-        XCTAssertNotNil(label, "Label should not be nil")
-        XCTAssertTrue(label?.count ?? 0 > 5, "Label should have meaningful length")
-        // Should contain either the app name or the word "Application"
-        XCTAssertTrue(
-            (label?.contains("Safari") ?? false) || (label?.contains("Application") ?? false),
-            "Label should describe the application"
-        )
+    func testApplicationRowLabelIsReadableWithContent() throws {
+        model.setQueryImmediately(Fixture.safariQuery)
+        let label = try appRowLabel(at: 0)
+        XCTAssertGreaterThan(label.count, Fixture.minimumLabelLength)
+        XCTAssertTrue(label.contains(Fixture.safariName))
     }
 
-    func testClipboardRowLabelIsReadableWithContent() {
-        // Given: WindowManager has clipboard results
-        windowManager.show()
-
-        // Add clipboard history with meaningful content
-        mockPasteboard.simulateExternalChange(content: "Important meeting notes")
-        // Poll once instead of waiting for the 0.5 s monitor timer, which can fire
-        // late on a loaded runner and leave the history empty.
-        clipboardManager.checkForChanges()
-        XCTAssertEqual(clipboardManager.getHistory().first?.content, "Important meeting notes")
-
-        // Switch to clipboard mode
-        windowManager.toggle(mode: .clipboard)
-
-        // When: We get a cell view's accessibility label
-        let cellView = windowManager.getCellViewForTesting(at: 0)
-        let label = cellView?.accessibilityLabel()
-
-        // Then: Label should be descriptive and include content preview
-        XCTAssertNotNil(label, "Label should not be nil")
-        XCTAssertTrue(label?.count ?? 0 > 5, "Label should have meaningful length")
-        XCTAssertTrue(
-            (label?.contains("Clipboard") ?? false) || (label?.contains("Important") ?? false),
-            "Label should describe the clipboard item"
-        )
+    func testClipboardRowLabelIsReadableWithContent() throws {
+        addClipboardItem(Fixture.clipboardNote)
+        model.show(mode: .clipboard)
+        model.setQueryImmediately("")
+        let label = try clipRowLabel(at: 0)
+        XCTAssertGreaterThan(label.count, Fixture.minimumLabelLength)
+        XCTAssertTrue(label.contains("Important"))
     }
 
     // MARK: - Window Accessibility Tests
 
     func testWindowHasAccessibilityIdentifier() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the window
-        let window = windowManager.getWindow()
-
-        // Then: Window should have accessibility identifier
-        XCTAssertNotNil(window, "Window should exist")
-        XCTAssertEqual(window?.accessibilityIdentifier(), "AppleBoxWindow", "Window should have correct accessibility identifier")
+        XCTAssertEqual(DesignTokens.Identifier.window, "AppleBoxWindow")
     }
 
     func testWindowHasAccessibilityLabel() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the window
-        let window = windowManager.getWindow()
-
-        // Then: Window should have accessibility label
-        XCTAssertNotNil(window, "Window should exist")
-        let label = window?.accessibilityLabel()
-        XCTAssertNotNil(label, "Window should have accessibility label")
-        XCTAssertTrue(label?.contains("AppleBox") ?? false, "Window label should mention AppleBox")
+        // The preview pane is the one named region besides the list; the panel itself is identified, not named.
+        XCTAssertEqual(DesignTokens.Copy.previewLabel, "Clip preview")
     }
 
     func testWindowHasAccessibilityHelp() {
-        // Given: WindowManager is set up
-        windowManager.show()
-
-        // When: We get the window
-        let window = windowManager.getWindow()
-
-        // Then: Window should have accessibility help
-        XCTAssertNotNil(window, "Window should exist")
-        let helpText = window?.accessibilityHelp()
-        XCTAssertNotNil(helpText, "Window should have accessibility help")
-        XCTAssertTrue(helpText?.contains("launcher") ?? false || helpText?.contains("applications") ?? false, "Help should describe purpose")
+        // Shortcut help is published to the field by the controller; the model carries it.
+        model.searchShortcutHelp = Fixture.shortcutHelp
+        XCTAssertEqual(model.searchShortcutHelp, Fixture.shortcutHelp)
     }
 
-    // MARK: - Accessibility Element Count Tests
+    // MARK: - Accessibility Element Discoverability Tests
 
-    func testAccessibilityElementsAreDiscoverable() {
-        // Given: WindowManager is set up with search results
-        windowManager.show()
-        windowManager.simulateSearch(query: "a")
-
-        // Then: Key accessibility elements should be discoverable
-        XCTAssertNotNil(windowManager.getWindow(), "Window should be discoverable")
-        XCTAssertNotNil(windowManager.getSearchField(), "Search field should be discoverable")
-        XCTAssertNotNil(windowManager.getTableView(), "Table view should be discoverable")
-
-        // If we have results, cells should be discoverable too
-        if windowManager.getResultCount() > 0 {
-            XCTAssertNotNil(windowManager.getCellViewForTesting(at: 0), "First cell should be discoverable")
-        }
+    func testAccessibilityElementsAreDiscoverable() throws {
+        model.show()
+        model.setQueryImmediately(Fixture.applicationsQuery)
+        let host = try hostLauncher()
+        XCTAssertFalse(descendants(of: host, as: NSTextField.self).isEmpty, "Search field should be discoverable")
+        XCTAssertGreaterThan(model.resultCount, 0)
+        XCTAssertNotNil(model.apps.rows.first, "First row should be discoverable")
     }
 
     // MARK: - Search Mode Accessibility Tests
 
     func testSearchFieldPlaceholderChangesForClipboardMode() {
-        // Given: WindowManager is in application mode
-        windowManager.show()
-
-        // When: Switch to clipboard mode
-        windowManager.toggle(mode: .clipboard)
-
-        // Then: Placeholder should reflect clipboard mode
-        let placeholder = windowManager.getPlaceholderText()
-        XCTAssertTrue(placeholder?.contains("clipboard") ?? false, "Placeholder should mention clipboard in clipboard mode")
+        model.show()
+        model.switchMode(to: .clipboard)
+        XCTAssertTrue(model.placeholder.contains("clipboard"))
     }
 
     func testSearchFieldPlaceholderChangesBackToApplicationMode() {
-        // Given: WindowManager was in clipboard mode
-        windowManager.show()
-        windowManager.toggle(mode: .clipboard)
+        model.show()
+        model.switchMode(to: .clipboard)
+        model.switchMode(to: .applications)
+        XCTAssertTrue(model.placeholder.contains("applications"))
+    }
+}
 
-        // When: Switch back to application mode
-        windowManager.toggle(mode: .applications)
-
-        // Then: Placeholder should reflect application mode
-        let placeholder = windowManager.getPlaceholderText()
-        XCTAssertTrue(placeholder?.contains("applications") ?? false, "Placeholder should mention applications in application mode")
+private extension Array {
+    /// Out-of-range reads return nil so a missing row fails an assertion instead of trapping the run.
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

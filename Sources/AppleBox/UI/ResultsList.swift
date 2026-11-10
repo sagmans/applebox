@@ -48,7 +48,7 @@ struct ResultsList: View {
                                 AppRow(data: row, tint: tint).equatable()
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
-                            .accessibilityLabel(label(row.name, row.location, index))
+                            .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
                         }
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
@@ -56,7 +56,7 @@ struct ResultsList: View {
                                 ClipRow(data: row, tint: tint, thumbnail: thumbnail(for: row)).equatable()
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
-                            .accessibilityLabel(label(row.preview, nil, index))
+                            .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
                             .contextMenu { menu(for: row.id) }
                         }
                     }
@@ -78,7 +78,7 @@ struct ResultsList: View {
             .background {
                 if isSelected {
                     Color.clear
-                        .glassEffect(.regular.tint(tint).interactive(), in: .capsule)
+                        .launcherGlass(.regular.tint(tint).interactive(), in: .capsule, snapshotFill: DesignTokens.Palette.snapshotSelection)
                         .matchedGeometryEffect(id: DesignTokens.Glass.selectionID, in: selectionSpace)
                 }
             }
@@ -103,9 +103,10 @@ struct ResultsList: View {
         }
     }
 
-    /// Title, subtitle and position in one phrase, in the order a sighted user reads the row.
-    private func label(_ title: String, _ subtitle: String?, _ index: Int) -> String {
-        [title, subtitle, DesignTokens.Copy.position(index + 1, of: model.resultCount)]
+    /// Title, subtitle and position in one phrase, in the order a sighted user reads the row. Static and
+    /// free of view state so the phrase VoiceOver speaks can be checked without a live accessibility tree.
+    static func rowLabel(title: String, subtitle: String?, index: Int, count: Int) -> String {
+        [title, subtitle, DesignTokens.Copy.position(index + 1, of: count)]
             .compactMap(\.self)
             .joined(separator: DesignTokens.Copy.labelSeparator)
     }
