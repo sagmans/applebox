@@ -36,6 +36,10 @@ reserves room for JSON escaping. When the budget fills, the newest clips
 take priority. Expired clips disappear from search and are removed from the
 saved archive on the next capture or hourly cleanup.
 
+Each saved clip also records the bundle ID of the app it was copied from.
+The preview shows that app as "Copied from". When you paste or copy a saved
+clip again, AppleBox passes the same source on to the clipboard.
+
 The history directory and file are owner-only. AppleBox reads up to 64 MiB
 from an existing archive. If it cannot read or migrate that archive, it
 keeps the file intact and captures new clips for the current session.

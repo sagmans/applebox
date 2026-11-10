@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// Persists launch recency so search ordering survives restarts; owned outside any view so the
 /// models can share one store.
@@ -13,6 +14,11 @@ final class RecentApplicationsStore {
     private let maxCount = 50
 
     private var recentBundlePaths: [String] = []
+    /// Records a failed save; the domain and code only, because the file lists which apps the user opens.
+    private let logger = Logger(
+        subsystem: LogSubsystem.name,
+        category: "recentApps"
+    )
 
     init(fileSystem: FileSystemProtocol) {
         self.fileSystem = fileSystem
@@ -96,14 +102,18 @@ final class RecentApplicationsStore {
         persistRecentsAsync(snapshot)
     }
 
+    /// Saves owner-only, like the clipboard history: launch history shows what the user works with, and
+    /// the umask default would leave it readable by other users once the directory is moved or loosened.
+    /// A failed save is logged and otherwise ignored, because recents only order results and the next
+    /// launch saves again.
     private func persistRecentsAsync(_ snapshot: [String]) {
-        persistenceQueue.async { [snapshot, storageURL, fileSystem] in
+        persistenceQueue.async { [snapshot, storageURL, fileSystem, logger] in
             do {
-                let encoder = JSONEncoder()
-                let data = try encoder.encode(snapshot)
-                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
+                let data = try JSONEncoder().encode(snapshot)
+                try fileSystem.writePrivateFile(data, to: storageURL)
             } catch {
-                // Best-effort persistence.
+                let failure = error as NSError
+                logger.error("Recent applications save failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
             }
         }
     }
