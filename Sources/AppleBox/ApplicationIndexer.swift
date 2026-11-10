@@ -7,6 +7,9 @@ struct ApplicationInfo {
     let normalizedName: String
     /// Pre-computed lowercased UTF-8 bytes for O(1) fuzzy matching.
     let normalizedNameBytes: ContiguousArray<UInt8>
+    /// People may know the installed filename even when Finder displays a localized name.
+    let normalizedFilename: String?
+    let normalizedFilenameBytes: ContiguousArray<UInt8>?
 
     init(name: String, bundlePath: String) {
         self.name = name
@@ -14,6 +17,9 @@ struct ApplicationInfo {
         let normalized = name.lowercased()
         normalizedName = normalized
         normalizedNameBytes = ContiguousArray(normalized.utf8)
+        let filename = URL(fileURLWithPath: bundlePath, isDirectory: true).deletingPathExtension().lastPathComponent.lowercased()
+        normalizedFilename = filename == normalized ? nil : filename
+        normalizedFilenameBytes = normalizedFilename.map { ContiguousArray($0.utf8) }
     }
 }
 
@@ -33,6 +39,7 @@ final class ApplicationIndexer {
     private let persistenceQueue = DispatchQueue(label: "applebox.applicationIndexer.persistence", qos: .utility)
 
     private let cacheFileName = "applications_cache.json"
+    private let applicationExtension = "app"
 
     /// Paths to scan for applications
     private var searchPaths: [URL] {
@@ -178,10 +185,9 @@ final class ApplicationIndexer {
 
                 if fileSystem.fileExists(atPath: item.path, isDirectory: &isDirectory),
                    isDirectory.boolValue,
-                   item.pathExtension == "app"
+                   item.pathExtension == applicationExtension
                 {
-                    let appName = item.deletingPathExtension().lastPathComponent
-                    results.append(ApplicationInfo(name: appName, bundlePath: item.path))
+                    results.append(ApplicationInfo(name: displayName(for: item), bundlePath: item.path))
                 }
             }
 
@@ -189,6 +195,13 @@ final class ApplicationIndexer {
         } catch {
             return []
         }
+    }
+
+    private func displayName(for app: URL) -> String {
+        // Use the same filesystem name as Finder while keeping the launcher free of bundle extensions.
+        let displayName = fileSystem.displayName(atPath: app.path).trimmingCharacters(in: .whitespacesAndNewlines) as NSString
+        let name = displayName.pathExtension == applicationExtension ? displayName.deletingPathExtension : displayName as String
+        return name.isEmpty ? app.deletingPathExtension().lastPathComponent : name
     }
 
     func searchApplications(query: String) -> [ApplicationInfo] {
@@ -201,7 +214,7 @@ final class ApplicationIndexer {
 
         let lowerQuery = trimmed.lowercased()
         return apps.filter { app in
-            app.normalizedName.contains(lowerQuery)
+            app.normalizedName.contains(lowerQuery) || app.normalizedFilename?.contains(lowerQuery) == true
         }.sorted { $0.name < $1.name }
     }
 }

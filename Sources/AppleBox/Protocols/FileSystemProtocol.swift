@@ -5,6 +5,9 @@ public protocol FileSystemProtocol {
     /// Returns the home directory URL for the current user
     var homeDirectoryForCurrentUser: URL { get }
 
+    /// Match the localized name that a person sees in Finder.
+    func displayName(atPath path: String) -> String
+
     /// Returns an array of URLs for the specified directory in the specified domains
     func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL]
 

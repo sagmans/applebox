@@ -297,13 +297,18 @@ final class SearchService {
                 return []
             }
 
-            let match = FuzzyMatcher.matchWithIndicesUTF8(
+            let displayMatch = FuzzyMatcher.matchWithIndicesUTF8(
                 queryBytes: queryBytes,
                 candidateBytes: app.normalizedNameBytes
             )
+            let filenameScore = app.normalizedFilenameBytes.map {
+                FuzzyMatcher.matchWithIndicesUTF8(queryBytes: queryBytes, candidateBytes: $0).score
+            } ?? 0
+            let score = max(displayMatch.score, filenameScore)
 
-            if match.score > 0 {
-                results.append(SearchResult(application: app, score: match.score, matchedIndices: match.matchedIndices))
+            if score > 0 {
+                // Filename offsets do not address the localized string shown in the results list.
+                results.append(SearchResult(application: app, score: score, matchedIndices: displayMatch.matchedIndices))
             }
         }
 

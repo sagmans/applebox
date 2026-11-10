@@ -111,6 +111,10 @@ final class MockFileSystem: FileSystemProtocol {
         mockHomeDirectory
     }
 
+    func displayName(atPath path: String) -> String {
+        (path as NSString).lastPathComponent
+    }
+
     func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] {
         urlsCalls.append((directory: directory, domainMask: domainMask))
         return mockURLs

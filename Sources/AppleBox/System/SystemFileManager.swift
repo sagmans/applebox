@@ -12,6 +12,10 @@ public final class SystemFileManager: FileSystemProtocol {
         fileManager.homeDirectoryForCurrentUser
     }
 
+    public func displayName(atPath path: String) -> String {
+        fileManager.displayName(atPath: path)
+    }
+
     public func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] {
         fileManager.urls(for: directory, in: domainMask)
     }
