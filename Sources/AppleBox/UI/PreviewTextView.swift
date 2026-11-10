@@ -70,15 +70,15 @@ struct PreviewTextView: NSViewRepresentable {
             }
         }
 
-        /// Matches use the same tint, weight and underlay as list rows so a highlight means one thing.
+        /// Matches use the same tint and weight as list rows so a highlight means one thing. The soft
+        /// underlay is kept here only: in a long scrolling body, weight alone is too easy to miss.
         private static func attributedString(for view: PreviewTextView) -> NSAttributedString {
-            let size = NSFont.preferredFont(forTextStyle: DesignTokens.PreviewText.textStyle).pointSize
-            let font = Self.font(size: size, weight: DesignTokens.PreviewText.baseWeight, monospaced: view.isMonospaced)
+            let font = Self.font(weight: DesignTokens.PreviewText.baseWeight, monospaced: view.isMonospaced)
             let result = NSMutableAttributedString(string: view.content, attributes: [
                 .font: font,
                 .foregroundColor: NSColor.labelColor,
             ])
-            let matchFont = Self.font(size: size, weight: DesignTokens.PreviewText.matchWeight, monospaced: view.isMonospaced)
+            let matchFont = Self.font(weight: DesignTokens.PreviewText.matchWeight, monospaced: view.isMonospaced)
             let tint = NSColor(view.tint)
             let underlay = NSColor(view.tint.opacity(DesignTokens.Palette.matchUnderlayOpacity))
             for run in matchRuns(in: view.content, indices: view.matchedIndices) {
@@ -91,10 +91,17 @@ struct PreviewTextView: NSViewRepresentable {
             return result
         }
 
-        private static func font(size: CGFloat, weight: NSFont.Weight, monospaced: Bool) -> NSFont {
-            monospaced
-                ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-                : NSFont.systemFont(ofSize: size, weight: weight)
+        /// Derived from the body text style's descriptor rather than a point size, so the pane follows the
+        /// same scale as the SwiftUI views; SF Mono is used only for code clips.
+        private static func font(weight: NSFont.Weight, monospaced: Bool) -> NSFont {
+            let base = NSFont.preferredFont(forTextStyle: DesignTokens.PreviewText.textStyle)
+            var descriptor = base.fontDescriptor
+            if monospaced, let mono = descriptor.withDesign(.monospaced) {
+                descriptor = mono
+            }
+            descriptor = descriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight]])
+            // Size zero keeps the descriptor's own size, so no point size is chosen here.
+            return NSFont(descriptor: descriptor, size: 0) ?? base
         }
     }
 }

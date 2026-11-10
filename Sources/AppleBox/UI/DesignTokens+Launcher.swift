@@ -268,24 +268,37 @@ extension DesignTokens {
         static let glassMergeSpacing: CGFloat = 0
     }
 
-    /// Typography for the launcher, as text styles so the user's text size setting applies.
+    /// The only place the launcher chooses fonts, so every surface shares one SF Pro scale modeled on
+    /// Spotlight and the Finder sidebar. Semantic text styles only: point sizes and the rounded design
+    /// would drift from the rest of macOS.
     enum Typography {
-        /// Weight of matched characters, so a match reads as emphasis and not only as color.
+        /// Weight of matched characters. Spotlight marks matches by weight alone, so no underline is drawn.
         static let matchWeight = Font.Weight.semibold
-        /// Weight of section captions, so they read as labels without a larger size.
-        static let sectionWeight = Font.Weight.semibold
-        static let search = Font.title2
-        static let rowTitle = Font.body
-        static let rowSubtitle = Font.caption
+        /// Large like Spotlight's field, so the query is the focus of the panel.
+        static let search = Font.title
+        /// App name or clip text: the one thing the user scans for in a row.
+        static let rowTitle = Font.title3
+        /// Path or relative time under the title; quieter so it never competes with the title.
+        static let rowSubtitle = Font.callout
+        /// Group captions styled like Finder sidebar headers: small, bold and secondary.
+        static let sectionHeader = Font.subheadline.weight(.semibold)
+        /// Date, source app and size above the preview body.
+        static let previewHeader = Font.callout
+        /// Footer action names and status lines.
+        static let footer = Font.callout
+        /// Key caps match the footer size; medium weight makes the glyph read as a key face.
+        static let keyCap = Font.callout.weight(.medium)
+        /// Fixed-width digits so the count does not jitter while typing changes it.
+        static let resultCount = Font.callout.monospacedDigit()
+        /// Medium weight keeps the short notice legible over any app behind it.
+        static let toast = Font.callout.weight(.medium)
+        /// Kind badge symbol, sized to sit beside the row title.
         static let badge = Font.title3
-        static let caption = Font.caption
-        static let footer = Font.caption
-        static let previewHeader = Font.caption
     }
 
     /// Preview text metrics. AppKit text uses `NSFont`, so these are separate from `Typography`.
     enum PreviewText {
-        /// Text style the preview font follows, so Dynamic Type-like user settings apply.
+        /// Same body style as SwiftUI's `.body`, so the AppKit pane matches the rest of the type scale.
         static let textStyle = NSFont.TextStyle.body
         /// Weight of matched characters in the preview, matching the semibold of row matches.
         static let matchWeight = NSFont.Weight.semibold

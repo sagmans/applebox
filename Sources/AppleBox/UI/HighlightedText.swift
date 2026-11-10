@@ -16,7 +16,7 @@ struct HighlightedText: View {
     private let attributed: AttributedString
 
     /// `isSelected` decides the match color: on the selection capsule the accent-colored text would sit
-    /// on an accent fill and vanish, so the label color is used and weight plus underline carry the match.
+    /// on an accent fill and vanish, so the label color is used and weight alone carries the match.
     init(_ text: String, runs: [MatchRun], isSelected: Bool, font: Font) {
         let matchColor = isSelected ? Color.primary : DesignTokens.Palette.matchText
         attributed = Self.attributedString(text, runs: runs, matchColor: matchColor, font: font)
@@ -39,7 +39,6 @@ struct HighlightedText: View {
                   let upper = AttributedString.Index(run.range.upperBound, within: result),
                   lower < upper else { continue }
             result[lower ..< upper].foregroundColor = matchColor
-            result[lower ..< upper].underlineStyle = .single
             result[lower ..< upper].font = font.weight(DesignTokens.Typography.matchWeight)
             firstMatch = firstMatch.map { min($0, run.range.lowerBound) } ?? run.range.lowerBound
         }

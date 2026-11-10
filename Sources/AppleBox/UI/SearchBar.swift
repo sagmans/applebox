@@ -48,9 +48,9 @@ struct SearchBar: View {
                 .accessibilityLabel(DesignTokens.Copy.searchFieldLabel)
                 .accessibilityHint(model.searchShortcutHelp)
             Text(model.resultCount, format: .number)
-                .font(DesignTokens.Typography.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+                .font(DesignTokens.Typography.resultCount)
+                // Tertiary: the count is a glance value and must not draw the eye from the query.
+                .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             if model.mode == .clipboard {
                 pauseButton

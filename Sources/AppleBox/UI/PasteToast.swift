@@ -73,10 +73,10 @@ struct PasteToastView: View {
                 // A bounce on the checkmark confirms the copy; the value stays fixed for other kinds and
                 // for Reduce Motion, so those never bounce.
                 .symbolEffect(.bounce, value: state.kind == .confirmation && !reduceMotion && state.visible)
-                .font(DesignTokens.Typography.rowTitle)
+                .font(DesignTokens.Typography.toast)
                 .accessibilityHidden(true)
             Text(state.message)
-                .font(DesignTokens.Typography.rowTitle)
+                .font(DesignTokens.Typography.toast)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: PasteToastMetrics.maxTextWidth, alignment: .leading)

@@ -139,7 +139,7 @@ struct ResultsList: View {
     /// indices and the "n of N" VoiceOver positions are untouched; VoiceOver still announces it as a heading.
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(DesignTokens.Typography.caption.weight(DesignTokens.Typography.sectionWeight))
+            .font(DesignTokens.Typography.sectionHeader)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, DesignTokens.Metrics.rowHorizontalPadding)
