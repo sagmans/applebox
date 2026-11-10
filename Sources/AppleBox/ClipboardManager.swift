@@ -155,9 +155,9 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     /// Longest bundle id accepted from a pasteboard declaration. The source is written by other apps, so
     /// anything longer than a real bundle id is not trusted or stored.
     private static let maximumBundleIDLength = 255
-    /// Characters a bundle id may contain (Apple's CFBundleIdentifier rule); a declaration with others is
-    /// ignored rather than shown in the preview.
-    private static let bundleIDCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.")
+    /// Characters a bundle id may contain: Apple's CFBundleIdentifier rule plus the underscore, which
+    /// third-party apps ship with in practice. A declaration with others is ignored rather than shown.
+    private static let bundleIDCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
 
     /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
@@ -407,14 +407,17 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     @MainActor
     private func captureSource(types: [NSPasteboard.PasteboardType]) -> String? {
         let candidate = types.contains(.clipSource)
-            ? pasteboard.string(forType: .clipSource).flatMap(Self.validBundleID)
+            ? pasteboard.data(forType: .clipSource).flatMap(Self.validBundleID)
             : frontmostBundleID()
         return candidate == ownBundleID ? nil : candidate
     }
 
     /// Other apps write the declaration, so it is checked like any untrusted input before it is stored.
-    private static func validBundleID(_ value: String) -> String? {
-        guard !value.isEmpty, value.utf8.count <= maximumBundleIDLength,
+    /// The raw bytes are length-checked before decoding, so an oversized value is never turned into a
+    /// string or scanned.
+    private static func validBundleID(_ data: Data) -> String? {
+        guard !data.isEmpty, data.count <= maximumBundleIDLength,
+              let value = String(data: data, encoding: .utf8),
               value.unicodeScalars.allSatisfy(bundleIDCharacters.contains) else { return nil }
         return value
     }
