@@ -36,8 +36,13 @@ nonisolated enum ClipRowBuilder {
     }
 
     /// Match offsets refer to the full clip, so highlights are recomputed against the shortened preview
-    /// that is actually drawn.
-    static func rows(for matches: [ClipboardManager.ClipboardSearchMatch], query: String) -> [ClipRowData] {
+    /// that is actually drawn. Kinds come from `kinds`, because classifying every clip again on each
+    /// publish dominated the build.
+    static func rows(
+        for matches: [ClipboardManager.ClipboardSearchMatch],
+        query: String,
+        kinds: ClipKindCache
+    ) -> [ClipRowData] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return matches.map { match in
             let preview = preview(of: match.item.content)
@@ -47,7 +52,7 @@ nonisolated enum ClipRowBuilder {
             return ClipRowData(
                 id: match.item.id,
                 preview: preview,
-                kind: ClipKind.classify(match.item),
+                kind: kinds.kind(for: match.item),
                 timestamp: match.item.timestamp,
                 runs: matchRuns(in: preview, indices: indices)
             )
@@ -62,10 +67,16 @@ private nonisolated struct ClipboardSnapshot: Sendable {
     /// True when a query ordered the rows by match quality instead of recency.
     let isRanked: Bool
 
-    init(matches: [ClipboardManager.ClipboardSearchMatch], query: String) {
+    init(matches: [ClipboardManager.ClipboardSearchMatch], query: String, kinds: ClipKindCache) {
         self.matches = matches
-        rows = ClipRowBuilder.rows(for: matches, query: query)
         isRanked = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // An unfiltered search lists the whole history, so its ids are exactly the clips still live. Pruning
+        // only here reads history once and keeps one owner; such a search runs each time clipboard mode
+        // opens, so kinds of removed or expired clips never outlast the next open.
+        if !isRanked {
+            kinds.retain(only: Set(matches.map(\.item.id)))
+        }
+        rows = ClipRowBuilder.rows(for: matches, query: query, kinds: kinds)
     }
 }
 
@@ -103,6 +114,8 @@ final class ClipboardModel {
     /// Full matches back the rows: previews and highlights need the clip text and its unshortened offsets.
     @ObservationIgnored private var matches: [ClipboardManager.ClipboardSearchMatch] = []
     @ObservationIgnored private var sequence = 0
+    /// Owned here, not shared globally, so each model prunes against its own history.
+    @ObservationIgnored private let kinds = ClipKindCache()
 
     init(replay: ClipboardReplay) {
         replayer = replay
@@ -140,7 +153,7 @@ final class ClipboardModel {
     func search(_ query: String) async {
         sequence &+= 1
         let ticket = sequence
-        let snapshot = await Self.snapshotOffMain(manager: manager, query: query)
+        let snapshot = await Self.snapshotOffMain(manager: manager, query: query, kinds: kinds)
         // A cancelled task returns early with partial output, which must never reach the list.
         guard ticket == sequence, !Task.isCancelled else { return }
         publish(snapshot)
@@ -149,13 +162,13 @@ final class ClipboardModel {
     /// Runs the same search on the caller's actor, for callers that cannot await and need the rows at once.
     func searchImmediately(_ query: String) {
         invalidatePendingSearch()
-        publish(Self.snapshot(manager: manager, query: query))
+        publish(Self.snapshot(manager: manager, query: query, kinds: kinds))
     }
 
     /// Replaces the results with matches computed elsewhere, such as snapshot fixtures.
     func setMatches(_ newMatches: [ClipboardManager.ClipboardSearchMatch], query: String = "") {
         invalidatePendingSearch()
-        publish(ClipboardSnapshot(matches: newMatches, query: query))
+        publish(ClipboardSnapshot(matches: newMatches, query: query, kinds: kinds))
     }
 
     /// Empties the list without announcing it, for callers that are about to publish the next set.
@@ -181,15 +194,23 @@ final class ClipboardModel {
         onPublish?(previousCount)
     }
 
-    private nonisolated static func snapshot(manager: ClipboardManager?, query: String) -> ClipboardSnapshot {
+    private nonisolated static func snapshot(
+        manager: ClipboardManager?,
+        query: String,
+        kinds: ClipKindCache
+    ) -> ClipboardSnapshot {
         let found = manager?.searchHistoryWithMatches(query: query) ?? []
-        return ClipboardSnapshot(matches: found, query: query)
+        return ClipboardSnapshot(matches: found, query: query, kinds: kinds)
     }
 
     /// Fuzzy matching and classification scale with history size, so they run on the global executor.
     @concurrent
-    private static func snapshotOffMain(manager: ClipboardManager?, query: String) async -> ClipboardSnapshot {
-        snapshot(manager: manager, query: query)
+    private static func snapshotOffMain(
+        manager: ClipboardManager?,
+        query: String,
+        kinds: ClipKindCache
+    ) async -> ClipboardSnapshot {
+        snapshot(manager: manager, query: query, kinds: kinds)
     }
 
     // MARK: - Replay
