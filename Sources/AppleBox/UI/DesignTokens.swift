@@ -46,6 +46,10 @@ enum DesignTokens {
         static let clipPanelSize = CGSize(width: 760, height: 440)
         /// Width of the clip list, so the preview takes whatever the wider panel adds.
         static let clipListWidth: CGFloat = 300
+        /// Longest side, in points, an image can take in the preview: the pane is what the clipboard panel
+        /// leaves beside the list. An upper bound that ignores the pane's padding and header, so preview
+        /// images decoded no larger than this stay sharp without holding pixels the pane cannot show.
+        static let previewLongSide = max(clipPanelSize.width - clipListWidth, clipPanelSize.height)
         /// Corner radius of the glass panel; the content must be clipped to the same value.
         static let cornerRadius: CGFloat = 26
         /// Height of one result row, large enough for a comfortable pointer target.

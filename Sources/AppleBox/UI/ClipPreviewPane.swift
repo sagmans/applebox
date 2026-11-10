@@ -10,6 +10,8 @@ struct ClipPreviewPane: View {
     @Environment(\.clipImages) private var images
     @Environment(\.appIcons) private var icons
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Pixels per point of the panel's screen, so the preview decodes sharp on Retina and no larger on 1x.
+    @Environment(\.displayScale) private var displayScale
     /// Memo of character counts so a keystroke does not recount a clip of hundreds of KiB.
     @State private var counts = CharacterCountMemo()
     /// Bumped when a clip image finishes decoding in the background, so a pane showing the pending
@@ -27,7 +29,8 @@ struct ClipPreviewPane: View {
                 // Read so a finished background decode redraws the pane.
                 let _ = imageLoads
                 // One cache lookup per evaluation, shared by header and body.
-                let image = item.contentType == .image ? images.image(for: item) : .unavailable
+                let maxPixelSize = DesignTokens.Layout.previewLongSide * displayScale
+                let image = item.contentType == .image ? images.image(for: item, maxPixelSize: maxPixelSize) : .unavailable
                 // Keyed by clip so a new selection cross-fades; the stack overlaps old and new header
                 // during the fade instead of stacking them and pushing the body down.
                 ZStack(alignment: .topLeading) {
@@ -119,8 +122,8 @@ struct ClipPreviewPane: View {
         case .pending:
             Color.clear
                 .accessibilityHidden(true)
-        case let .ready(image):
-            Image(nsImage: image)
+        case let .ready(preview):
+            Image(nsImage: preview.image)
                 .resizable()
                 .scaledToFit()
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Metrics.imageCornerRadius))
@@ -136,8 +139,8 @@ struct ClipPreviewPane: View {
     /// Characters for text and pixels for images, the two sizes a user can reason about.
     private func sizeDescription(item: ClipboardItem, image: ClipImageLookup) -> String {
         if item.contentType == .image {
-            guard case let .ready(decoded) = image, let rep = decoded.representations.first else { return "" }
-            return DesignTokens.Copy.pixelSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+            guard case let .ready(preview) = image else { return "" }
+            return DesignTokens.Copy.pixelSize(width: preview.pixelWidth, height: preview.pixelHeight)
         }
         return DesignTokens.Copy.characterCount(counts.characters(in: item))
     }
