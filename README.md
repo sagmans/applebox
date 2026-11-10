@@ -104,8 +104,10 @@ and SwiftLint versions.
 - **Clipboard history** keeps plain text and PNG or TIFF images. AppleBox
   checks for copies about every 200 ms while capture is enabled. If several
   copies replace each other before a check, only the latest can be captured.
+- **Liquid Glass panel**: The launcher is a glass panel that opens on the screen
+  under the pointer. It does not take focus from the app that will receive a
+  paste.
 - **Escape Key**: Press `Esc` to dismiss the launcher
-- **Centered Window**: Window appears centered on the active screen
 - **No Dock Icon**: Runs as a background application (LSUIElement style)
 
 ## Project Structure
@@ -113,7 +115,15 @@ and SwiftLint versions.
 - `main.swift` - App entry point
 - `AppDelegate.swift` - Application lifecycle management
 - `HotkeyManager.swift` - Global shortcut registration and preferences
-- `WindowManager.swift` - Window display and key handling (Esc/arrows/Enter)
+- `Models/` - Observable launcher state: `LauncherModel`, `AppSearchModel`,
+  `ClipboardModel`
+- `Shell/` - `LauncherPanel` (non-activating panel), `LauncherController` (show,
+  hide, position), `CopyClipShortcut`
+- `UI/` - SwiftUI views (`LauncherView`, `SearchBar`, `ResultsList`,
+  `ClipPreviewPane`, `FooterBar`), `DesignTokens`, icon and image caches
+- `ApplicationIndexer.swift`, `SearchService.swift`, `ClipboardManager.swift`,
+  `ClipboardReplay.swift` - Search and clipboard services
+- `Protocols/`, `System/` - Interfaces for the system and their production code
 
 ## Development Status
 
@@ -122,7 +132,8 @@ and SwiftLint versions.
 - [x] US-003: Create Production Implementations of Protocols
 - [x] US-004: Refactor ApplicationIndexer for Dependency Injection
 - [x] US-005: Refactor ClipboardManager for Dependency Injection
-- [x] US-006: Refactor WindowManager for Dependency Injection
+- [x] US-006: Refactor the launcher window for Dependency Injection (now
+  `LauncherModel`)
 - [x] US-007: Create Mock Implementations for Testing
 - [x] US-008: Unit Tests for SearchService Fuzzy Matching
 - [x] US-009: Unit Tests for ApplicationIndexer

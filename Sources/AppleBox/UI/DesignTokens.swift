@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Single home for values shared by the AppKit window and the redesign's SwiftUI views, so copy and
+/// Single home for values shared by the launcher's models and SwiftUI views, so copy and
 /// timing cannot drift between them. Caseless on purpose: it is a namespace for the token groups below.
 enum DesignTokens {
     /// User-facing strings. Kept byte-for-byte stable (typographic apostrophes and ellipsis included)

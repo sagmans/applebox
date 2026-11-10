@@ -1,6 +1,7 @@
 # AppleBox Testing Guide
 
-This document provides a comprehensive guide to the testing architecture, patterns, and practices used in the AppleBox project.
+This document provides a comprehensive guide to the testing architecture,
+patterns, and practices used in the AppleBox project.
 
 ## Table of Contents
 
@@ -23,17 +24,18 @@ AppleBox uses a comprehensive testing strategy that includes:
 
 - **Unit Tests** - Testing individual components in isolation
 - **Integration Tests** - Testing component interactions end-to-end
-- **UI Tests** - Testing window behavior and keyboard handling
+- **UI Tests** - Testing launcher state, panel key routing, and the views
 - **Snapshot Tests** - Catching visual regressions
 - **Accessibility Tests** - Ensuring the UI is accessible
 
-All tests are built on top of XCTest and use dependency injection to enable thorough testing without requiring actual system interactions.
+All tests are built on top of XCTest and use dependency injection to enable
+thorough testing without requiring actual system interactions.
 
 ---
 
 ## Directory Structure
 
-```
+```text
 AppleBox/
 ├── Sources/AppleBox/
 │   ├── Protocols/           # Dependency abstraction protocols
@@ -46,6 +48,9 @@ AppleBox/
 │   │   ├── SystemPasteboard.swift
 │   │   ├── SystemWorkspace.swift
 │   │   └── SystemEventSource.swift
+│   ├── Models/              # Observable launcher state (LauncherModel and sub-models)
+│   ├── Shell/               # Panel, controller, and key routing
+│   ├── UI/                  # SwiftUI views, design tokens, and caches
 │   └── ...                  # Core application files
 │
 ├── Tests/AppleBoxTests/
@@ -59,8 +64,8 @@ AppleBox/
 │   ├── SearchServiceTests.swift
 │   ├── ApplicationIndexerTests.swift
 │   ├── ClipboardManagerTests.swift
-│   ├── WindowManagerTests.swift
-│   ├── SearchModeSwitchingTests.swift
+│   ├── FuzzyMatcherTests.swift
+│   ├── LauncherModelTests.swift
 │   ├── SearchFlowIntegrationTests.swift
 │   ├── ClipboardFlowIntegrationTests.swift
 │   ├── SnapshotTests.swift
@@ -113,7 +118,8 @@ swift test --enable-code-coverage
 
 ### Build Before Testing (Recommended)
 
-Running `swift build` before `swift test` provides faster feedback on compilation errors:
+Running `swift build` before `swift test` provides faster feedback on
+compilation errors:
 
 ```bash
 swift build && swift test
@@ -125,59 +131,63 @@ swift build && swift test
 
 ### Unit Tests
 
-Unit tests verify individual components work correctly in isolation using mock dependencies.
+Unit tests verify individual components work correctly in isolation using mock
+dependencies.
 
-| Test File | Component | What It Tests |
-|-----------|-----------|---------------|
-| `SearchServiceTests.swift` | `SearchService` | Fuzzy matching algorithm, scoring, result ordering |
-| `ApplicationIndexerTests.swift` | `ApplicationIndexer` | Directory scanning, .app detection, deduplication |
-| `ClipboardManagerTests.swift` | `ClipboardManager` | Clipboard monitoring, history limits, persistence |
+| Test File                       | Component            | What It Tests                                      |
+| ------------------------------- | -------------------- | -------------------------------------------------- |
+| `SearchServiceTests.swift`      | `SearchService`      | Fuzzy matching algorithm, scoring, result ordering |
+| `ApplicationIndexerTests.swift` | `ApplicationIndexer` | Directory scanning, .app detection, deduplication  |
+| `ClipboardManagerTests.swift`   | `ClipboardManager`   | Clipboard monitoring, history limits, persistence  |
 
 ### Integration Tests
 
 Integration tests verify multiple components work together correctly.
 
-| Test File | Components | What It Tests |
-|-----------|------------|---------------|
-| `SearchFlowIntegrationTests.swift` | FileSystem + ApplicationIndexer + SearchService | End-to-end search flow |
-| `ClipboardFlowIntegrationTests.swift` | Pasteboard + ClipboardManager + FileSystem | Clipboard capture and retrieval |
+| Test File                             | Components                                      | What It Tests                   |
+| ------------------------------------- | ----------------------------------------------- | ------------------------------- |
+| `SearchFlowIntegrationTests.swift`    | FileSystem + ApplicationIndexer + SearchService | End-to-end search flow          |
+| `ClipboardFlowIntegrationTests.swift` | Pasteboard + ClipboardManager + FileSystem      | Clipboard capture and retrieval |
 
 ### UI Tests
 
 UI tests verify window behavior and user interaction handling.
 
-| Test File | Component | What It Tests |
-|-----------|-----------|---------------|
-| `WindowManagerTests.swift` | `WindowManager` | Show/hide, keyboard handling, app launch |
-| `SearchModeSwitchingTests.swift` | `WindowManager` | Mode switching between apps and clipboard |
+| Test File                  | Component                                              | What It Tests                                                       |
+| -------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------- |
+| `LauncherModelTests.swift` | `LauncherModel`, `LauncherController`, `LauncherPanel` | Show/hide, mode switching, selection, panel key routing, activation |
+| `FuzzyMatcherTests.swift`  | Match runs                                             | Which characters a query highlights                                 |
 
 ### Snapshot Tests
 
 Snapshot tests capture visual state and detect regressions.
 
-| Test File | What It Captures |
-|-----------|------------------|
-| `SnapshotTests.swift` | Empty state, search results, clipboard mode, row selection |
+| Test File             | What It Captures                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `SnapshotTests.swift` | Empty state, search results, clipboard mode, preview pane, row selection. Each case has a light and a dark reference. |
 
 ### Accessibility Tests
 
 Accessibility tests ensure the UI works with VoiceOver and keyboard navigation.
 
-| Test File | What It Tests |
-|-----------|---------------|
-| `AccessibilityTests.swift` | Labels, identifiers, keyboard navigation, VoiceOver compatibility |
+| Test File                  | What It Tests                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `AccessibilityTests.swift` | Row labels and hints, panel label, hosted AppKit controls, keyboard navigation |
 
 ---
 
 ## Dependency Injection
 
-AppleBox uses protocol-based dependency injection to enable testing without system interactions.
+AppleBox uses protocol-based dependency injection to enable testing without
+system interactions.
 
 ### Protocol Pattern
 
 Each external dependency has:
+
 1. **A Protocol** defining the interface (in `Sources/AppleBox/Protocols/`)
-2. **A System Implementation** using real system APIs (in `Sources/AppleBox/System/`)
+2. **A System Implementation** using real system APIs (in
+   `Sources/AppleBox/System/`)
 3. **A Mock Implementation** for testing (in `Tests/AppleBoxTests/Mocks/`)
 
 ### Example: FileSystemProtocol
@@ -220,7 +230,8 @@ final class MockFileSystem: FileSystemProtocol {
 
 ### Injecting Dependencies
 
-Components accept dependencies via initializer with default production implementations:
+Components accept dependencies via initializer with default production
+implementations:
 
 ```swift
 class ApplicationIndexer {
@@ -243,7 +254,8 @@ let indexer = ApplicationIndexer(fileSystem: mockFileSystem)
 
 ### 1. Create the Test File
 
-Create a new file in `Tests/AppleBoxTests/` following the naming convention `{Component}Tests.swift`:
+Create a new file in `Tests/AppleBoxTests/` following the naming convention
+`{Component}Tests.swift`:
 
 ```swift
 import XCTest
@@ -311,6 +323,7 @@ func testChecksFileExistence() {
 ### 5. Test Edge Cases
 
 Always include tests for:
+
 - Empty inputs
 - Missing or invalid data
 - Error conditions
@@ -388,65 +401,57 @@ func simulateChange(data: Data) {
 
 ## Snapshot Testing
 
-AppleBox uses [swift-snapshot-testing](https://github.com/pointfreeco/swift-snapshot-testing) for visual regression testing.
+AppleBox uses
+[swift-snapshot-testing](https://github.com/pointfreeco/swift-snapshot-testing)
+for visual regression testing.
 
 ### How It Works
 
-1. First run: Snapshots are recorded as reference images
-2. Subsequent runs: Current output is compared against references
-3. Test fails if the visual output differs
+1. Each test hosts the SwiftUI launcher at its panel size.
+2. The test renders it once in the light look and once in the dark look.
+3. The test compares each image with its reference. It fails if they differ.
 
-> Note: Image snapshots can differ across macOS/Xcode versions due to font/color rendering. CI uses GitHub-hosted `macos-26` (currently Arm64 `beta`), and `SnapshotTests` are only executed on macOS 26+ to keep results consistent.
+The snapshot suite sets the `launcherSnapshotMode` environment value. In this
+mode every glass surface becomes a fixed opaque background. Real glass shows
+what is behind the panel and follows the display profile, so its pixels change
+from one machine to the next. The references check layout, text, selection, and
+content colors. They do not check the glass material.
 
-### Writing Snapshot Tests
-
-```swift
-import XCTest
-import SnapshotTesting
-@testable import AppleBox
-
-final class SnapshotTests: XCTestCase {
-    func testEmptyState() {
-        // Set up component
-        let windowManager = createWindowManager()
-        windowManager.show()
-        
-        // Get the view to snapshot
-        guard let contentView = windowManager.getContentView() else {
-            XCTFail("No content view")
-            return
-        }
-        
-        // Ensure layout is complete
-        contentView.layoutSubtreeIfNeeded()
-        
-        // Assert snapshot matches reference
-        assertSnapshot(of: contentView, as: .image)
-    }
-}
-```
+> Note: Image snapshots can differ across macOS/Xcode versions due to font/color
+> rendering. `SnapshotTests` run only on macOS 26 or later, and they skip when
+> `CI` is `true`.
 
 ### Snapshot File Location
 
 Reference images are stored in:
-```
-Tests/AppleBoxTests/__Snapshots__/{TestClassName}/{testMethodName}.1.png
+
+```text
+Tests/AppleBoxTests/__Snapshots__/SnapshotTests/{testMethodName}.{light|dark}.png
 ```
 
 ### Updating Snapshots
 
-To update reference images when intentional changes are made:
+A missing reference makes the test fail and writes the image. To change
+references on purpose, record them:
 
-1. Delete the existing snapshot file
-2. Run the test (records new reference)
-3. Verify the new snapshot looks correct
-4. Commit the new snapshot
+```bash
+RECORD_SNAPSHOTS=1 swift test --filter SnapshotTests
+```
+
+`RECORD_SNAPSHOTS` accepts `1` or `true`. Recording rewrites every reference
+that the filter selects.
+
+1. Run the command above.
+2. Open the changed images and check that the change is intended.
+3. Run `swift test --filter SnapshotTests` without the flag. It must pass.
+4. Commit the new images with the change that caused them.
 
 ---
 
 ## Local Checks (Git Hooks)
 
-AppleBox has no push or pull-request CI. Every check runs on the developer's Mac through tracked git hooks, which saves macOS Actions minutes (billed at 10x).
+AppleBox has no push or pull-request CI. Every check runs on the developer's Mac
+through tracked git hooks, which saves macOS Actions minutes (billed at 10x).
 
 ### Setting Up Hooks
 
@@ -456,20 +461,25 @@ Run once per clone:
 make hooks   # same as ./scripts/setup-hooks
 ```
 
-`scripts/setup-hooks` sets the local `core.hooksPath=.githooks`; it needs nothing outside this repo. Each hook runs the generic checks first (sign-off, message structure, gitleaks secret scan, signed commits on push), then every script in `.githooks/<hook>.d/`. `pre-push` checks each pushed commit, not just HEAD.
+`scripts/setup-hooks` sets the local `core.hooksPath=.githooks`; it needs
+nothing outside this repo. Each hook runs the generic checks first (sign-off,
+message structure, gitleaks secret scan, signed commits on push), then every
+script in `.githooks/<hook>.d/`. `pre-push` checks each pushed commit, not just
+HEAD.
 
 ### What the Hooks Run
 
-| Hook | Checks |
-|------|--------|
-| `pre-commit` | gitleaks (staged), `make format-check`, `make lint` |
-| `pre-push` | sign-off, signature, gitleaks, `swift build`, `swift test` |
+| Hook         | Checks                                                     |
+| ------------ | ---------------------------------------------------------- |
+| `pre-commit` | gitleaks (staged), `make format-check`, `make lint`        |
+| `pre-push`   | sign-off, signature, gitleaks, `swift build`, `swift test` |
 
 The Swift checks need macOS; on other systems they print a skip notice and pass.
 
 ### Bypassing Hooks
 
-Do not use `git commit --no-verify` or `git push --no-verify`: nothing else checks the code before review.
+Do not use `git commit --no-verify` or `git push --no-verify`: nothing else
+checks the code before review.
 
 ### Disabling Hooks
 
@@ -517,6 +527,7 @@ xcrun llvm-cov report \
 ### Coverage in CI
 
 The CI pipeline automatically:
+
 1. Runs tests with coverage enabled
 2. Generates a coverage report
 3. Creates a coverage badge artifact
@@ -525,7 +536,9 @@ The CI pipeline automatically:
 ### Coverage Goals
 
 While there's no enforced minimum, aim for:
-- **80%+** coverage for core business logic (SearchService, ApplicationIndexer, ClipboardManager)
+
+- **80%+** coverage for core business logic (SearchService, ApplicationIndexer,
+  ClipboardManager)
 - **60%+** overall line coverage
 - Focus on testing important code paths over hitting percentage targets
 
@@ -557,7 +570,7 @@ RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.6))
 
 Consider adding direct access methods for faster unit testing when appropriate.
 
-### Snapshot Tests
+### Snapshot Test Practices
 
 - Use `layoutSubtreeIfNeeded()` before capturing snapshots
 - Keep snapshot sizes reasonable (the default window size is fine)
@@ -575,13 +588,17 @@ Run `swift build` first to compile the main module:
 swift build && swift test
 ```
 
-### Snapshot Tests Fail on First Run
+### Snapshot Tests Fail with a Missing Reference
 
-This is expected! The first run records the reference images. Run again to verify they pass.
+A new snapshot test has no reference yet. Record it with `RECORD_SNAPSHOTS=1`
+(see [Updating Snapshots](#updating-snapshots)), check the image, and run the
+suite again without the flag.
 
 ### Timer-Based Tests Are Slow
 
-ClipboardManager tests use `RunLoop.current.run(until:)` to wait for timers. This adds ~0.5 seconds per clipboard change simulation. This is intentional for realistic testing.
+ClipboardManager tests use `RunLoop.current.run(until:)` to wait for timers.
+This adds ~0.5 seconds per clipboard change simulation. This is intentional for
+realistic testing.
 
 ### Pre-Commit Hook Not Running
 

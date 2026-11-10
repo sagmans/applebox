@@ -7,6 +7,10 @@ new entry at the top.
 Replaying a saved clip leaves the order of history alone. AppleBox also skips
 copies that other apps mark as generated, concealed, or transient.
 
+Clipboard history opens in the same glass panel as app search. The list is on
+the left. The preview of the selected clip is inside the panel, to the right of
+the list. It is not a separate window.
+
 Press Option-Return on a selected clip or choose **Copy to Clipboard** from
 its context menu. Paste it yourself with Command-V wherever you need it.
 

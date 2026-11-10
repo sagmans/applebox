@@ -10,7 +10,7 @@ enum LauncherKey: Equatable {
     case escape
 }
 
-/// Hardware key codes the panel reserves; the same codes the legacy window routes.
+/// Hardware key codes the panel reserves, so a focused text field cannot consume these keys first.
 private enum LauncherKeyCode {
     static let escape: UInt16 = 53
     static let upArrow: UInt16 = 126

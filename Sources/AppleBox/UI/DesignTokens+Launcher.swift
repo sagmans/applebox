@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 /// Tokens that only the SwiftUI launcher views use. They live beside `DesignTokens` rather than in it
-/// so the shared file stays about values both the legacy window and the redesign read.
+/// so the shared file stays about values the models and the views both read.
 extension DesignTokens.Copy {
     /// Caption for apps the user opened recently, so an empty query explains why these apps lead.
     static let recent = "Recent"
@@ -17,7 +17,7 @@ extension DesignTokens.Copy {
     static let imageUnavailable = "Image unavailable"
     /// Hint of an application row: what Return does there.
     static let applicationRowHint = "Press Enter to launch this application"
-    /// Hint of a clip row: Return pastes the clip and Option-Return copies it (the old window said only copy).
+    /// Hint of a clip row: Return pastes the clip and Option-Return copies it.
     static let clipRowHint = "Press Enter to paste this item, Option-Enter to copy it to the clipboard"
     /// Name of the results list as a whole, so VoiceOver announces what the rows belong to.
     static let resultsLabel = "Search Results"
@@ -132,7 +132,7 @@ extension DesignTokens {
     }
 
     /// Accessibility identifiers the UI tests and assistive tools find elements by. Kept verbatim from the
-    /// legacy window so existing automation keeps working.
+    /// earlier AppKit launcher so existing automation keeps working.
     enum Identifier {
         static let window = "AppleBoxWindow"
         static let searchField = "AppleBoxSearchField"

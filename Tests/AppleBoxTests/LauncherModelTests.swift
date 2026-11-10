@@ -216,6 +216,66 @@ final class LauncherModelTests: XCTestCase {
         XCTAssertEqual(model.mode, .applications)
     }
 
+    // MARK: - Presentation
+
+    func testPresentationFollowsShowAndHide() {
+        XCTAssertFalse(model.isPresented, "A new launcher starts closed")
+
+        model.show()
+        XCTAssertTrue(model.isPresented)
+        model.show()
+        XCTAssertTrue(model.isPresented, "A second show keeps the launcher open")
+
+        model.hide()
+        XCTAssertFalse(model.isPresented)
+        model.hide()
+        XCTAssertFalse(model.isPresented, "A second hide keeps the launcher closed")
+    }
+
+    func testShowClearsQueryFromPreviousSession() {
+        model.show()
+        model.setQueryImmediately("Safari")
+        model.hide()
+
+        model.show()
+
+        XCTAssertEqual(model.query, "")
+    }
+
+    func testShowDoesNotTouchTheClipboard() {
+        model.show(mode: .clipboard)
+
+        XCTAssertEqual(mockPasteboard.clearContentsCalls, 0)
+        XCTAssertEqual(mockPasteboard.setStringCalls.count, 0)
+    }
+
+    func testCopySelectionDismissesTheLauncher() throws {
+        try seedClipboardHistory([ClipboardItem(content: "hello")])
+        var dismissCount = 0
+        model.onDismiss = { dismissCount += 1 }
+        model.show(mode: .clipboard)
+
+        XCTAssertTrue(model.copySelection())
+
+        XCTAssertEqual(dismissCount, 1)
+    }
+
+    func testControllerToggleOpensAndClosesTheLauncher() {
+        let controller = LauncherController(model: model)
+        defer { controller.panel.orderOut(nil) }
+        XCTAssertFalse(controller.isVisible)
+
+        for _ in 0 ..< 2 {
+            controller.toggle(mode: nil)
+            XCTAssertTrue(controller.isVisible, "Toggle while closed should open")
+            XCTAssertTrue(model.isPresented)
+
+            controller.toggle(mode: nil)
+            XCTAssertFalse(controller.isVisible, "Toggle while open should close")
+            XCTAssertFalse(model.isPresented)
+        }
+    }
+
     // MARK: - Escape
 
     func testEscapeWithTextClearsSelectionAndDismisses() throws {

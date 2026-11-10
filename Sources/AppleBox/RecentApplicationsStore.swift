@@ -1,7 +1,7 @@
 import Foundation
 
-/// Persists launch recency so search ordering survives restarts; owned outside the window so SwiftUI
-/// models and the AppKit window can share one store.
+/// Persists launch recency so search ordering survives restarts; owned outside any view so the
+/// models can share one store.
 final class RecentApplicationsStore {
     private let fileSystem: FileSystemProtocol
     private let storageURL: URL
