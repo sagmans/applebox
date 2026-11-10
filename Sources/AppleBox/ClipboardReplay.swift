@@ -8,6 +8,7 @@ final class ClipboardReplay {
     private let eventSource: EventSourceProtocol
     private let pasteDelay = DispatchTimeInterval.milliseconds(100)
     private let manualPasteMessage = "Copied. Press ⌘V to paste."
+    private let copiedMessage = "Copied to Clipboard."
     private let changedClipboardMessage = "Clipboard changed before paste."
     private let copyFailureMessage = "Couldn't copy the clip. Try again."
     private let logger = Logger(
@@ -37,7 +38,7 @@ final class ClipboardReplay {
         origin = nil
     }
 
-    func replay(_ item: ClipboardItem, dismiss: () -> Void) {
+    func replay(_ item: ClipboardItem, pasteAutomatically: Bool = true, dismiss: () -> Void) {
         let representation = item.contentType == .text
             ? (data: Data(item.content.utf8), type: NSPasteboard.PasteboardType.string)
             : item.imageRepresentation()
@@ -55,6 +56,12 @@ final class ClipboardReplay {
 
         let target = origin
         dismiss()
+
+        // Copy-only requires pasteboard ownership but no permission to send keyboard events.
+        guard pasteAutomatically else {
+            showFeedback(copiedMessage)
+            return
+        }
 
         // Give AppKit time to return focus without activating a possibly stale target.
         let request = DispatchWorkItem { [weak self] in

@@ -6,3 +6,6 @@ new entry at the top.
 
 Replaying a saved clip leaves the order of history alone. AppleBox also skips
 copies that other apps mark as generated, concealed, or transient.
+
+Press Option-Return on a selected clip or choose **Copy to Clipboard** from
+its context menu. Paste it yourself with Command-V wherever you need it.

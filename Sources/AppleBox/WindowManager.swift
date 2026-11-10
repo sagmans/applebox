@@ -229,15 +229,35 @@ final class RecentApplicationsStore {
     }
 }
 
+private enum CopyClipShortcut {
+    static let key = "\r"
+    static let modifiers: NSEvent.ModifierFlags = .option
+    static let relevantModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+}
+
 /// Custom NSWindow that handles key events
 class AppleBoxWindow: NSWindow {
     var escapeHandler: (() -> Void)?
     var arrowUpHandler: (() -> Void)?
     var arrowDownHandler: (() -> Void)?
     var enterHandler: (() -> Void)?
+    var copyClipHandler: (() -> Bool)?
 
     override var canBecomeKey: Bool {
         true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        // Reserve the shortcut before the search field interprets it as a text command.
+        if event.type == .keyDown,
+           event.charactersIgnoringModifiers == CopyClipShortcut.key,
+           event.modifierFlags.intersection(CopyClipShortcut.relevantModifiers) == CopyClipShortcut.modifiers,
+           (firstResponder as? NSTextView)?.hasMarkedText() != true,
+           copyClipHandler?() == true
+        {
+            return
+        }
+        super.sendEvent(event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -275,6 +295,8 @@ class WindowManager: NSObject {
     private let emptyAppResultsMessage = "No apps found"
     private let emptyClipboardResultsMessage = "No matching clips"
     private let emptyClipboardHistoryMessage = "Clipboard history is empty"
+    private let copyClipMenuTitle = "Copy to Clipboard"
+    private let clipboardMenu = NSMenu()
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = []
@@ -334,6 +356,8 @@ class WindowManager: NSObject {
         recentApplicationsStore = RecentApplicationsStore(fileSystem: fileSystem)
         super.init()
         setupWindow()
+        window?.copyClipHandler = { [weak self] in self?.copySelectedClip() ?? false }
+        clipboardMenu.delegate = self
         observeAccessibilityChanges()
         observeAsyncUpdates()
         observeWorkspaceActivity()
@@ -1170,6 +1194,7 @@ class WindowManager: NSObject {
 
     private func reloadResults(animate: Bool) {
         tableView?.reloadData()
+        tableView?.menu = searchMode == .clipboard ? clipboardMenu : nil
         updateEmptyResultsLabel()
         if animate {
             animateResultsUpdateIfAppropriate()
@@ -1637,6 +1662,21 @@ class WindowManager: NSObject {
             let appInfo = searchResults[selectedRowIndex].application
             launchApplication(appInfo)
         }
+    }
+
+    private func copySelectedClip() -> Bool {
+        guard searchMode == .clipboard else { return false }
+        if clipboardResults.indices.contains(selectedRowIndex) {
+            clipboardReplay.replay(clipboardResults[selectedRowIndex].item, pasteAutomatically: false, dismiss: hide)
+        }
+        return true
+    }
+
+    @objc private func copyClickedClip(_ action: NSMenuItem) {
+        guard searchMode == .clipboard,
+              let id = action.representedObject as? UUID,
+              let item = clipboardResults.first(where: { $0.item.id == id })?.item else { return }
+        clipboardReplay.replay(item, pasteAutomatically: false, dismiss: hide)
     }
 
     @objc private func handleDoubleClick(_ sender: NSTableView) {
@@ -2195,6 +2235,20 @@ extension WindowManager: NSTableViewDelegate {
         }
 
         return attributedString
+    }
+}
+
+extension WindowManager: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard searchMode == .clipboard, let row = tableView?.clickedRow, clipboardResults.indices.contains(row) else { return }
+
+        let action = NSMenuItem(title: copyClipMenuTitle, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
+        action.keyEquivalentModifierMask = CopyClipShortcut.modifiers
+        action.target = self
+        // Keep the clicked identity even if live capture reorders the rows while the menu is open.
+        action.representedObject = clipboardResults[row].item.id
+        menu.addItem(action)
     }
 }
 
