@@ -175,10 +175,12 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     private let fileSystem: FileSystemProtocol
     /// Reads who has focus when a clip is captured. Injected so tests do not depend on the machine's
     /// frontmost app; the default asks the workspace, which names the app the user copied from because
-    /// the launcher panel never takes focus.
+    /// the launcher panel never activates AppleBox. For the same reason a copy from the launcher's own
+    /// preview would be credited to the app behind it, so the preview declares AppleBox as its source.
     private let frontmostBundleID: @MainActor () -> String?
-    /// AppleBox's own bundle id. A copy made while AppleBox is in front (preview text, a replay) has no
-    /// meaningful origin, and crediting the launcher would be a false "Copied from".
+    /// AppleBox's own bundle id. A copy that names AppleBox as its source (preview text) or is made while
+    /// AppleBox is in front has no meaningful origin, and crediting the launcher would be a false
+    /// "Copied from".
     private let ownBundleID: String?
     private let capturePreferences: UserDefaults?
     @MainActor private(set) var isCapturePaused: Bool

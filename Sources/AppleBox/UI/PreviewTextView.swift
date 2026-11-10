@@ -22,7 +22,7 @@ struct PreviewTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         // The factory wires size tracking between the scroll view, text view and container, which is easy
         // to get subtly wrong by hand and shows up as text that never wraps or never scrolls.
-        let scrollView = NSTextView.scrollableTextView()
+        let scrollView = SourceDeclaringTextView.scrollableTextView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -43,6 +43,22 @@ struct PreviewTextView: NSViewRepresentable {
 
     func updateNSView(_: NSScrollView, context: Context) {
         context.coordinator.apply(self)
+    }
+
+    /// The preview's text view. Its copies declare AppleBox as their source, because the panel never
+    /// activates the app: without the declaration the history would credit the copy to whichever app is
+    /// frontmost behind the panel, and the preview would later show a false "Copied from". The history
+    /// stores a copy that names AppleBox with no source, the same rule as for any of its own writes.
+    final class SourceDeclaringTextView: NSTextView {
+        override func copy(_ sender: Any?) {
+            let pasteboard = NSPasteboard.general
+            let before = pasteboard.changeCount
+            super.copy(sender)
+            // An empty selection copies nothing; tagging the clipboard then would relabel another app's clip.
+            guard pasteboard.changeCount != before, let ownBundleID = Bundle.main.bundleIdentifier else { return }
+            pasteboard.addTypes([.clipSource], owner: nil)
+            pasteboard.setString(ownBundleID, forType: .clipSource)
+        }
     }
 
     /// Remembers what is displayed so unrelated updates can be skipped.
