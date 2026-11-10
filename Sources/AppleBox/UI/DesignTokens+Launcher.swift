@@ -200,6 +200,8 @@ extension DesignTokens {
         static let selectionID = "selection"
         /// Glass id of the preview pane, so it separates from and merges into the body.
         static let previewID = "preview"
+        /// Glass id of the panel body, so it resizes as one surface when the mode changes the panel size.
+        static let bodyID = "body"
     }
 
     /// Spacing and sizes inside the launcher views (spec section 4.5), beyond the geometry in `Layout`.

@@ -53,6 +53,9 @@ struct LauncherView: View {
                 .regular.tint(DesignTokens.Palette.surfaceTint.opacity(DesignTokens.Palette.surfaceTintOpacity)),
                 in: .rect(cornerRadius: DesignTokens.Layout.cornerRadius)
             )
+            // Sharing a container with the preview, the body needs an id too or the two surfaces cannot
+            // morph into each other when the mode adds or removes the preview.
+            .glassEffectID(DesignTokens.Glass.bodyID, in: glassSpace)
             // The wash is the same in both modes, so the hairline carries the mode accent.
             .overlay {
                 RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
