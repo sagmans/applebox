@@ -79,7 +79,9 @@ and SwiftLint versions.
 ## Features
 
 - **Global shortcuts** open app search with `Cmd+Space` and clipboard history
-  with `Opt+Space`.
+  with `Opt+Space` by default. Choose a preset for each mode under
+  **Global Shortcuts** in the AppleBox menu. The check mark shows the active
+  shortcut. If macOS rejects a choice, AppleBox keeps the current shortcut.
 - **Menu bar**: Open either mode, retry global shortcuts, or quit AppleBox
 - **Escape Key**: Press `Esc` to dismiss the launcher
 - **Centered Window**: Window appears centered on the active screen
@@ -89,7 +91,7 @@ and SwiftLint versions.
 
 - `main.swift` - App entry point
 - `AppDelegate.swift` - Application lifecycle management
-- `HotkeyManager.swift` - Global hotkey monitoring (Cmd+Space / Opt+Space)
+- `HotkeyManager.swift` - Global shortcut registration and preferences
 - `WindowManager.swift` - Window display and key handling (Esc/arrows/Enter)
 
 ## Development Status

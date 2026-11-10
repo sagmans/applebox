@@ -668,6 +668,10 @@ class WindowManager: NSObject {
         searchService?.resetCache()
     }
 
+    func setSearchShortcutHelp(_ help: String) {
+        searchField?.setAccessibilityHelp(help)
+    }
+
     func setClipboardManager(_ manager: ClipboardManager) {
         clipboardManager = manager
     }

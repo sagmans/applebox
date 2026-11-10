@@ -2,234 +2,164 @@ import AppKit
 import Carbon.HIToolbox
 import OSLog
 
-enum HotkeyMode {
+enum HotkeyMode: String, CaseIterable {
     case application
     case clipboard
+
+    var defaultPreset: HotkeyPreset {
+        self == .application ? .commandSpace : .optionSpace
+    }
+
+    var fallbackPreset: HotkeyPreset {
+        self == .application ? .commandF1 : .commandF2
+    }
+}
+
+/// Use named choices so restoring preferences cannot register an arbitrary key code.
+enum HotkeyPreset: String, CaseIterable {
+    case commandSpace
+    case optionSpace
+    case controlSpace
+    case commandShiftSpace
+    case optionShiftSpace
+    case controlOptionSpace
+    case controlShiftSpace
+    case commandF1
+    case commandF2
+    case controlOptionF1
+    case controlOptionF2
+
+    var chord: (label: String, key: UInt32, modifiers: UInt32) {
+        switch self {
+        case .commandSpace: ("⌘Space", UInt32(kVK_Space), UInt32(cmdKey))
+        case .optionSpace: ("⌥Space", UInt32(kVK_Space), UInt32(optionKey))
+        case .controlSpace: ("⌃Space", UInt32(kVK_Space), UInt32(controlKey))
+        case .commandShiftSpace: ("⇧⌘Space", UInt32(kVK_Space), UInt32(cmdKey | shiftKey))
+        case .optionShiftSpace: ("⌥⇧Space", UInt32(kVK_Space), UInt32(optionKey | shiftKey))
+        case .controlOptionSpace: ("⌃⌥Space", UInt32(kVK_Space), UInt32(controlKey | optionKey))
+        case .controlShiftSpace: ("⌃⇧Space", UInt32(kVK_Space), UInt32(controlKey | shiftKey))
+        case .commandF1: ("⌘F1", UInt32(kVK_F1), UInt32(cmdKey))
+        case .commandF2: ("⌘F2", UInt32(kVK_F2), UInt32(cmdKey))
+        case .controlOptionF1: ("⌃⌥F1", UInt32(kVK_F1), UInt32(controlKey | optionKey))
+        case .controlOptionF2: ("⌃⌥F2", UInt32(kVK_F2), UInt32(controlKey | optionKey))
+        }
+    }
 }
 
 final class HotkeyManager {
-    private enum HotkeyId: UInt32 {
-        case application = 1
-        case clipboard = 2
-        case applicationAlt = 3 // Cmd+F1 alternative
-        case clipboardAlt = 4 // Cmd+F2 alternative
+    private struct Registration {
+        let id: UInt32
+        let preset: HotkeyPreset
+        let reference: EventHotKeyRef
     }
 
+    private static let signature: OSType = 0x4142_4F58
+    private static let preferencePrefix = "GlobalShortcut."
     private let callback: (HotkeyMode) -> Void
-
-    // Carbon hotkey registration (preferred).
-    private static let hotKeySignature: OSType = 0x4142_4F58 // 'ABOX'
+    private let preferences: UserDefaults
     private var eventHandler: EventHandlerRef?
-    private var registeredHotKeys: [HotkeyId: EventHotKeyRef?] = [:]
+    private var active: [HotkeyMode: Registration] = [:]
+    private var nextID: UInt32 = 1
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox", category: "hotkey")
 
-    /// NSEvent fallback (requires Input Monitoring for keyDown).
-    private var eventMonitor: EventMonitor?
-
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
-        category: "hotkey"
-    )
-
-    init(callback: @escaping (HotkeyMode) -> Void) {
+    init(preferences: UserDefaults = .standard, callback: @escaping (HotkeyMode) -> Void) {
+        self.preferences = preferences
         self.callback = callback
     }
 
-    func start() {
-        let carbonOk = installHotkeyHandlerIfNeeded() && registerCarbonHotkeys()
+    deinit {
+        stop()
+    }
 
-        if carbonOk {
-            eventMonitor?.stop()
-            eventMonitor = nil
-        } else {
-            logger.warning("Falling back to NSEvent global monitor")
-            startEventMonitorFallback()
+    func preferredPreset(for mode: HotkeyMode) -> HotkeyPreset {
+        preferences.string(forKey: preferenceKey(for: mode)).flatMap(HotkeyPreset.init(rawValue:)) ?? mode.defaultPreset
+    }
+
+    func activePreset(for mode: HotkeyMode) -> HotkeyPreset? {
+        active[mode]?.preset
+    }
+
+    func start() {
+        guard installHandler() else { return }
+        for mode in HotkeyMode.allCases {
+            let preferred = preferredPreset(for: mode)
+            if !register(preferred, for: mode), active[mode] == nil, preferred != mode.fallbackPreset {
+                _ = register(mode.fallbackPreset, for: mode)
+            }
         }
     }
 
-    func stop() {
-        unregisterCarbonHotkeys()
-        removeHotkeyHandlerIfNeeded()
-        eventMonitor?.stop()
-        eventMonitor = nil
+    func choose(_ preset: HotkeyPreset, for mode: HotkeyMode) -> Bool {
+        guard installHandler(), register(preset, for: mode) else { return false }
+        preferences.set(preset.rawValue, forKey: preferenceKey(for: mode))
+        return true
     }
 
-    // MARK: - Carbon HotKeys
+    func stop() {
+        for registration in active.values {
+            UnregisterEventHotKey(registration.reference)
+        }
+        active.removeAll()
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+    }
 
-    private func installHotkeyHandlerIfNeeded() -> Bool {
+    private func register(_ preset: HotkeyPreset, for mode: HotkeyMode) -> Bool {
+        let previous = active[mode]
+        if previous?.preset == preset {
+            return true
+        }
+        guard !active.values.contains(where: { $0.preset == preset }) else { return false }
+
+        // Register the replacement first so a conflict leaves the working chord in place.
+        let chord = preset.chord
+        let id = nextID
+        nextID &+= 1
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(chord.key, chord.modifiers, EventHotKeyID(signature: Self.signature, id: id), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference)
+        guard status == noErr, let reference else {
+            logger.notice("Global shortcut unavailable for \(mode.rawValue, privacy: .public): \(status, privacy: .public)")
+            return false
+        }
+        if let previous, UnregisterEventHotKey(previous.reference) != noErr {
+            UnregisterEventHotKey(reference)
+            logger.error("Could not replace global shortcut for \(mode.rawValue, privacy: .public)")
+            return false
+        }
+        active[mode] = Registration(id: id, preset: preset, reference: reference)
+        return true
+    }
+
+    private func preferenceKey(for mode: HotkeyMode) -> String {
+        Self.preferencePrefix + mode.rawValue
+    }
+
+    private func installHandler() -> Bool {
         if eventHandler != nil {
             return true
         }
 
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-
-        let selfPtr = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-
-        let status = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { _, eventRef, userData in
-                guard let eventRef, let userData else { return OSStatus(eventNotHandledErr) }
-
-                let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
-
-                var hotKeyId = EventHotKeyID()
-                let getStatus = GetEventParameter(
-                    eventRef,
-                    EventParamName(kEventParamDirectObject),
-                    EventParamType(typeEventHotKeyID),
-                    nil,
-                    MemoryLayout<EventHotKeyID>.size,
-                    nil,
-                    &hotKeyId
-                )
-
-                guard getStatus == noErr else {
-                    manager.logger.error("GetEventParameter failed: \(getStatus)")
-                    return getStatus
-                }
-
-                guard hotKeyId.signature == HotkeyManager.hotKeySignature else { return noErr }
-
-                switch hotKeyId.id {
-                case HotkeyId.application.rawValue:
-                    manager.logger.debug("Hotkey pressed: cmd+space")
-                    manager.callback(.application)
-                case HotkeyId.clipboard.rawValue:
-                    manager.logger.debug("Hotkey pressed: opt+space")
-                    manager.callback(.clipboard)
-                case HotkeyId.applicationAlt.rawValue:
-                    manager.logger.debug("Hotkey pressed: cmd+F1")
-                    manager.callback(.application)
-                case HotkeyId.clipboardAlt.rawValue:
-                    manager.logger.debug("Hotkey pressed: cmd+F2")
-                    manager.callback(.clipboard)
-                default:
-                    break
-                }
-
-                return noErr
-            },
-            1,
-            &eventType,
-            selfPtr,
-            &eventHandler
-        )
-
-        if status != noErr {
-            logger.error("InstallEventHandler failed: \(status)")
+        var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, info in
+            guard let event, let info else { return OSStatus(eventNotHandledErr) }
+            let manager = Unmanaged<HotkeyManager>.fromOpaque(info).takeUnretainedValue()
+            return manager.handle(event)
+        }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
+        guard status == noErr else {
+            logger.error("Cannot install global shortcut handler: \(status, privacy: .public)")
             return false
         }
-
         return true
     }
 
-    private func removeHotkeyHandlerIfNeeded() {
-        if let handler = eventHandler {
-            RemoveEventHandler(handler)
-            eventHandler = nil
-        }
-    }
-
-    private func registerCarbonHotkeys() -> Bool {
-        // Primary shortcuts
-        let cmdOk = registerCarbonHotkey(id: .application, keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))
-        let optOk = registerCarbonHotkey(id: .clipboard, keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey))
-        // Alternative shortcuts: Cmd+F1 and Cmd+F2
-        let cmdF1Ok = registerCarbonHotkey(id: .applicationAlt, keyCode: UInt32(kVK_F1), modifiers: UInt32(cmdKey))
-        let cmdF2Ok = registerCarbonHotkey(id: .clipboardAlt, keyCode: UInt32(kVK_F2), modifiers: UInt32(cmdKey))
-        return cmdOk || optOk || cmdF1Ok || cmdF2Ok
-    }
-
-    private func registerCarbonHotkey(id: HotkeyId, keyCode: UInt32, modifiers: UInt32) -> Bool {
-        if registeredHotKeys[id] != nil {
-            return true
-        }
-
-        var ref: EventHotKeyRef?
-        let hotKeyID = EventHotKeyID(signature: HotkeyManager.hotKeySignature, id: id.rawValue)
-
-        let status = RegisterEventHotKey(
-            keyCode,
-            modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &ref
-        )
-
-        if status != noErr {
-            logger.error("RegisterEventHotKey failed for \(id.rawValue): \(status)")
-            return false
-        }
-
-        registeredHotKeys[id] = ref
-        logger.info("Registered hotkey id=\(id.rawValue)")
-        return true
-    }
-
-    private func unregisterCarbonHotkeys() {
-        for (_, ref) in registeredHotKeys {
-            if let ref {
-                UnregisterEventHotKey(ref)
-            }
-        }
-        registeredHotKeys.removeAll()
-    }
-
-    // MARK: - NSEvent Fallback
-
-    private func startEventMonitorFallback() {
-        if eventMonitor == nil {
-            eventMonitor = EventMonitor(mask: .keyDown) { [weak self] event in
-                self?.handleKeyEventFallback(event)
-            }
-        }
-        eventMonitor?.start()
-    }
-
-    private func handleKeyEventFallback(_ event: NSEvent) {
-        // Cmd+Space for app mode, Opt+Space for clipboard mode
-        // Alt: Cmd+F1 for app mode, Cmd+F2 for clipboard mode
-        let cmdPressed = event.modifierFlags.contains(.command)
-        let optPressed = event.modifierFlags.contains(.option)
-
-        if event.keyCode == 49 { // 49 is space key
-            if cmdPressed {
-                logger.debug("Fallback key event: cmd+space")
-                callback(.application)
-            } else if optPressed {
-                logger.debug("Fallback key event: opt+space")
-                callback(.clipboard)
-            }
-        } else if cmdPressed, event.keyCode == 122 { // F1
-            logger.debug("Fallback key event: cmd+F1")
-            callback(.application)
-        } else if cmdPressed, event.keyCode == 120 { // F2
-            logger.debug("Fallback key event: cmd+F2")
-            callback(.clipboard)
-        }
-    }
-}
-
-/// EventMonitor class for global event monitoring
-final class EventMonitor {
-    private var monitor: Any?
-    private let mask: NSEvent.EventTypeMask
-    private let handler: (NSEvent) -> Void
-
-    init(mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> Void) {
-        self.mask = mask
-        self.handler = handler
-    }
-
-    func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler)
-    }
-
-    func stop() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
+    private func handle(_ event: EventRef) -> OSStatus {
+        var id = EventHotKeyID()
+        let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+        guard status == noErr, id.signature == Self.signature,
+              let mode = active.first(where: { $0.value.id == id.id })?.key else { return OSStatus(eventNotHandledErr) }
+        callback(mode)
+        return noErr
     }
 }
