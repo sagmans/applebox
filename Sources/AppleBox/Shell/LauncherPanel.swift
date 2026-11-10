@@ -19,6 +19,41 @@ enum LauncherKeyCode {
     static let returnKey: UInt16 = 36
 }
 
+/// A standard editing chord and the responder action it stands for.
+///
+/// The agent app has no main menu, so nothing else turns these chords into actions; the panel does it
+/// itself. Held as a table so the chords this panel claims are one reviewable closed set.
+struct EditingShortcut: Equatable {
+    let key: String
+    let modifiers: NSEvent.ModifierFlags
+    let action: Selector
+
+    /// Undo and redo are not declared on `NSResponder`, so they are named by string; the field editor's
+    /// text view answers to these standard names.
+    private static let undoAction = Selector(("undo:"))
+    private static let redoAction = Selector(("redo:"))
+
+    /// Exactly the chords the search field needs. Anything else, including other Command chords, must
+    /// fall through so global hotkeys and the clipboard context menu keep working.
+    static let all: [EditingShortcut] = [
+        EditingShortcut(key: "a", modifiers: .command, action: #selector(NSText.selectAll(_:))),
+        EditingShortcut(key: "c", modifiers: .command, action: #selector(NSText.copy(_:))),
+        EditingShortcut(key: "v", modifiers: .command, action: #selector(NSText.paste(_:))),
+        EditingShortcut(key: "x", modifiers: .command, action: #selector(NSText.cut(_:))),
+        EditingShortcut(key: "z", modifiers: .command, action: undoAction),
+        EditingShortcut(key: "z", modifiers: [.command, .shift], action: redoAction),
+    ]
+
+    /// The shortcut an event stands for, or nil. Modifiers must match exactly, so Option or Control
+    /// variants of a chord are never mistaken for the plain one.
+    static func match(_ event: NSEvent) -> EditingShortcut? {
+        guard event.type == .keyDown,
+              let key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
+        let held = event.modifierFlags.intersection(CopyClipShortcut.relevantModifiers)
+        return all.first { $0.key == key && $0.modifiers == held }
+    }
+}
+
 /// A borderless, non-activating panel for the launcher.
 ///
 /// Non-activating, so opening it does not pull AppleBox to the front of the other apps, which keeps
@@ -110,6 +145,19 @@ final class LauncherPanel: NSPanel {
             return
         }
         super.sendEvent(event)
+    }
+
+    /// Runs the standard editing chords against the first responder. Without a main menu the system
+    /// finds no menu item for them, so the chord would otherwise do nothing. A chord the responder
+    /// cannot perform is declined, so it still reaches `super` and other handlers.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if !dropsKeyEvents,
+           let shortcut = EditingShortcut.match(event),
+           NSApp.sendAction(shortcut.action, to: nil, from: self)
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// Esc can arrive as a command from a control that swallowed the key event, so it is routed too.
