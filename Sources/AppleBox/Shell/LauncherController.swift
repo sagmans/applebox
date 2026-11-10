@@ -21,6 +21,10 @@ final class LauncherController: NSObject, NSWindowDelegate {
     private let imageCache = ClipboardImageCache()
     /// The pending order-out after the close motion; kept so a quick reopen can cancel it.
     private var closeTask: Task<Void, Never>?
+    /// The pending shrink after a mode morph; kept so another switch, a hide or a reopen can cancel it.
+    private var resizeTask: Task<Void, Never>?
+    /// Watches the clear-history sheet, which takes key status from the panel while it is up.
+    private var sheetObserver: NSObjectProtocol?
 
     /// Whether a launcher session is open, for the hotkey toggle. The model is the only source: it turns
     /// false the moment `hide()` runs, so a panel that is fading out counts as hidden and a second hotkey
@@ -47,6 +51,14 @@ final class LauncherController: NSObject, NSWindowDelegate {
         panel.keyHandler = { [weak self] key in self?.handle(key) ?? false }
         // Weak, because the model outlives a closed controller and must not keep it alive.
         model.onDismiss = { [weak self] in self?.hide() }
+        observeSheetFocus()
+    }
+
+    /// Isolated so teardown can read the main-actor observer.
+    isolated deinit {
+        if let sheetObserver {
+            NotificationCenter.default.removeObserver(sheetObserver)
+        }
     }
 
     /// Hides when visible and the caller asks for the same list; switches list when asked for the other.
@@ -57,7 +69,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
         }
         if let mode, mode != model.mode {
             model.switchMode(to: mode)
-            resizeAndPosition(on: panel.screen)
+            resizeAfterModeSwitch()
         } else {
             hide()
         }
@@ -69,6 +81,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
         // A reopen during the close motion must not be undone by the pending order-out.
         closeTask?.cancel()
         closeTask = nil
+        cancelPendingResize()
         panel.ignoresMouseEvents = false
         panel.dropsKeyEvents = false
         model.show(mode: mode)
@@ -88,6 +101,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
         if let sheet = panel.attachedSheet {
             panel.endSheet(sheet, returnCode: .cancel)
         }
+        cancelPendingResize()
         model.hide()
         guard panel.isVisible, closeTask == nil else { return }
         // The model's close state drives the fade; the window must outlive it, or the motion is never seen.
@@ -135,6 +149,33 @@ final class LauncherController: NSObject, NSWindowDelegate {
         hide()
     }
 
+    /// Closes the launcher when the user leaves it while the clear-history sheet is up. Click-away is
+    /// ignored for the panel while a sheet is attached, because the sheet takes key from the panel; but
+    /// when the user then clicks another app only the sheet resigns, and the panel with its clip preview
+    /// would stay on screen over that app.
+    private func observeSheetFocus() {
+        // Delivered on the main queue, which the compiler cannot see through the Sendable block.
+        sheetObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let window = notification.object as? NSWindow
+            MainActor.assumeIsolated { self?.sheetDidResignKey(window) }
+        }
+    }
+
+    private func sheetDidResignKey(_ window: NSWindow?) {
+        guard let window, window.sheetParent === panel, model.isPresented else { return }
+        // Key status moves after this notification, and a sheet that is closing normally also resigns;
+        // decide once it has landed, and only while the sheet is still up with nothing of ours key.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, model.isPresented, let sheet = panel.attachedSheet,
+                  !sheet.isKeyWindow, !panel.isKeyWindow else { return }
+            hide()
+        }
+    }
+
     /// Runs a reserved key as a model intent. Copy reports whether there was something to copy, so
     /// the panel can let the key through when there was not.
     private func handle(_ key: LauncherKey) -> Bool {
@@ -153,15 +194,43 @@ final class LauncherController: NSObject, NSWindowDelegate {
         return true
     }
 
+    /// Grows the panel at once but shrinks it only after the mode morph settles. The glass body springs to
+    /// its new width inside the panel, so shrinking the window first would cut off the body while it is
+    /// still wider than the window. The content is centered in the panel, so the wait shows no jump.
+    private func resizeAfterModeSwitch() {
+        cancelPendingResize()
+        let target = Self.panelSize(for: model.mode)
+        guard target.width < panel.frame.width || target.height < panel.frame.height else {
+            resizeAndPosition(on: panel.screen)
+            return
+        }
+        let settle = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? DesignTokens.Motion.reducedFade
+            : DesignTokens.Motion.openSpring.settlingDuration
+        resizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(settle))
+            guard let self, !Task.isCancelled, model.isPresented else { return }
+            resizeTask = nil
+            resizeAndPosition(on: panel.screen)
+        }
+    }
+
+    private func cancelPendingResize() {
+        resizeTask?.cancel()
+        resizeTask = nil
+    }
+
+    private static func panelSize(for mode: SearchMode) -> CGSize {
+        mode == .clipboard ? DesignTokens.Layout.clipPanelSize : DesignTokens.Layout.appPanelSize
+    }
+
     /// Sizes the panel for the current mode and puts it on the screen holding the mouse, centered
     /// horizontally with the top edge at the anchor. A mode switch passes the panel's current screen so the
     /// panel does not jump if the mouse moved meanwhile. Returns false when no screen exists.
     @discardableResult
     private func resizeAndPosition(on current: NSScreen? = nil) -> Bool {
         guard let screen = current ?? Self.activeScreen() else { return false }
-        let size = model.mode == .clipboard
-            ? DesignTokens.Layout.clipPanelSize
-            : DesignTokens.Layout.appPanelSize
+        let size = Self.panelSize(for: model.mode)
         let area = screen.visibleFrame
         // Screen coordinates grow upward, so the anchor is measured down from the top of the area.
         let topEdge = area.maxY - area.height * DesignTokens.Layout.verticalAnchor

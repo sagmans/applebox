@@ -104,8 +104,11 @@ enum DesignTokens {
     /// Animation timing and travel (spec section 4, "Motion"). Springs are `Animation` values and plain
     /// durations are `Double` seconds because SwiftUI animations take seconds; distances are points.
     enum Motion {
-        /// Spring for presenting the panel.
-        static let open = Animation.spring(response: 0.32, dampingFraction: 0.82)
+        /// Spring for presenting the panel and morphing it between modes. Kept as a `Spring` so the shell
+        /// can read how long the morph takes to settle.
+        static let openSpring = Spring(response: 0.32, dampingRatio: 0.82)
+        /// The same spring as an animation, for views.
+        static let open = Animation.spring(openSpring)
         /// Scale the panel starts from when opening, so it grows into place.
         static let openScale: CGFloat = 0.96
         /// Fade-out time in seconds; short so dismissal never feels like a wait.
