@@ -37,8 +37,10 @@ enum PasteToastKind {
 
 /// Sizes and times of the paste notice; named so the panel and the view agree.
 enum PasteToastMetrics {
-    static let confirmationLifetime = Duration.milliseconds(1500)
-    static let actionLifetime = Duration.milliseconds(2500)
+    /// One second is enough to confirm a copy; longer would linger over the app the user returned to.
+    static let confirmationLifetime = Duration.seconds(1)
+    /// Two seconds keep the long permission text readable, since the user must act on it.
+    static let actionLifetime = Duration.seconds(2)
     /// Caps the width so the longest guidance wraps instead of spanning the screen.
     static let maxTextWidth: CGFloat = 420
     static let horizontalPadding: CGFloat = 18
