@@ -16,23 +16,39 @@ nonisolated struct ClipboardItem: Codable, Sendable {
     let contentType: ClipboardContentType
     /// Keep the original bytes so replay does not change the image encoding.
     let imageData: String?
+    /// Bundle id of the app that had focus at capture, so the preview can say where a clip came from.
+    /// Metadata only; optional because history saved by earlier versions has none.
+    let sourceBundleID: String?
 
     private enum CodingKeys: String, CodingKey {
-        case content, timestamp, contentType, imageData
+        case content, timestamp, contentType, imageData, sourceBundleID
     }
 
-    init(content: String) {
+    init(content: String, sourceBundleID: String? = nil) {
         self.content = content
         timestamp = Date()
         contentType = .text
         imageData = nil
+        self.sourceBundleID = sourceBundleID
     }
 
-    init(imageData: Data) {
+    init(imageData: Data, sourceBundleID: String? = nil) {
         content = "[Image]"
         timestamp = Date()
         contentType = .image
         self.imageData = imageData.base64EncodedString()
+        self.sourceBundleID = sourceBundleID
+    }
+
+    /// Decoded by hand so an archive written before `sourceBundleID` existed still loads; a missing key
+    /// must mean "unknown source", never a failed load that would drop the user's whole history.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = try container.decode(String.self, forKey: .content)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        contentType = try container.decode(ClipboardContentType.self, forKey: .contentType)
+        imageData = try container.decodeIfPresent(String.self, forKey: .imageData)
+        sourceBundleID = try container.decodeIfPresent(String.self, forKey: .sourceBundleID)
     }
 
     /// Deduplicate neighboring copies without conflating distinct history entries.
@@ -149,6 +165,10 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
 
     private let pasteboard: PasteboardProtocol
     private let fileSystem: FileSystemProtocol
+    /// Reads who has focus when a clip is captured. Injected so tests do not depend on the machine's
+    /// frontmost app; the default asks the workspace, which names the app the user copied from because
+    /// the launcher panel never takes focus.
+    private let frontmostBundleID: @MainActor () -> String?
     private let capturePreferences: UserDefaults?
     @MainActor private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
@@ -176,8 +196,10 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         fileSystem: FileSystemProtocol = SystemFileManager(),
         capturePreferences: UserDefaults? = nil,
-        loadSynchronously: Bool = true
+        loadSynchronously: Bool = true,
+        frontmostBundleID: @escaping @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     ) {
+        self.frontmostBundleID = frontmostBundleID
         self.pasteboard = pasteboard
         readAccess = pasteboard.readAccess
         self.fileSystem = fileSystem
@@ -356,13 +378,14 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     @MainActor
     private func readSupportedClipboardItem() -> ClipboardItem? {
         // Check the raw image size before allocating its base64 representation.
+        let source = frontmostBundleID()
         if let image = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             guard image.count <= ClipboardHistoryLimits.imageBytes else { return nil }
-            return ClipboardItem(imageData: image)
+            return ClipboardItem(imageData: image, sourceBundleID: source)
         }
         guard let text = pasteboard.string(forType: .string), !text.isEmpty,
               text.utf8.count <= ClipboardHistoryLimits.textBytes else { return nil }
-        return ClipboardItem(content: text)
+        return ClipboardItem(content: text, sourceBundleID: source)
     }
 
     @MainActor

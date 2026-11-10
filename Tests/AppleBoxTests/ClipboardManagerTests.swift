@@ -283,6 +283,22 @@ final class ClipboardManagerTests: XCTestCase {
         XCTAssertEqual(history[1].content, "Existing item 2")
     }
 
+    /// Archive written before `sourceBundleID` existed; must still load, with an unknown source.
+    func testHistoryWithoutSourceBundleIDLoads() {
+        // A fresh timestamp keeps the fixture inside the retention window whenever the test runs.
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let legacy = """
+        [{"content":"Legacy item","timestamp":"\(stamp)","contentType":"text"}]
+        """
+        mockFileSystem.addFile(at: storageURL.path, contents: Data(legacy.utf8))
+
+        let history = createManager().getHistory()
+
+        XCTAssertEqual(history.count, 1, "Old archive should load")
+        XCTAssertEqual(history.first?.content, "Legacy item")
+        XCTAssertNil(history.first?.sourceBundleID)
+    }
+
     func testHistoryPersistsAcrossManagerInstances() {
         // Given - create first manager and add content
         let manager1 = createManager()
