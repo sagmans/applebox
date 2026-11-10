@@ -9,12 +9,22 @@ struct ClipRow: View, Equatable {
     let isSelected: Bool
     /// Decoded image for image clips; nil for text, or when decoding failed, which falls back to the badge.
     var thumbnail: NSImage?
+    /// Fixed "now" for tests; nil uses the real time.
+    var reference: Date?
+
+    @Environment(\.locale) private var locale
 
     var body: some View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             leading
             HighlightedText(data.preview, runs: data.runs, isSelected: isSelected, font: DesignTokens.Typography.rowTitle)
-            Spacer(minLength: 0)
+            Spacer(minLength: DesignTokens.Metrics.timeLeadingSpacing)
+            // Quiet and fixed-width-friendly so it never competes with the clip text, which truncates first.
+            Text(verbatim: DesignTokens.relativeTime(data.timestamp, reference: reference, locale: locale))
+                .font(DesignTokens.Typography.rowSubtitle)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
         }
         .padding(.horizontal, DesignTokens.Metrics.rowHorizontalPadding)
         .frame(height: DesignTokens.Layout.rowHeight)
@@ -48,6 +58,6 @@ struct ClipRow: View, Equatable {
     }
 
     static func == (lhs: ClipRow, rhs: ClipRow) -> Bool {
-        lhs.data == rhs.data && lhs.isSelected == rhs.isSelected && lhs.thumbnail === rhs.thumbnail
+        lhs.data == rhs.data && lhs.isSelected == rhs.isSelected && lhs.thumbnail === rhs.thumbnail && lhs.reference == rhs.reference
     }
 }

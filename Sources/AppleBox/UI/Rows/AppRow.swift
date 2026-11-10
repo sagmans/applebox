@@ -29,13 +29,10 @@ struct AppRow: View, Equatable {
         .frame(height: DesignTokens.Layout.rowHeight)
     }
 
-    /// The folder wins over the recent mark because telling two apps apart is the more urgent need.
-    /// A match run means the user typed a query, so "Recent" would no longer explain the ordering.
+    /// Only the folder, to tell same-named apps apart. "Recent" is a section header now, so repeating it
+    /// on each row would be noise.
     var caption: String? {
-        if let location = data.location {
-            return location
-        }
-        return data.isRecent && data.runs.isEmpty ? DesignTokens.Copy.recent : nil
+        data.location
     }
 
     static func == (lhs: AppRow, rhs: AppRow) -> Bool {

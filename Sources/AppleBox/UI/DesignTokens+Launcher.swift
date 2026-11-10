@@ -121,6 +121,16 @@ extension DesignTokens {
     /// Date format of the copy time in the preview header: day and time, no year, because clips are recent.
     static let clipDateFormat = Date.FormatStyle().month().day().hour().minute()
 
+    /// Short relative time of a clip ("5 min. ago", "yesterday"). `reference` is nil in the app; tests pass a
+    /// fixed "now" so references do not change with the day they run. The style has no reference input, so
+    /// the date is shifted by the gap between the real and the fixed now, which is exact enough for
+    /// minute-level wording.
+    static func relativeTime(_ date: Date, reference: Date?, locale: Locale) -> String {
+        let shift = reference.map { Date.now.timeIntervalSince($0) } ?? 0
+        let style = Date.RelativeFormatStyle(presentation: .named, unitsStyle: .abbreviated, locale: locale)
+        return style.format(date.addingTimeInterval(shift))
+    }
+
     /// SF Symbol names, centralised so a symbol swap is a one-line change and views hold no string literals.
     enum Symbol {
         /// Mode symbol while searching apps.
@@ -236,6 +246,8 @@ extension DesignTokens {
         static let sourceIconSize: CGFloat = 14
         /// Corner radius of a color swatch in a clip row, matching the badge it replaces.
         static let swatchCornerRadius: CGFloat = 8
+        /// Gap between a clip's text and its relative time at the row's trailing edge.
+        static let timeLeadingSpacing: CGFloat = 8
         /// Space above a section header, so each group is set apart from the rows before it.
         static let sectionHeaderTopPadding: CGFloat = 8
         /// Space below a section header, small so the caption stays attached to its own group.
@@ -258,6 +270,8 @@ extension DesignTokens {
     enum Typography {
         /// Weight of matched characters, so a match reads as emphasis and not only as color.
         static let matchWeight = Font.Weight.semibold
+        /// Weight of section captions, so they read as labels without a larger size.
+        static let sectionWeight = Font.Weight.semibold
         static let search = Font.title2
         static let rowTitle = Font.body
         static let rowSubtitle = Font.caption

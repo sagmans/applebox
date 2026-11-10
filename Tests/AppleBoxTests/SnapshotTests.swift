@@ -24,12 +24,16 @@ final class SnapshotTests: XCTestCase {
         static let appSupportPath = "/Users/test/Library/Application Support"
         /// Fixed copy times, so the preview header never depends on the day the test runs.
         static let copyTimes = [
-            "2026-01-15T09:30:00Z",
-            "2026-02-03T14:05:00Z",
-            "2026-03-21T18:45:00Z",
-            "2026-04-09T07:15:00Z",
+            "2026-05-28T08:00:00Z",
             "2026-05-27T22:50:00Z",
+            "2026-04-09T07:15:00Z",
+            "2026-03-21T18:45:00Z",
+            "2026-02-03T14:05:00Z",
+            "2026-01-15T09:30:00Z",
         ]
+        /// Fixed "now" for relative times and day sections: after the newest copy time, so the list shows
+        /// Today, Yesterday and Earlier whenever the suite runs.
+        static let referenceTime = "2026-05-28T12:00:00Z"
         /// Pinned so the date format in the header renders the same wherever the suite runs.
         static let localeIdentifier = "en_US"
         static let timeZoneIdentifier = "UTC"
@@ -186,6 +190,7 @@ final class SnapshotTests: XCTestCase {
         let root = try LauncherView(model: model)
             .environment(\.launcherSnapshotMode, true)
             .environment(\.appIcons, AppIconCache(loader: SnapshotIconProvider()))
+            .environment(\.referenceDate, ISO8601DateFormatter().date(from: Fixture.referenceTime))
             .environment(\.locale, Locale(identifier: Fixture.localeIdentifier))
             .environment(\.timeZone, XCTUnwrap(TimeZone(identifier: Fixture.timeZoneIdentifier)))
         let host = NSHostingView(rootView: root)

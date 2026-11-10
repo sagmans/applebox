@@ -10,6 +10,9 @@ struct ResultsList: View {
     @Namespace private var selectionSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.clipImages) private var images
+    @Environment(\.referenceDate) private var referenceDate
+    @Environment(\.calendar) private var calendar
+    @Environment(\.timeZone) private var timeZone
 
     var body: some View {
         Group {
@@ -46,6 +49,9 @@ struct ResultsList: View {
                     switch model.mode {
                     case .applications:
                         ForEach(Array(model.apps.rows.enumerated()), id: \.element.id) { index, row in
+                            if hasNoQuery, let title = ListSections.appHeader(in: model.apps.rows, at: index) {
+                                sectionHeader(title)
+                            }
                             container(index: index, id: row.id) {
                                 AppRow(data: row, isSelected: model.selection == index).equatable()
                             }
@@ -55,8 +61,11 @@ struct ResultsList: View {
                         }
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
+                            if hasNoQuery, let title = clipHeader(at: index) {
+                                sectionHeader(title)
+                            }
                             container(index: index, id: row.id) {
-                                ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row)).equatable()
+                                ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row), reference: referenceDate).equatable()
                             }
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
@@ -73,6 +82,31 @@ struct ResultsList: View {
                 proxy.scrollTo(id)
             }
         }
+    }
+
+    /// Sections only describe an unfiltered list: a typed query orders rows by match quality, and a day
+    /// caption over a ranked list would be wrong.
+    private var hasNoQuery: Bool {
+        model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clipHeader(at index: Int) -> String? {
+        var zoned = calendar
+        zoned.timeZone = timeZone
+        return ListSections.clipHeader(in: model.clips.rows, at: index, now: referenceDate ?? Date(), calendar: zoned)
+    }
+
+    /// A caption between rows. It sits beside the rows in the stack and is not one of them, so selection
+    /// indices and the "n of N" VoiceOver positions are untouched; VoiceOver still announces it as a heading.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(DesignTokens.Typography.caption.weight(DesignTokens.Typography.sectionWeight))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DesignTokens.Metrics.rowHorizontalPadding)
+            .padding(.top, DesignTokens.Metrics.sectionHeaderTopPadding)
+            .padding(.bottom, DesignTokens.Metrics.sectionHeaderBottomPadding)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// Wraps a row with the selection capsule, pointer handling and accessibility traits.

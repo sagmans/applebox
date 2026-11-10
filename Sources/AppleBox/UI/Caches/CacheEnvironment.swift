@@ -13,4 +13,7 @@ extension EnvironmentValues {
     @Entry var appIcons = DefaultCaches.appIcons
     /// Decoded clip images, shared by rows and the preview so each image is decoded once.
     @Entry var clipImages = DefaultCaches.clipImages
+    /// Fixed "now" for relative times and day sections. nil in the app, which uses the real time; tests set
+    /// it so references do not depend on the day they run.
+    @Entry var referenceDate: Date?
 }
