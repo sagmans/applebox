@@ -18,6 +18,7 @@ enum HotkeyMode: String, CaseIterable {
 /// Use named choices so restoring preferences cannot register an arbitrary key code.
 enum HotkeyPreset: String, CaseIterable {
     case commandSpace
+    case commandOptionV
     case optionSpace
     case controlSpace
     case commandShiftSpace
@@ -32,6 +33,7 @@ enum HotkeyPreset: String, CaseIterable {
     var chord: (label: String, key: UInt32, modifiers: UInt32) {
         switch self {
         case .commandSpace: ("⌘Space", UInt32(kVK_Space), UInt32(cmdKey))
+        case .commandOptionV: ("⌥⌘V", UInt32(kVK_ANSI_V), UInt32(cmdKey | optionKey))
         case .optionSpace: ("⌥Space", UInt32(kVK_Space), UInt32(optionKey))
         case .controlSpace: ("⌃Space", UInt32(kVK_Space), UInt32(controlKey))
         case .commandShiftSpace: ("⇧⌘Space", UInt32(kVK_Space), UInt32(cmdKey | shiftKey))
