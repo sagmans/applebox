@@ -7,7 +7,10 @@ private nonisolated enum ClipPreview {
     static let characterLimit = 100
     /// Whitespace collapsing can shrink text, so more than the limit is read; but a clip can be hundreds of
     /// KiB and the opening list is built on the main actor, so the work must not grow with clip size.
-    static let scanLimit = characterLimit * 4
+    static let scanLimit = characterLimit * collapseHeadroomFactor
+    /// Collapsing runs of whitespace can shrink the scanned text a lot; reading this many times the limit
+    /// still fills a line for typical clips while keeping the bound small.
+    static let collapseHeadroomFactor = 4
     static let ellipsis = "..."
     static let space = " "
     /// Whitespace that would break a one-line preview, longest first so CRLF counts once.
@@ -20,8 +23,9 @@ nonisolated enum ClipRowBuilder {
     /// Collapses whitespace and truncates, because a row shows one line and the preview pane shows the rest.
     static func preview(of content: String) -> String {
         let isCut = !content.dropFirst(ClipPreview.scanLimit).isEmpty
+        let scanned = String(content.prefix(ClipPreview.scanLimit))
         let singleLine = ClipPreview.lineBreaks
-            .reduce(String(content.prefix(ClipPreview.scanLimit))) { $0.replacingOccurrences(of: $1, with: ClipPreview.space) }
+            .reduce(scanned) { $0.replacingOccurrences(of: $1, with: ClipPreview.space) }
             .split(separator: Character(ClipPreview.space), omittingEmptySubsequences: true)
             .joined(separator: ClipPreview.space)
 

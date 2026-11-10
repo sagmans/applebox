@@ -66,7 +66,12 @@ final class LauncherModel {
     /// Whether the search in flight keeps the selection when it publishes; nil when none is pending. A
     /// typed query must never inherit a refresh's preserve flag, or it would keep the old query's row.
     @ObservationIgnored private var pendingSearchPreserves: Bool?
+    /// Identifies the newest search, so a superseded search finishing late cannot clear the pending state
+    /// that belongs to the search that replaced it.
     @ObservationIgnored private var searchGeneration = 0
+    /// Set while a Return waits for a search. A second Return meanwhile is ignored, because two waiters
+    /// would each act and a doubled paste is lost. Cleared by cancellation so a later session starts clean.
+    @ObservationIgnored private var pendingActivation: UUID?
     @ObservationIgnored private var selectedRowID: AnyHashable?
     @ObservationIgnored private var preservesSelectionOnPublish = false
     @ObservationIgnored private var isResettingResults = false
@@ -254,6 +259,8 @@ final class LauncherModel {
         inFlightSearch?.cancel()
         inFlightSearch = nil
         pendingSearchPreserves = nil
+        // Hide, Esc and mode changes all pass here, so a waiting Return cannot outlive the state it was for.
+        pendingActivation = nil
         apps.invalidatePendingSearch()
         clips.invalidatePendingSearch()
     }
@@ -308,13 +315,23 @@ final class LauncherModel {
             activateResolvedSelection()
             return
         }
+        guard pendingActivation == nil else { return }
+        let token = UUID()
+        pendingActivation = token
+        let modeAtPress = mode
         inFlightLaunch = Task { [weak self] in
             var awaited: Task<Void, Never>?
             while let self, pendingSearchPreserves != nil, let search = inFlightSearch, search != awaited {
                 awaited = search
                 await search.value
             }
-            self?.activateResolvedSelection()
+            guard let self else { return }
+            // Cancelled or mode-switched meanwhile means the user moved on; acting now would hit another list.
+            guard pendingActivation == token else { return }
+            // Every exit releases the guard, or the next Return would be ignored forever.
+            pendingActivation = nil
+            guard mode == modeAtPress else { return }
+            activateResolvedSelection()
         }
     }
 
