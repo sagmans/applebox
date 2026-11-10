@@ -19,221 +19,6 @@ nonisolated struct ClipboardSearchResult: Sendable {
     let matchedIndices: [Int]
 }
 
-/// Loaded off the main thread by `AppIconCache`, so providers must be nonisolated and thread-safe.
-nonisolated protocol AppIconProviding: Sendable {
-    func icon(forBundlePath: String) -> NSImage
-}
-
-nonisolated struct SystemAppIconProvider: AppIconProviding {
-    func icon(forBundlePath: String) -> NSImage {
-        NSWorkspace.shared.icon(forFile: forBundlePath)
-    }
-}
-
-/// Icons load on `loadQueue`, so the type opts out of default main-actor isolation.
-/// `@unchecked Sendable` is safe because `inFlight` is only touched through `inFlightQueue`, and the
-/// remaining properties are immutable or NSCache, which is documented as thread-safe.
-final nonisolated class AppIconCache: @unchecked Sendable {
-    private let loader: AppIconProviding
-    private let cache = NSCache<NSString, NSImage>()
-    private let loadQueue = DispatchQueue(label: "applebox.icons.load", qos: .utility)
-
-    private let inFlightQueue = DispatchQueue(label: "applebox.icons.inflight")
-    private var inFlight: Set<String> = []
-
-    private let placeholder: NSImage
-
-    init(loader: AppIconProviding) {
-        self.loader = loader
-        placeholder = NSImage(size: NSSize(width: 24, height: 24))
-    }
-
-    func icon(forBundlePath bundlePath: String) -> NSImage {
-        if let cached = cache.object(forKey: bundlePath as NSString) {
-            return cached
-        }
-
-        // Tests and previews inject a lightweight icon provider; keep it synchronous for deterministic snapshots.
-        if !(loader is SystemAppIconProvider) {
-            let icon = loader.icon(forBundlePath: bundlePath)
-            cache.setObject(icon, forKey: bundlePath as NSString)
-            return icon
-        }
-
-        scheduleLoadIfNeeded(bundlePath: bundlePath, notify: true)
-        return placeholder
-    }
-
-    func prewarm(bundlePaths: [String]) {
-        for path in bundlePaths {
-            if cache.object(forKey: path as NSString) == nil {
-                scheduleLoadIfNeeded(bundlePath: path, notify: false)
-            }
-        }
-    }
-
-    private func scheduleLoadIfNeeded(bundlePath: String, notify: Bool) {
-        let shouldStart = inFlightQueue.sync { () -> Bool in
-            if inFlight.contains(bundlePath) {
-                return false
-            }
-            inFlight.insert(bundlePath)
-            return true
-        }
-
-        guard shouldStart else { return }
-
-        loadQueue.async { [weak self] in
-            guard let self else { return }
-            let icon = loader.icon(forBundlePath: bundlePath)
-            cache.setObject(icon, forKey: bundlePath as NSString)
-
-            inFlightQueue.sync {
-                _ = self.inFlight.remove(bundlePath)
-            }
-
-            if notify {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: Notification.Name("applebox.appIconCache.didLoad"),
-                        object: nil,
-                        userInfo: ["bundlePath": bundlePath]
-                    )
-                }
-            }
-        }
-    }
-}
-
-final class ClipboardImageCache {
-    private let cache = NSCache<NSString, NSImage>()
-
-    func image(for item: ClipboardItem) -> NSImage? {
-        guard item.contentType == .image, let base64 = item.imageData else { return nil }
-
-        let key = Self.key(forBase64: base64)
-        if let cached = cache.object(forKey: key as NSString) {
-            return cached
-        }
-
-        guard let data = Data(base64Encoded: base64), let image = NSImage(data: data) else { return nil }
-        cache.setObject(image, forKey: key as NSString)
-        return image
-    }
-
-    private static func key(forBase64 base64: String) -> String {
-        // Keep keys small even for huge images.
-        let digest = SHA256.hash(data: Data(base64.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-}
-
-final class RecentApplicationsStore {
-    private let fileSystem: FileSystemProtocol
-    private let storageURL: URL
-
-    private let queue = DispatchQueue(label: "applebox.recentApps", qos: .userInitiated)
-    private let persistenceQueue = DispatchQueue(label: "applebox.recentApps.persistence", qos: .utility)
-
-    private let fileName = "recent_applications.json"
-    private let maxCount = 50
-
-    private var recentBundlePaths: [String] = []
-
-    init(fileSystem: FileSystemProtocol) {
-        self.fileSystem = fileSystem
-
-        let appSupportURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileSystem.homeDirectoryForCurrentUser
-        let appDirectory = appSupportURL.appendingPathComponent("AppleBox", isDirectory: true)
-        if !fileSystem.fileExists(atPath: appDirectory.path) {
-            try? fileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
-        }
-        storageURL = appDirectory.appendingPathComponent(fileName)
-
-        recentBundlePaths = loadRecentsFromDisk()
-    }
-
-    func orderedApplications(from applications: [ApplicationInfo]) -> [ApplicationInfo] {
-        let snapshot = queue.sync { recentBundlePaths }
-        // A restored cache can repeat a path. Keep the first record so recents still open.
-        var remaining = Dictionary(applications.map { ($0.bundlePath, $0) }, uniquingKeysWith: { first, _ in first })
-        var ordered: [ApplicationInfo] = []
-        ordered.reserveCapacity(applications.count)
-
-        for bundlePath in snapshot {
-            if let app = remaining.removeValue(forKey: bundlePath) {
-                ordered.append(app)
-            }
-        }
-
-        let tail = remaining.values.sorted { $0.isOrderedBefore($1) }
-        ordered.append(contentsOf: tail)
-        return ordered
-    }
-
-    func recordLaunch(bundlePath: String) {
-        let snapshot = queue.sync { () -> [String] in
-            var updated = recentBundlePaths.filter { $0 != bundlePath }
-            updated.insert(bundlePath, at: 0)
-            if updated.count > maxCount {
-                updated = Array(updated.prefix(maxCount))
-            }
-            recentBundlePaths = updated
-            return updated
-        }
-
-        persistRecentsAsync(snapshot)
-    }
-
-    func seedIfEmpty(with bundlePaths: [String]) {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        ordered.reserveCapacity(bundlePaths.count)
-
-        for path in bundlePaths {
-            if seen.insert(path).inserted {
-                ordered.append(path)
-            }
-        }
-
-        guard !ordered.isEmpty else { return }
-
-        let snapshot = queue.sync { () -> [String]? in
-            guard recentBundlePaths.isEmpty else { return nil }
-            let limited = Array(ordered.prefix(maxCount))
-            recentBundlePaths = limited
-            return limited
-        }
-
-        guard let snapshot else { return }
-        persistRecentsAsync(snapshot)
-    }
-
-    private func persistRecentsAsync(_ snapshot: [String]) {
-        persistenceQueue.async { [snapshot, storageURL, fileSystem] in
-            do {
-                let encoder = JSONEncoder()
-                let data = try encoder.encode(snapshot)
-                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
-            } catch {
-                // Best-effort persistence.
-            }
-        }
-    }
-
-    private func loadRecentsFromDisk() -> [String] {
-        guard fileSystem.fileExists(atPath: storageURL.path), let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
-
-        do {
-            let decoder = JSONDecoder()
-            return try decoder.decode([String].self, from: data)
-        } catch {
-            return []
-        }
-    }
-}
-
 private enum CopyClipShortcut {
     static let key = "\r"
     static let modifiers: NSEvent.ModifierFlags = .option
@@ -297,34 +82,13 @@ class WindowManager: NSObject {
     private var tableView: NSTableView?
     private var scrollView: NSScrollView?
     private var emptyResultsLabel: NSTextField?
-    private let emptyAppResultsMessage = "No apps found"
-    private let emptyClipboardResultsMessage = "No matching clips"
-    private let emptyClipboardHistoryMessage = "Clipboard history is empty"
-    private let copyClipMenuTitle = "Copy to Clipboard"
-    private let deleteClipMenuTitle = "Delete Clip"
-    private let clearClipboardMenuTitle = "Clear History…"
-    private let clearClipboardButtonTitle = "Clear History"
-    private let cancelButtonTitle = "Cancel"
-    private let clearClipboardTitle = "Clear clipboard history?"
-    private let clearClipboardExplanation = "This removes saved clips from AppleBox. Your current clipboard stays available."
-    private let clipboardRemovalFailedMessage = "Couldn’t remove saved clips. Try again."
     private var clipboardRemovalStatus: String?
     private let clipboardMenu = NSMenu()
     private var captureButton: NSButton?
     private var fullSearchFieldWidth: CGFloat?
-    private let pauseCaptureTitle = "Pause Capture"
-    private let resumeCaptureTitle = "Resume Capture"
-    private let capturePausedHelp = "Capture is paused. Resume to save new copies."
-    private let captureActiveHelp = "Pause saving new clipboard copies."
     private let captureButtonSpacing: CGFloat = 12
     private var statusLabel: NSTextField?
     private let statusLabelHeight: CGFloat = 16
-    private let clipboardAccessPrompt = "If macOS asks, allow clipboard access to save new copies."
-    private let clipboardAccessDenied = "Clipboard access blocked. Allow AppleBox in System Settings to resume capture."
-    private let missingApplicationMessage = "App was moved or removed. Search again for its new location."
-    private let launchFailedMessage = "Couldn’t open this app. Try opening it in Finder."
-    private let launchTimedOutMessage = "The app hasn’t opened yet. Try again or open it in Finder."
-    private let applicationLaunchTimeout: DispatchTimeInterval = .seconds(10)
     private var applicationLaunchStatus: String?
     private var pendingApplicationLaunch: UUID?
 
@@ -1283,15 +1047,15 @@ class WindowManager: NSObject {
 
         let button = captureButton ?? makeCaptureButton(in: headerPanel, beside: searchField)
         let paused = clipboardManager.isCapturePaused
-        button.title = paused ? resumeCaptureTitle : pauseCaptureTitle
-        button.setAccessibilityHelp(paused ? capturePausedHelp : captureActiveHelp)
+        button.title = paused ? DesignTokens.Copy.resumeCapture : DesignTokens.Copy.pauseCapture
+        button.setAccessibilityHelp(paused ? DesignTokens.Copy.capturePausedHelp : DesignTokens.Copy.captureActiveHelp)
         button.isHidden = false
         searchField.frame.size.width = button.frame.minX - searchField.frame.minX - captureButtonSpacing
     }
 
     private func makeCaptureButton(in headerPanel: NSView, beside searchField: NSSearchField) -> NSButton {
         // Size for the longer title to keep the query field stable across a pause.
-        let button = NSButton(title: resumeCaptureTitle, target: self, action: #selector(toggleCapture))
+        let button = NSButton(title: DesignTokens.Copy.resumeCapture, target: self, action: #selector(toggleCapture))
         button.sizeToFit()
         let frame = headerPanel.bounds
         button.setFrameOrigin(NSPoint(x: frame.maxX - button.frame.width - captureButtonSpacing, y: frame.midY - button.frame.height / 2))
@@ -1310,8 +1074,8 @@ class WindowManager: NSObject {
     private var clipboardAccessStatus: String? {
         guard let clipboardManager, !clipboardManager.isCapturePaused else { return nil }
         return switch clipboardManager.readAccess {
-        case .mayPrompt: clipboardAccessPrompt
-        case .denied: clipboardAccessDenied
+        case .mayPrompt: DesignTokens.Copy.accessPrompt
+        case .denied: DesignTokens.Copy.accessDenied
         case .allowed: nil
         }
     }
@@ -1348,9 +1112,9 @@ class WindowManager: NSObject {
         let message: String? = if getResultCount() > 0 {
             nil
         } else if searchMode == .clipboard {
-            hasQuery ? emptyClipboardResultsMessage : emptyClipboardHistoryMessage
+            hasQuery ? DesignTokens.Copy.emptyClipMatches : DesignTokens.Copy.emptyHistory
         } else {
-            hasQuery ? emptyAppResultsMessage : nil
+            hasQuery ? DesignTokens.Copy.emptyApps : nil
         }
 
         guard let message else {
@@ -1836,11 +1600,11 @@ class WindowManager: NSObject {
     @objc private func confirmClearClipboardHistory(_: NSMenuItem) {
         guard searchMode == .clipboard, let window, window.attachedSheet == nil else { return }
         let alert = NSAlert()
-        alert.messageText = clearClipboardTitle
-        alert.informativeText = clearClipboardExplanation
+        alert.messageText = DesignTokens.Copy.clearHistoryTitle
+        alert.informativeText = DesignTokens.Copy.clearHistoryExplanation
         // Return chooses Cancel so a repeated keypress cannot erase the archive.
-        alert.addButton(withTitle: cancelButtonTitle).keyEquivalent = CopyClipShortcut.key
-        alert.addButton(withTitle: clearClipboardButtonTitle).hasDestructiveAction = true
+        alert.addButton(withTitle: DesignTokens.Copy.cancel).keyEquivalent = CopyClipShortcut.key
+        alert.addButton(withTitle: DesignTokens.Copy.clearHistoryButton).hasDestructiveAction = true
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else { return }
             self?.removeClipboardHistory(.all)
@@ -1852,7 +1616,7 @@ class WindowManager: NSObject {
         updateStatusLabel()
         clipboardManager?.removeHistory(removal) { [weak self] succeeded in
             guard let self, !succeeded else { return }
-            clipboardRemovalStatus = clipboardRemovalFailedMessage
+            clipboardRemovalStatus = DesignTokens.Copy.removalFailed
             updateStatusLabel()
         }
     }
@@ -1879,7 +1643,7 @@ class WindowManager: NSObject {
         let bundlePath = appInfo.bundlePath
         guard fileSystem.fileExists(atPath: bundlePath) else {
             logger.notice("Selected application bundle no longer exists")
-            showApplicationLaunchFailure(missingApplicationMessage)
+            showApplicationLaunchFailure(DesignTokens.Copy.appMissing)
             return
         }
 
@@ -1896,10 +1660,10 @@ class WindowManager: NSObject {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + applicationLaunchTimeout) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(Int(DesignTokens.Timing.launchTimeout.components.seconds))) { [weak self] in
             guard let self, pendingApplicationLaunch == request else { return }
             logger.error("Application launch timed out")
-            showApplicationLaunchFailure(launchTimedOutMessage)
+            showApplicationLaunchFailure(DesignTokens.Copy.launchTimedOut)
         }
     }
 
@@ -1918,7 +1682,7 @@ class WindowManager: NSObject {
         } else {
             logger.error("Application launch returned without a running application")
         }
-        showApplicationLaunchFailure(launchFailedMessage)
+        showApplicationLaunchFailure(DesignTokens.Copy.launchFailed)
     }
 
     private func showApplicationLaunchFailure(_ message: String) {
@@ -2466,20 +2230,20 @@ extension WindowManager: NSMenuDelegate {
         if let row = tableView?.clickedRow, clipboardResults.indices.contains(row) {
             // Bind the menu to the clip even if live capture reorders rows before a click.
             let id = clipboardResults[row].item.id
-            let copy = NSMenuItem(title: copyClipMenuTitle, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
+            let copy = NSMenuItem(title: DesignTokens.Copy.copyClip, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
             copy.keyEquivalentModifierMask = CopyClipShortcut.modifiers
             copy.target = self
             copy.representedObject = id
             menu.addItem(copy)
 
-            let delete = NSMenuItem(title: deleteClipMenuTitle, action: #selector(deleteClickedClip(_:)), keyEquivalent: "")
+            let delete = NSMenuItem(title: DesignTokens.Copy.deleteClip, action: #selector(deleteClickedClip(_:)), keyEquivalent: "")
             delete.target = self
             delete.representedObject = id
             menu.addItem(delete)
             menu.addItem(.separator())
         }
 
-        let clear = NSMenuItem(title: clearClipboardMenuTitle, action: #selector(confirmClearClipboardHistory(_:)), keyEquivalent: "")
+        let clear = NSMenuItem(title: DesignTokens.Copy.clearHistoryMenu, action: #selector(confirmClearClipboardHistory(_:)), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
     }
