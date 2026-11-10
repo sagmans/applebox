@@ -150,9 +150,9 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     private let pasteboard: PasteboardProtocol
     private let fileSystem: FileSystemProtocol
     private let capturePreferences: UserDefaults?
-    private(set) var isCapturePaused: Bool
+    @MainActor private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
-    private(set) var readAccess: ClipboardReadAccess
+    @MainActor private(set) var readAccess: ClipboardReadAccess
     private var monitoringTimer: Timer?
     private var expiryTimer: Timer?
     private let storageURL: URL?
@@ -208,6 +208,9 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         }
     }
 
+    /// Not `isolated deinit`: the compiler rejects it because the class opts out of main-actor isolation
+    /// (it must, for its private queues). Invalidating directly is safe because the timers are only ever
+    /// created and cleared from main-actor members, and nothing else holds the manager by then.
     deinit {
         // Invalidate directly because deinit cannot call the main-actor stopMonitoring().
         monitoringTimer?.invalidate()

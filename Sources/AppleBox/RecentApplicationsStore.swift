@@ -28,6 +28,8 @@ final class RecentApplicationsStore {
         recentBundlePaths = loadRecentsFromDisk()
     }
 
+    /// Puts recently launched apps first in launch order and the rest alphabetically, so the empty query
+    /// shows what the user is most likely to want.
     func orderedApplications(from applications: [ApplicationInfo]) -> [ApplicationInfo] {
         let snapshot = queue.sync { recentBundlePaths }
         // A restored cache can repeat a path. Keep the first record so recents still open.
@@ -52,6 +54,8 @@ final class RecentApplicationsStore {
         queue.sync { Set(recentBundlePaths) }
     }
 
+    /// Moves an app to the front of the recents once it launched, so the order follows real use. Persisting
+    /// is asynchronous because a launch must not wait on disk.
     func recordLaunch(bundlePath: String) {
         let snapshot = queue.sync { () -> [String] in
             var updated = recentBundlePaths.filter { $0 != bundlePath }
@@ -66,6 +70,8 @@ final class RecentApplicationsStore {
         persistRecentsAsync(snapshot)
     }
 
+    /// Gives a first run something to show before the user has launched anything. Ignored once recents
+    /// exist, so the user's own history is never overwritten by defaults.
     func seedIfEmpty(with bundlePaths: [String]) {
         var seen = Set<String>()
         var ordered: [String] = []

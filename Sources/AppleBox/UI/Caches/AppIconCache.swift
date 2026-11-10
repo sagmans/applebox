@@ -2,10 +2,13 @@ import AppKit
 
 /// Loaded off the main thread by `AppIconCache`, so providers must be nonisolated and thread-safe.
 nonisolated protocol AppIconProviding: Sendable {
+    /// The icon for the bundle at `forBundlePath`. Called off the main thread, so it must not touch UI state.
     func icon(forBundlePath: String) -> NSImage
 }
 
+/// Production provider: asks the workspace, so icons match what Finder shows for the same bundle.
 nonisolated struct SystemAppIconProvider: AppIconProviding {
+    /// Reads the file icon from the system, which can block on disk, hence the background loading.
     func icon(forBundlePath: String) -> NSImage {
         NSWorkspace.shared.icon(forFile: forBundlePath)
     }
@@ -34,6 +37,8 @@ final nonisolated class AppIconCache: @unchecked Sendable {
         placeholder = NSImage(size: NSSize(width: 24, height: 24))
     }
 
+    /// Returns at once, so a list never waits on disk: the cached icon, or a placeholder while a background
+    /// load runs. Views redraw on `didLoad` to swap the real icon in.
     func icon(forBundlePath bundlePath: String) -> NSImage {
         if let cached = cache.object(forKey: bundlePath as NSString) {
             return cached
@@ -50,6 +55,8 @@ final nonisolated class AppIconCache: @unchecked Sendable {
         return placeholder
     }
 
+    /// Loads icons ahead of use without notifying: nothing is showing a placeholder for them yet, so a
+    /// notification per icon would only make views redraw for no change.
     func prewarm(bundlePaths: [String]) {
         for path in bundlePaths {
             if cache.object(forKey: path as NSString) == nil {

@@ -124,6 +124,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
         }
     }
 
+    @MainActor
     func startMonitoring() {
         guard folderMonitor == nil else { return }
         let paths = searchPaths.map(\.path)
@@ -135,6 +136,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
         }
     }
 
+    @MainActor
     func refreshIfMonitoringUnavailable() {
         if folderMonitor == nil {
             scanForApplicationsAsync()
