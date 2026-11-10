@@ -68,6 +68,10 @@ final class SnapshotTests: XCTestCase {
             iconProvider: SnapshotIconProvider()
         )
 
+        // A display profile is a property of the host, so render both windows in standard RGB.
+        windowManager.getContentView()?.window?.colorSpace = .sRGB
+        windowManager.getSidecarWindow()?.colorSpace = .sRGB
+
         // Create ApplicationIndexer and SearchService
         applicationIndexer = ApplicationIndexer(fileSystem: mockFileSystem)
         searchService = SearchService(indexer: applicationIndexer)
