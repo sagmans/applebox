@@ -64,17 +64,17 @@ enum DesignTokens {
     enum Palette {
         /// Accent of apps mode: amber/honey. Warm on purpose so the launcher reads as one family instead of
         /// borrowing the user's system accent. Each mode keeps a light and a dark value for contrast.
-        static let appTint = dynamicColor(light: (0.80, 0.52, 0.16), dark: (0.96, 0.70, 0.32))
+        static let appTint = dynamicColor(light: (0.70, 0.44, 0.12), dark: (0.82, 0.56, 0.22))
         /// Accent of clipboard mode: copper/terracotta, close enough to amber to belong to the family yet
         /// distinct enough that the two modes are told apart at a glance.
-        static let clipTint = dynamicColor(light: (0.72, 0.36, 0.20), dark: (0.90, 0.52, 0.34))
+        static let clipTint = dynamicColor(light: (0.62, 0.30, 0.16), dark: (0.76, 0.40, 0.24))
         /// Ivory (light) or espresso (dark) wash over the body glass; gives the panel a calm warm base.
-        static let surfaceTint = dynamicColor(light: (0.99, 0.95, 0.88), dark: (0.22, 0.16, 0.12))
+        static let surfaceTint = dynamicColor(light: (0.96, 0.91, 0.84), dark: (0.14, 0.10, 0.08))
         /// Match characters on rows that are not selected; dark enough (light) or bright enough (dark) to
         /// reach 4.5:1 against the warm surface where the plain accent would not.
         static let matchText = dynamicColor(light: (0.55, 0.30, 0.06), dark: (1.00, 0.80, 0.45))
         /// Strength of the warm wash over the glass; low enough that the material still shows through.
-        static let surfaceTintOpacity: Double = 0.35
+        static let surfaceTintOpacity: Double = 0.45
         /// Strength of the mode accent on the panel's hairline border; subtle so it signals the mode
         /// without competing with the content.
         static let accentHairlineOpacity: Double = 0.35

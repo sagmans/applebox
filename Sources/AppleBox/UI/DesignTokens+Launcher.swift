@@ -73,10 +73,10 @@ extension DesignTokens.Palette {
     /// Opaque stand-in for glass in snapshot mode. Fixed sRGB warm tones keep the references independent of the
     /// display profile and of whatever sits behind the panel (ASG-1279); the light and dark values differ
     /// so text keeps the contrast it has over real glass in each appearance.
-    static let snapshotSurface = dynamicColor(light: (0.96, 0.93, 0.88), dark: (0.20, 0.16, 0.13))
+    static let snapshotSurface = dynamicColor(light: (0.94, 0.90, 0.84), dark: (0.15, 0.12, 0.10))
     /// Stand-in for the selection capsule in snapshot mode; set apart from the surface so the highlighted
     /// row is visible in the references.
-    static let snapshotSelection = dynamicColor(light: (0.93, 0.78, 0.55), dark: (0.55, 0.38, 0.20))
+    static let snapshotSelection = dynamicColor(light: (0.86, 0.70, 0.48), dark: (0.45, 0.30, 0.16))
 
     /// Palette colors are opaque: any transparency would let the host's backdrop leak into the references.
     private static let fixedAlpha: CGFloat = 1
