@@ -8,11 +8,16 @@ struct SearchBar: View {
     @Bindable var model: LauncherModel
 
     @FocusState private var isFocused: Bool
+    /// Bumped per failed launch; the shake restarts on every change, including repeated identical failures.
+    @State private var shakeCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var tint: Color {
         model.mode == .clipboard ? DesignTokens.Palette.clipTint : DesignTokens.Palette.appTint
     }
+
+    /// Rest, left, right, rest: three steps that end where the field began.
+    private static let shakeOffsets: [CGFloat] = [0, -DesignTokens.Motion.shakeDistance, DesignTokens.Motion.shakeDistance, 0]
 
     private var modeSymbol: String {
         model.mode == .clipboard ? DesignTokens.Symbol.clipMode : DesignTokens.Symbol.appMode
@@ -53,6 +58,17 @@ struct SearchBar: View {
         }
         .padding(.horizontal, DesignTokens.Metrics.barHorizontalPadding)
         .padding(.vertical, DesignTokens.Metrics.searchVerticalPadding)
+        .phaseAnimator(Self.shakeOffsets, trigger: shakeCount) { content, offset in
+            content.offset(x: reduceMotion ? 0 : offset)
+        } animation: { _ in
+            .easeInOut(duration: DesignTokens.Motion.shakeStep)
+        }
+        .onChange(of: model.apps.launchStatus) { _, status in
+            // Launch failures belong to apps mode; clipboard errors must not shake the field.
+            if model.mode == .applications, case .error = status {
+                shakeCount += 1
+            }
+        }
         .animation(DesignTokens.motion(DesignTokens.Motion.selection, reduceMotion: reduceMotion), value: model.mode)
         .onAppear { isFocused = true }
         // Showing again during the close fade posts no didBecomeKey, so presentation itself refocuses.

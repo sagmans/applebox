@@ -80,6 +80,8 @@ struct FooterBar: View {
                 .lineLimit(1)
         }
         .foregroundStyle(style.color)
+        // The message rises into place so a failure is noticed; Reduce Motion gets a plain fade.
+        .transition(reduceMotion ? .opacity : .offset(y: DesignTokens.Motion.errorRise).combined(with: .opacity))
         .accessibilityElement(children: .combine)
     }
 

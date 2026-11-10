@@ -70,6 +70,9 @@ struct PasteToastView: View {
         HStack(spacing: PasteToastMetrics.iconSpacing) {
             Image(systemName: state.kind.symbol)
                 .foregroundStyle(state.kind.color)
+                // A bounce on the checkmark confirms the copy; the value stays fixed for other kinds and
+                // for Reduce Motion, so those never bounce.
+                .symbolEffect(.bounce, value: state.kind == .confirmation && !reduceMotion && state.visible)
                 .font(DesignTokens.Typography.rowTitle)
                 .accessibilityHidden(true)
             Text(state.message)

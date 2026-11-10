@@ -126,6 +126,12 @@ enum DesignTokens {
         static let rowRiseDuration = 0.18
         /// Distance in points an error message rises while appearing.
         static let errorRise: CGFloat = 6
+        /// Sideways distance in points of the search bar shake after a failed launch.
+        static let shakeDistance: CGFloat = 8
+        /// Time in seconds of one shake step; three quick steps read as "no" without delaying typing.
+        static let shakeStep = 0.06
+        /// Time in seconds a deleted row takes to collapse, short so the list closes the gap at once.
+        static let rowCollapse = 0.18
         /// Fade time in seconds that replaces motion when the user asks for reduced motion.
         static let reducedFade = 0.1
     }

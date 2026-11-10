@@ -8,6 +8,9 @@ struct ResultsList: View {
     @Bindable var model: LauncherModel
 
     @Namespace private var selectionSpace
+    /// Clips whose delete was requested. The history confirms asynchronously, so the row collapses at
+    /// once instead of waiting for the data to change.
+    @State private var departing: Set<UUID> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.clipImages) private var images
     @Environment(\.referenceDate) private var referenceDate
@@ -89,6 +92,9 @@ struct ResultsList: View {
                             container(index: index, id: row.id) {
                                 ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row), reference: referenceDate).equatable()
                             }
+                            .opacity(departing.contains(row.id) ? 0 : 1)
+                            .frame(height: departing.contains(row.id) ? 0 : nil, alignment: .top)
+                            .clipped()
                             .transition(arrival(at: index))
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
@@ -101,6 +107,13 @@ struct ResultsList: View {
                 // Opens the transaction that lets the per-row arrival transitions run; rows that stay
                 // keep their place, since only their own transition carries timing.
                 .animation(.linear(duration: 0), value: shownIDs)
+            }
+            .onChange(of: shownIDs) { _, _ in departing.removeAll() }
+            .onChange(of: model.status) { _, status in
+                // A failed delete leaves the row in the history, so it must come back.
+                if case .error = status, !departing.isEmpty {
+                    withAnimation(selectionAnimation) { departing.removeAll() }
+                }
             }
             .onChange(of: model.selection) { _, selected in
                 guard let selected, let id = rowID(at: selected) else { return }
@@ -191,7 +204,12 @@ struct ResultsList: View {
     @ViewBuilder
     private func menu(for id: UUID) -> some View {
         Button(DesignTokens.Copy.copyClip) { model.copyClip(id: id) }
-        Button(DesignTokens.Copy.deleteClip) { model.deleteClip(id: id) }
+        Button(DesignTokens.Copy.deleteClip) {
+            withAnimation(DesignTokens.motion(.easeInOut(duration: DesignTokens.Motion.rowCollapse), reduceMotion: reduceMotion)) {
+                _ = departing.insert(id)
+            }
+            model.deleteClip(id: id)
+        }
         Button(DesignTokens.Copy.clearHistoryMenu) {
             ClearHistoryPrompt.present(for: model, over: ClearHistoryPrompt.launcherWindow)
         }
