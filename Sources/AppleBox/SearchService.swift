@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 
 /// Result containing both score and matched character indices.
 nonisolated struct FuzzyMatchResult: Sendable {
@@ -288,6 +289,11 @@ final nonisolated class SearchService: @unchecked Sendable {
     private var cachedQuery: FuzzyText?
     private var cachedCandidates: [ApplicationInfo] = []
     private var cachedIndexerRevision: UInt64?
+    /// Bumped by `resetCache()` without the lock. The main actor calls the reset, and taking the lock
+    /// there would wait for a cancelled background search to reach its next cancellation check.
+    private let resetGeneration = Atomic<UInt64>(0)
+    /// The reset generation the cache was filled under; a different current value means it is stale.
+    private var cachedResetGeneration: UInt64 = 0
 
     init(indexer: ApplicationIndexer) {
         self.indexer = indexer
@@ -297,8 +303,10 @@ final nonisolated class SearchService: @unchecked Sendable {
         indexer.allApplications
     }
 
+    /// Marks the cache stale for the next search instead of clearing it in place, so the caller never
+    /// waits on a search that holds the lock.
     func resetCache() {
-        lock.withLock { clearCache() }
+        resetGeneration.add(1, ordering: .releasing)
     }
 
     /// The cache is only valid inside `lock`; this unlocked variant lets a search that already holds
@@ -321,6 +329,11 @@ final nonisolated class SearchService: @unchecked Sendable {
     }
 
     private func searchLocked(_ query: String, isCancelled: () -> Bool) -> [SearchResult] {
+        let generation = resetGeneration.load(ordering: .acquiring)
+        if generation != cachedResetGeneration {
+            clearCache()
+            cachedResetGeneration = generation
+        }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             clearCache()
@@ -384,8 +397,12 @@ final nonisolated class SearchService: @unchecked Sendable {
             return $0.application.isOrderedBefore($1.application)
         }
 
-        cachedQuery = query
-        cachedCandidates = results.map(\.application)
+        // A reset during this search means the session it belonged to is over; its results must not
+        // seed the next session's refinements.
+        if resetGeneration.load(ordering: .acquiring) == generation {
+            cachedQuery = query
+            cachedCandidates = results.map(\.application)
+        }
 
         return results
     }
