@@ -1132,16 +1132,7 @@ class WindowManager: NSObject {
         let fullRange = NSRange(location: 0, length: textStorage.length)
         textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
 
-        // Apply new highlights
-        let highlightColor = NSColor.controlAccentColor
-        for charIndex in newIndices {
-            guard charIndex < item.content.count else { continue }
-            let stringIndex = item.content.index(item.content.startIndex, offsetBy: charIndex)
-            let utf16Offset = item.content.utf16.distance(from: item.content.utf16.startIndex, to: stringIndex)
-            let range = NSRange(location: utf16Offset, length: 1)
-            guard range.location + range.length <= textStorage.length else { continue }
-            textStorage.addAttribute(.foregroundColor, value: highlightColor, range: range)
-        }
+        applyHighlights(to: textStorage, in: item.content, at: newIndices)
 
         sidecarHighlightedIndices = newIndices
 
@@ -2118,7 +2109,7 @@ extension WindowManager: NSTableViewDelegate {
         if !result.matchedIndices.isEmpty, let query = searchField?.stringValue, !query.isEmpty {
             let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
             let rematch = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: displayContent)
-            rematchedIndices = rematch.matchedIndices.filter { $0 < displayContent.count }
+            rematchedIndices = rematch.matchedIndices
         } else {
             rematchedIndices = []
         }
@@ -2377,26 +2368,22 @@ extension WindowManager: NSTableViewDelegate {
             .foregroundColor: NSColor.labelColor,
         ])
 
-        guard !indices.isEmpty else { return attributedString }
-
-        // Use controlAccentColor for highlighted matches
-        let highlightColor = NSColor.controlAccentColor
-
-        // Convert character indices to UTF-16 ranges for NSAttributedString
-        for charIndex in indices {
-            guard charIndex < text.count else { continue }
-
-            let stringIndex = text.index(text.startIndex, offsetBy: charIndex)
-            let utf16Offset = text.utf16.distance(from: text.utf16.startIndex, to: stringIndex)
-
-            // Highlight a single character
-            let range = NSRange(location: utf16Offset, length: 1)
-            guard range.location + range.length <= attributedString.length else { continue }
-
-            attributedString.addAttribute(.foregroundColor, value: highlightColor, range: range)
-        }
-
+        applyHighlights(to: attributedString, in: text, at: indices)
         return attributedString
+    }
+
+    /// AppKit needs a UTF-16 range spanning the entire displayed character.
+    private func applyHighlights(to attributed: NSMutableAttributedString, in text: String, at indices: [Int]) {
+        var cursor = text.startIndex
+        var cursorOffset = 0
+        for offset in indices where offset >= cursorOffset {
+            guard let start = text.index(cursor, offsetBy: offset - cursorOffset, limitedBy: text.endIndex),
+                  start != text.endIndex else { break }
+            let end = text.index(after: start)
+            attributed.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: NSRange(start ..< end, in: text))
+            cursor = end
+            cursorOffset = offset + 1
+        }
     }
 }
 

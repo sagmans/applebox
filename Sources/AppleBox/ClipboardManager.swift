@@ -180,8 +180,9 @@ final class ClipboardManager {
             return snapshot.map { ClipboardSearchMatch(item: $0, score: 0, matchedIndices: []) }
         }
 
+        let query = FuzzyText(trimmedQuery)
         let scored = snapshot.enumerated().compactMap { index, item -> (index: Int, match: ClipboardSearchMatch)? in
-            let result = FuzzyMatcher.matchWithIndices(query: trimmedQuery, candidate: item.content)
+            let result = FuzzyMatcher.matchWithIndices(query: query, candidate: FuzzyText(item.content))
             guard result.score > 0 else { return nil }
             return (index: index, match: ClipboardSearchMatch(item: item, score: result.score, matchedIndices: result.matchedIndices))
         }

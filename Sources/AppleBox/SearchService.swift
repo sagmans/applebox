@@ -7,107 +7,167 @@ struct FuzzyMatchResult {
     let matchedIndices: [Int]
 }
 
-/// Blazing fast fuzzy matcher using direct byte array operations.
-/// Avoids slow String.Index operations for O(1) character access.
+/// Keep the original character positions when folding changes a name or clip.
+enum FuzzyText {
+    case ascii(ContiguousArray<UInt8>)
+    case unicode(ContiguousArray<Character>, sourceOffsets: ContiguousArray<Int>)
+
+    private static let asciiLimit: UInt8 = 128
+    private static let carriageReturn: UInt8 = 13
+    private static let foldingLocale = Locale(identifier: "en_US_POSIX")
+    private static let dotlessI = "ı"
+    private static let foldedI = "i"
+
+    init(_ text: String) {
+        // CRLF is a single Swift character, so byte positions can differ even in ASCII text.
+        if text.utf8.allSatisfy({ $0 < Self.asciiLimit && $0 != Self.carriageReturn }) {
+            self = .ascii(ContiguousArray(text.lowercased().utf8))
+            return
+        }
+
+        var characters: ContiguousArray<Character> = []
+        var offsets: ContiguousArray<Int> = []
+        for (index, character) in text.enumerated() {
+            if let ascii = character.asciiValue {
+                characters.append(Character(UnicodeScalar(FuzzyMatcher.asciiLowercase(ascii))))
+                offsets.append(index)
+                continue
+            }
+            let folded = String(character).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Self.foldingLocale)
+            // Find Turkish I variants across keyboard layouts without changing ASCII ranking by locale.
+            let normalized = folded == Self.dotlessI ? Self.foldedI : folded
+            for unit in normalized {
+                characters.append(unit)
+                offsets.append(index)
+            }
+        }
+        self = .unicode(characters, sourceOffsets: offsets)
+    }
+
+    var characters: ContiguousArray<Character> {
+        switch self {
+        case let .ascii(bytes): ContiguousArray(bytes.map { Character(UnicodeScalar($0)) })
+        case let .unicode(characters, _): characters
+        }
+    }
+
+    func hasPrefix(_ prefix: Self) -> Bool {
+        if case let .ascii(bytes) = self, case let .ascii(prefixBytes) = prefix {
+            return bytes.starts(with: prefixBytes)
+        }
+        return characters.starts(with: prefix.characters)
+    }
+}
+
+/// Use the same scoring for ASCII bytes and folded Unicode characters.
 enum FuzzyMatcher {
     /// fzf-style fuzzy matching score.
     /// Returns `0` if `query` is not a subsequence of `candidate`.
-    @inlinable
     static func score(query: String, candidate: String) -> Int {
         matchWithIndices(query: query, candidate: candidate).score
     }
 
     /// fzf-style fuzzy matching with score and match indices.
     /// Returns score `0` and empty indices if `query` is not a subsequence of `candidate`.
-    @inlinable
     static func matchWithIndices(query: String, candidate: String) -> FuzzyMatchResult {
-        guard !query.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
-        return matchWithIndicesUTF8(
-            queryBytes: ContiguousArray(query.utf8),
-            candidateBytes: ContiguousArray(candidate.utf8)
-        )
+        matchWithIndices(query: FuzzyText(query), candidate: FuzzyText(candidate))
     }
 
-    /// Fast path for pre-normalized UTF-8 bytes.
-    /// Both inputs must already be lowercased ASCII bytes.
-    @inlinable
-    static func matchWithIndices(normalizedQuery: String, normalizedCandidate: String) -> FuzzyMatchResult {
-        guard !normalizedQuery.isEmpty else { return FuzzyMatchResult(score: 0, matchedIndices: []) }
-        return matchWithIndicesUTF8(
-            queryBytes: ContiguousArray(normalizedQuery.utf8),
-            candidateBytes: ContiguousArray(normalizedCandidate.utf8)
+    static func matchWithIndices(query: FuzzyText, candidate: FuzzyText) -> FuzzyMatchResult {
+        if case let .ascii(candidateBytes) = candidate {
+            switch query {
+            case let .ascii(queryBytes):
+                return matchWithIndicesUTF8(queryBytes: queryBytes, candidateBytes: candidateBytes)
+            case let .unicode(characters, _):
+                let queryBytes = ContiguousArray(characters.compactMap(\.asciiValue))
+                guard queryBytes.count == characters.count else {
+                    return FuzzyMatchResult(score: 0, matchedIndices: [])
+                }
+                return matchWithIndicesUTF8(queryBytes: queryBytes, candidateBytes: candidateBytes)
+            }
+        }
+
+        let match = matchUnits(
+            query: query.characters,
+            candidate: candidate.characters,
+            normalize: { $0 },
+            isBoundary: { $0 == " " || $0 == "-" || $0 == "_" }
         )
+        guard case let .unicode(_, offsets) = candidate else { return match }
+        var originalIndices: [Int] = []
+        for index in match.matchedIndices where originalIndices.last != offsets[index] {
+            originalIndices.append(offsets[index])
+        }
+        return FuzzyMatchResult(score: match.score, matchedIndices: originalIndices)
     }
 
     /// Ultra-fast path using pre-computed byte arrays.
     /// - Parameters:
     ///   - queryBytes: Lowercased UTF-8 bytes of query
     ///   - candidateBytes: Lowercased UTF-8 bytes of candidate
-    @inlinable
     static func matchWithIndicesUTF8(
         queryBytes: ContiguousArray<UInt8>,
         candidateBytes: ContiguousArray<UInt8>
     ) -> FuzzyMatchResult {
-        let queryCount = queryBytes.count
-        let candidateCount = candidateBytes.count
+        matchUnits(query: queryBytes, candidate: candidateBytes, normalize: asciiLowercase, isBoundary: asciiWordBoundary)
+    }
 
-        guard queryCount > 0, candidateCount > 0 else {
+    fileprivate static func asciiLowercase(_ byte: UInt8) -> UInt8 {
+        (byte >= 65 && byte <= 90) ? byte + 32 : byte
+    }
+
+    private static func asciiWordBoundary(_ byte: UInt8) -> Bool {
+        byte == 32 || byte == 45 || byte == 95
+    }
+
+    private static func matchUnits<Unit: Equatable>(
+        query: ContiguousArray<Unit>,
+        candidate: ContiguousArray<Unit>,
+        normalize: (Unit) -> Unit,
+        isBoundary: (Unit) -> Bool
+    ) -> FuzzyMatchResult {
+        guard !query.isEmpty, query.count <= candidate.count else {
             return FuzzyMatchResult(score: 0, matchedIndices: [])
-        }
-
-        // Quick rejection: query longer than candidate
-        guard queryCount <= candidateCount else {
-            return FuzzyMatchResult(score: 0, matchedIndices: [])
-        }
-
-        @inline(__always)
-        func toLower(_ c: UInt8) -> UInt8 {
-            // ASCII lowercase: a-z = 97-122, A-Z = 65-90
-            // To lowercase: if 65 <= c <= 90, add 32
-            (c >= 65 && c <= 90) ? c + 32 : c
         }
 
         // PHASE 1: Try to find an exact contiguous substring match (case-insensitive).
         // This ensures queries like "[main]" match the exact substring rather than
         // scattered characters across the candidate.
         if let substringResult = findExactSubstring(
-            queryBytes: queryBytes,
-            candidateBytes: candidateBytes,
-            queryCount: queryCount,
-            candidateCount: candidateCount,
-            toLower: toLower
+            query: query,
+            candidate: candidate,
+            normalize: normalize,
+            isBoundary: isBoundary
         ) {
             return substringResult
         }
 
         // PHASE 2: Fall back to greedy subsequence matching.
         return fuzzySubsequenceMatch(
-            queryBytes: queryBytes,
-            candidateBytes: candidateBytes,
-            queryCount: queryCount,
-            candidateCount: candidateCount,
-            toLower: toLower
+            query: query,
+            candidate: candidate,
+            normalize: normalize,
+            isBoundary: isBoundary
         )
     }
 
     /// Finds the earliest exact contiguous substring match (case-insensitive).
     /// Returns nil if no exact substring match exists.
-    @inlinable
-    static func findExactSubstring(
-        queryBytes: ContiguousArray<UInt8>,
-        candidateBytes: ContiguousArray<UInt8>,
-        queryCount: Int,
-        candidateCount: Int,
-        toLower: (UInt8) -> UInt8
+    private static func findExactSubstring<Unit: Equatable>(
+        query: ContiguousArray<Unit>,
+        candidate: ContiguousArray<Unit>,
+        normalize: (Unit) -> Unit,
+        isBoundary: (Unit) -> Bool
     ) -> FuzzyMatchResult? {
-        let searchLimit = candidateCount - queryCount
+        let queryCount = query.count
+        let searchLimit = candidate.count - queryCount
 
         // Scan for the first occurrence of the query as a contiguous substring
         outer: for startIdx in 0 ... searchLimit {
             // Check if all query bytes match starting at startIdx
             for qIdx in 0 ..< queryCount {
-                let qChar = toLower(queryBytes[qIdx])
-                let cChar = toLower(candidateBytes[startIdx + qIdx])
+                let qChar = normalize(query[qIdx])
+                let cChar = normalize(candidate[startIdx + qIdx])
                 if qChar != cChar {
                     continue outer
                 }
@@ -140,11 +200,8 @@ enum FuzzyMatcher {
             }
 
             // Word boundary bonus (after space, dash, underscore)
-            if startIdx > 0 {
-                let prevChar = candidateBytes[startIdx - 1]
-                if prevChar == 32 || prevChar == 45 || prevChar == 95 { // ' ', '-', '_'
-                    bonusScore += 15
-                }
+            if startIdx > 0, isBoundary(candidate[startIdx - 1]) {
+                bonusScore += 15
             }
 
             return FuzzyMatchResult(score: substringBaseScore + bonusScore, matchedIndices: matchedIndices)
@@ -154,14 +211,14 @@ enum FuzzyMatcher {
     }
 
     /// Greedy subsequence matching (original algorithm).
-    @inlinable
-    static func fuzzySubsequenceMatch(
-        queryBytes: ContiguousArray<UInt8>,
-        candidateBytes: ContiguousArray<UInt8>,
-        queryCount: Int,
-        candidateCount: Int,
-        toLower: (UInt8) -> UInt8
+    private static func fuzzySubsequenceMatch<Unit: Equatable>(
+        query: ContiguousArray<Unit>,
+        candidate: ContiguousArray<Unit>,
+        normalize: (Unit) -> Unit,
+        isBoundary: (Unit) -> Bool
     ) -> FuzzyMatchResult {
+        let queryCount = query.count
+        let candidateCount = candidate.count
         var queryIdx = 0
         var candidateIdx = 0
         var score = 0
@@ -171,8 +228,8 @@ enum FuzzyMatcher {
         matchedIndices.reserveCapacity(queryCount)
 
         while queryIdx < queryCount, candidateIdx < candidateCount {
-            let qChar = toLower(queryBytes[queryIdx])
-            let cChar = toLower(candidateBytes[candidateIdx])
+            let qChar = normalize(query[queryIdx])
+            let cChar = normalize(candidate[candidateIdx])
 
             if qChar == cChar {
                 matchedIndices.append(candidateIdx)
@@ -191,11 +248,8 @@ enum FuzzyMatcher {
                 }
 
                 // Word boundary bonus (after space, dash, underscore)
-                if candidateIdx > 0 {
-                    let prevChar = candidateBytes[candidateIdx - 1]
-                    if prevChar == 32 || prevChar == 45 || prevChar == 95 { // ' ', '-', '_'
-                        score += 15
-                    }
+                if candidateIdx > 0, isBoundary(candidate[candidateIdx - 1]) {
+                    score += 15
                 }
 
                 queryIdx += 1
@@ -226,7 +280,7 @@ struct SearchResult {
 
 final class SearchService {
     private let indexer: ApplicationIndexer
-    private var cachedQuery: ContiguousArray<UInt8> = []
+    private var cachedQuery: FuzzyText?
     private var cachedCandidates: [ApplicationInfo] = []
     private var cachedIndexerRevision: UInt64?
 
@@ -239,7 +293,7 @@ final class SearchService {
     }
 
     func resetCache() {
-        cachedQuery = []
+        cachedQuery = nil
         cachedCandidates = []
         cachedIndexerRevision = nil
     }
@@ -262,23 +316,19 @@ final class SearchService {
             return []
         }
 
-        // Pre-compute lowercased query bytes once
-        let queryBytes = ContiguousArray(trimmedQuery.lowercased().utf8)
+        let query = FuzzyText(trimmedQuery)
         let snapshot = indexer.snapshot
         let candidates: [ApplicationInfo]
 
         // A rename or move can change the candidate set without changing its size.
         if snapshot.revision != cachedIndexerRevision {
-            cachedQuery = []
+            cachedQuery = nil
             cachedCandidates = []
             cachedIndexerRevision = snapshot.revision
         }
 
         // Use cached candidates if query is a refinement (prefix match)
-        if !cachedQuery.isEmpty, !cachedCandidates.isEmpty,
-           queryBytes.count >= cachedQuery.count,
-           queryBytes.prefix(cachedQuery.count).elementsEqual(cachedQuery)
-        {
+        if let cachedQuery, !cachedCandidates.isEmpty, query.hasPrefix(cachedQuery) {
             candidates = cachedCandidates
         } else {
             candidates = snapshot.applications
@@ -296,12 +346,9 @@ final class SearchService {
                 return []
             }
 
-            let displayMatch = FuzzyMatcher.matchWithIndicesUTF8(
-                queryBytes: queryBytes,
-                candidateBytes: app.normalizedNameBytes
-            )
-            let filenameScore = app.normalizedFilenameBytes.map {
-                FuzzyMatcher.matchWithIndicesUTF8(queryBytes: queryBytes, candidateBytes: $0).score
+            let displayMatch = FuzzyMatcher.matchWithIndices(query: query, candidate: app.searchableName)
+            let filenameScore = app.searchableFilename.map {
+                FuzzyMatcher.matchWithIndices(query: query, candidate: $0).score
             } ?? 0
             let score = max(displayMatch.score, filenameScore)
 
@@ -322,7 +369,7 @@ final class SearchService {
             return $0.application.isOrderedBefore($1.application)
         }
 
-        cachedQuery = queryBytes
+        cachedQuery = query
         cachedCandidates = results.map(\.application)
 
         return results

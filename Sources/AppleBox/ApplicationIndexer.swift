@@ -6,21 +6,21 @@ struct ApplicationInfo {
     let bundlePath: String
     /// Cached normalized name for fast matching.
     let normalizedName: String
-    /// Pre-computed lowercased UTF-8 bytes for O(1) fuzzy matching.
-    let normalizedNameBytes: ContiguousArray<UInt8>
+    /// Fold once per index entry so typing does not renormalize each installed app.
+    let searchableName: FuzzyText
     /// People may know the installed filename even when Finder displays a localized name.
     let normalizedFilename: String?
-    let normalizedFilenameBytes: ContiguousArray<UInt8>?
+    let searchableFilename: FuzzyText?
 
     init(name: String, bundlePath: String) {
         self.name = name
         self.bundlePath = bundlePath
         let normalized = name.lowercased()
         normalizedName = normalized
-        normalizedNameBytes = ContiguousArray(normalized.utf8)
+        searchableName = FuzzyText(name)
         let filename = URL(fileURLWithPath: bundlePath, isDirectory: true).deletingPathExtension().lastPathComponent.lowercased()
         normalizedFilename = filename == normalized ? nil : filename
-        normalizedFilenameBytes = normalizedFilename.map { ContiguousArray($0.utf8) }
+        searchableFilename = normalizedFilename.map(FuzzyText.init)
     }
 
     /// Keep copies with identical display names in a stable order across scans.
