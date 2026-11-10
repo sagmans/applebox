@@ -22,10 +22,11 @@ final class LauncherController: NSObject, NSWindowDelegate {
     /// The pending order-out after the close motion; kept so a quick reopen can cancel it.
     private var closeTask: Task<Void, Never>?
 
-    /// Whether the panel is on screen, for the hotkey toggle. A panel that is fading out counts as
-    /// hidden, so a second hotkey press reopens it instead of closing it twice.
+    /// Whether a launcher session is open, for the hotkey toggle. The model is the only source: it turns
+    /// false the moment `hide()` runs, so a panel that is fading out counts as hidden and a second hotkey
+    /// press reopens it instead of closing it twice. Reading the window as well would let the two drift.
     var isVisible: Bool {
-        panel.isVisible && closeTask == nil
+        model.isPresented
     }
 
     init(model: LauncherModel, iconProvider: AppIconProviding = SystemAppIconProvider()) {
@@ -72,10 +73,10 @@ final class LauncherController: NSObject, NSWindowDelegate {
         panel.dropsKeyEvents = false
         model.show(mode: mode)
         guard resizeAndPosition() else {
-            // Without a screen there is nowhere to draw; undo the session so the model does not think
-            // it is presented.
-            model.hide()
+            // Without a screen there is nowhere to draw. Take the normal close path, not just the model's:
+            // a panel still fading out from the last session is key, and would stay on screen orphaned.
             logger.error("show failed: no screen available, mode=\(String(describing: mode), privacy: .public)")
+            hide()
             return
         }
         panel.makeKeyAndOrderFront(nil)
@@ -130,16 +131,16 @@ final class LauncherController: NSObject, NSWindowDelegate {
 
     /// Click-away dismissal. A sheet taking key status is part of the launcher, so it must not close it.
     func windowDidResignKey(_ notification: Notification) {
-        guard notification.object as? NSWindow === panel, panel.attachedSheet == nil, closeTask == nil else { return }
+        guard notification.object as? NSWindow === panel, panel.attachedSheet == nil, model.isPresented else { return }
         hide()
     }
 
     /// Runs a reserved key as a model intent. Copy reports whether there was something to copy, so
     /// the panel can let the key through when there was not.
     private func handle(_ key: LauncherKey) -> Bool {
-        // Inert while closing: the session is over, so no key may act on it. Swallowing (true) also stops
-        // typed characters from reaching the field.
-        if closeTask != nil || !model.isPresented {
+        // Inert once the session is over, which includes the close fade: no key may act on it. Swallowing
+        // (true) also stops typed characters from reaching the field.
+        if !model.isPresented {
             return true
         }
         switch key {

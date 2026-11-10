@@ -315,6 +315,9 @@ final class LauncherModel {
     /// its stable identity at that moment, so later list changes cannot redirect the action.
     func activateSelection() {
         guard pendingSearchPreserves != nil, inFlightSearch != nil else {
+            // A waiter may still hold the token for one more hop after its search published. Taking the
+            // token here makes that waiter stand down, or this press and the waiter would both act.
+            pendingActivation = nil
             activateResolvedSelection()
             return
         }
