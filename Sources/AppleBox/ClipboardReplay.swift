@@ -9,7 +9,9 @@ final class ClipboardReplay {
     private let eventSource: EventSourceProtocol
     private let pasteDelay = DispatchTimeInterval.milliseconds(100)
     private let manualPasteMessage = "Copied. Press ⌘V to paste."
-    private let permissionPasteMessage = "Copied. Allow AppleBox in Accessibility settings to paste automatically."
+    /// Names the parent pane only: the permission sits under "Accessibility" on macOS 26 and under
+    /// "Device Control & Data Access" on macOS 27, and the app supports both.
+    private let permissionPasteMessage = "Copied. Allow AppleBox in Privacy & Security settings to paste automatically."
     private let copiedMessage = "Copied to Clipboard."
     private let changedClipboardMessage = "Clipboard changed before paste."
     private let copyFailureMessage = "Couldn't copy the clip. Try again."
@@ -21,7 +23,7 @@ final class ClipboardReplay {
     private var origin: NSRunningApplication?
     private var pendingPaste: DispatchWorkItem?
     private var feedback: ClipboardPasteFeedback?
-    /// Asking on every paste would nag; once per launch is enough to put the app in the Accessibility list.
+    /// Asking on every paste would nag; once per launch is enough to list the app in the paste permission pane.
     private var requestedPostAccess = false
 
     init(workspace: WorkspaceProtocol, pasteboard: PasteboardProtocol, eventSource: EventSourceProtocol) {

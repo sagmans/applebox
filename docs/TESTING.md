@@ -176,12 +176,17 @@ Accessibility tests ensure the UI works with VoiceOver and keyboard navigation.
 
 ### Paste permission (manual check)
 
-Automatic paste needs the Accessibility grant, which tests cannot give.
+Automatic paste needs the paste permission, which tests cannot give.
 `MockEventSource` stands in for it. To check the real prompt, run a dev build
 without the grant, open clipboard history, and press Return on a clip. The
-footer toast must say to allow AppleBox in Accessibility settings, and
-AppleBox must appear under System Settings, Privacy & Security, Accessibility.
-After you turn it on, Return pastes into the previous app.
+footer toast must say to allow AppleBox in Privacy & Security settings, and
+AppleBox must appear under System Settings, Privacy & Security, Device Control
+& Data Access (macOS 27) or Accessibility (macOS 26). After you turn it on,
+Return pastes into the previous app.
+
+To check that the grant survives a rebuild, sign with the local identity
+(`make local-signing` once), grant the permission, run `make install` again,
+and press Return on a clip. It must paste with no new grant.
 
 ---
 

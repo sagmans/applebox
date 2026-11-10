@@ -4,7 +4,7 @@ import CoreGraphics
 public protocol EventSourceProtocol {
     var canPostPaste: Bool { get }
 
-    /// Asks macOS to list the app under Accessibility so the user can grant paste. Without a request
+    /// Asks macOS to list the app in the paste permission pane so the user can grant paste. Without a request
     /// the app never appears there and the user cannot find what to enable.
     func requestPostAccess()
 
