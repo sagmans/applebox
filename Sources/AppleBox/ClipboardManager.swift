@@ -9,8 +9,9 @@ nonisolated enum ClipboardContentType: String, Codable, Sendable {
 }
 
 nonisolated struct ClipboardItem: Codable, Sendable {
-    /// Distinguish repeated copies without changing the on-disk history format.
-    let id = UUID()
+    /// Distinguish repeated copies, and name the clip's image file in `ClipboardImageStore`, so it is
+    /// archived and survives a restart. Archives written before it existed get a fresh id on load.
+    let id: UUID
     let content: String
     let timestamp: Date
     let contentType: ClipboardContentType
@@ -27,6 +28,7 @@ nonisolated struct ClipboardItem: Codable, Sendable {
     }
 
     init(content: String, sourceBundleID: String? = nil) {
+        id = UUID()
         self.content = content
         timestamp = Date()
         contentType = .text
@@ -35,6 +37,7 @@ nonisolated struct ClipboardItem: Codable, Sendable {
     }
 
     init(imageData: Data, sourceBundleID: String? = nil) {
+        id = UUID()
         content = "[Image]"
         timestamp = Date()
         contentType = .image
@@ -42,10 +45,21 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         self.sourceBundleID = sourceBundleID
     }
 
+    /// Rebuilds a clip read back from the archive, keeping its id so its image file stays attached.
+    init(id: UUID, content: String, timestamp: Date, contentType: ClipboardContentType, imageData: String?, sourceBundleID: String?) {
+        self.id = id
+        self.content = content
+        self.timestamp = timestamp
+        self.contentType = contentType
+        self.imageData = imageData
+        self.sourceBundleID = sourceBundleID
+    }
+
     /// Decoded by hand so an archive written before `sourceBundleID` existed still loads; a missing key
     /// must mean "unknown source", never a failed load that would drop the user's whole history.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = UUID()
         content = try container.decode(String.self, forKey: .content)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         contentType = try container.decode(ClipboardContentType.self, forKey: .contentType)
@@ -76,7 +90,8 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         return (data, type)
     }
 
-    private var imageBytes: Data? {
+    /// Internal so persistence can write the original bytes to the clip's image file.
+    var imageBytes: Data? {
         guard contentType == .image, let imageData else { return nil }
         return Data(base64Encoded: imageData)
     }
@@ -97,7 +112,8 @@ nonisolated enum ClipboardHistoryLimits {
     static let textBytes = 256 * kibibyte
     static let imageBytes = 8 * mebibyte
     private static let base64ImageBytes = base64GroupWidth * ((imageBytes + base64GroupBytes - 1) / base64GroupBytes)
-    private static let payloadBudget = 32 * mebibyte
+    /// Internal so the archive load can stop reading image files once retention could keep no more.
+    static let payloadBudget = 32 * mebibyte
     static let archiveReadLimit = 64 * mebibyte
     static let expirySweepInterval: TimeInterval = 60 * 60
 
@@ -142,8 +158,9 @@ private nonisolated enum ClipboardStorageError: Error {
 /// History and persistence run on private dispatch queues, so the type opts out of default
 /// main-actor isolation and only the pasteboard and timer entry points are `@MainActor`.
 /// `@unchecked Sendable` is safe because `history` is only touched through `historyQueue`,
-/// `storageWritesAllowed` only on `persistenceQueue` (after init), and the remaining mutable state
-/// (`isCapturePaused`, `lastChangeCount`, `readAccess`, the timers) only from `@MainActor` members.
+/// `storageWritesAllowed`, `pendingSave` and `persistedImageIDs` only on `persistenceQueue` (after
+/// init), and the remaining mutable state (`isCapturePaused`, `lastChangeCount`, `readAccess`, the
+/// timers) only from `@MainActor` members.
 final nonisolated class ClipboardManager: @unchecked Sendable {
     static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
     /// Posted after history changes so views refresh without polling; shared so poster and observers cannot drift.
@@ -154,6 +171,9 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     /// so only the on-disk removal waits a few minutes against a retention of days, and the slack lets macOS
     /// fold the wakeup into one it already has; Apple's energy guide suggests at least 10%.
     private static let expiryToleranceFraction = 0.1
+    /// How long a save waits for more copies. A burst of copies then costs one write, and quitting
+    /// flushes the wait, so only a crash inside this window can lose the newest copies.
+    private static let saveCoalescingDelay: DispatchTimeInterval = .milliseconds(500)
     /// Longest bundle id accepted from a pasteboard declaration. The source is written by other apps, so
     /// anything longer than a real bundle id is not trusted or stored.
     private static let maximumBundleIDLength = 255
@@ -220,6 +240,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     private var monitoringTimer: Timer?
     private var expiryTimer: Timer?
     private let storageURL: URL?
+    private let imageStore: ClipboardImageStore?
 
     private let historyQueue = DispatchQueue(label: "applebox.clipboard.history", qos: .userInitiated)
     private var history: [ClipboardItem] = []
@@ -228,13 +249,23 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
 
     private let persistenceQueue = DispatchQueue(label: "applebox.clipboard.persistence", qos: .utility)
     private var storageWritesAllowed = true
+    /// The save waiting out `saveCoalescingDelay`; while it is set, later changes ride along with it.
+    private var pendingSave: DispatchWorkItem?
+    /// Image clips whose file is known to be on disk, so a save writes only new images and deletes the
+    /// files of clips it no longer archives.
+    private var persistedImageIDs = Set<UUID>()
 
     /// File location for persistent storage
     private let fileName = "clipboard_history.json"
 
-    /// Drain any queued persistence work. Useful for deterministic tests and app shutdown.
+    /// Write a coalesced save now instead of after its delay, and drain other queued persistence work.
+    /// App shutdown calls it so the newest copies are not lost; tests call it for deterministic writes.
     func flushPendingPersistence() {
-        persistenceQueue.sync {}
+        persistenceQueue.sync {
+            guard let save = pendingSave else { return }
+            save.cancel()
+            runPendingSave()
+        }
     }
 
     @MainActor
@@ -255,9 +286,12 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         isCapturePaused = capturePreferences?.bool(forKey: Self.capturePausedKey) ?? false
 
         // Store in Application Support directory
-        storageURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        let folder = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("AppleBox", isDirectory: true)
-            .appendingPathComponent(fileName)
+        storageURL = folder?.appendingPathComponent(fileName)
+        imageStore = folder.map {
+            ClipboardImageStore(directory: $0.appendingPathComponent(ClipboardImageStore.directoryName, isDirectory: true), fileSystem: fileSystem)
+        }
         prepareStorage()
 
         if loadSynchronously {
@@ -325,6 +359,10 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
             do {
                 try persistHistory(retained, replaceUnreadableArchive: replaceUnreadableArchive)
                 storageWritesAllowed = true
+                if case .all = removal {
+                    // A clear also removes image files an unreadable archive or a crash left behind.
+                    removeUnreferencedImages(keeping: persistedImageIDs)
+                }
                 // Copies arriving during the write have different identities and must survive it.
                 historyQueue.sync { history.removeAll { removedIDs.contains($0.id) } }
                 postHistoryUpdated()
@@ -529,27 +567,72 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         }
     }
 
+    /// Schedules one save for every change made within `saveCoalescingDelay`. The save reads history
+    /// when it runs, so it always writes the newest state.
     private func saveHistoryAsync() {
         persistenceQueue.async { [self] in
-            guard storageWritesAllowed else { return }
-            // A save queued during startup must include history loaded ahead of it.
+            guard pendingSave == nil else { return }
+            let save = DispatchWorkItem { [self] in runPendingSave() }
+            pendingSave = save
+            persistenceQueue.asyncAfter(deadline: .now() + Self.saveCoalescingDelay, execute: save)
+        }
+    }
+
+    /// Runs on `persistenceQueue`, from the delayed work item or from a flush.
+    private func runPendingSave() {
+        pendingSave = nil
+        guard storageWritesAllowed else { return }
+        // A save queued during startup must include history loaded ahead of it.
+        do {
+            try persistHistory(getHistory())
+        } catch {
+            logStorageFailure(error, operation: "save")
+        }
+    }
+
+    /// Writes new image files first and the archive second, and deletes stale image files last. A crash
+    /// at any point leaves an archive whose images all exist; extra files are swept on the next load.
+    private func persistHistory(_ snapshot: [ClipboardItem], replaceUnreadableArchive: Bool = false) throws {
+        // Only an explicitly confirmed clear can replace an unreadable archive.
+        guard storageWritesAllowed || replaceUnreadableArchive, let storageURL, let imageStore else { throw ClipboardStorageError.unavailable }
+        let data = try ClipboardHistoryArchive.encode(snapshot)
+        guard data.count <= ClipboardHistoryLimits.archiveReadLimit else { throw ClipboardStorageError.archiveTooLarge }
+        // A folder deleted while the app runs took the files with it; writing every image again keeps the
+        // archive from naming files that no longer exist.
+        if !imageStore.directoryExists {
+            persistedImageIDs.removeAll()
+        }
+        var archivedImageIDs = Set<UUID>()
+        for item in snapshot where item.contentType == .image {
+            // Checked before decoding, because decoding every image on each save costs more than the write.
+            if persistedImageIDs.contains(item.id) {
+                archivedImageIDs.insert(item.id)
+                continue
+            }
+            guard let bytes = item.imageBytes else { continue }
+            try imageStore.write(bytes, for: item.id)
+            archivedImageIDs.insert(item.id)
+        }
+        try fileSystem.writePrivateFile(data, to: storageURL)
+        let staleImageIDs = persistedImageIDs.subtracting(archivedImageIDs)
+        persistedImageIDs = archivedImageIDs
+        for id in staleImageIDs {
             do {
-                try persistHistory(getHistory())
+                try imageStore.remove(id)
             } catch {
-                logStorageFailure(error, operation: "save")
+                // The archive no longer names the file, so the next load's sweep retries the delete.
+                logStorageFailure(error, operation: "remove image")
             }
         }
     }
 
-    private func persistHistory(_ snapshot: [ClipboardItem], replaceUnreadableArchive: Bool = false) throws {
-        // Only an explicitly confirmed clear can replace an unreadable archive.
-        guard storageWritesAllowed || replaceUnreadableArchive, let storageURL else { throw ClipboardStorageError.unavailable }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        let data = try encoder.encode(snapshot)
-        guard data.count <= ClipboardHistoryLimits.archiveReadLimit else { throw ClipboardStorageError.archiveTooLarge }
-        try fileSystem.writePrivateFile(data, to: storageURL)
+    /// A failed sweep only leaves unreferenced files behind, so it is logged and never blocks history.
+    private func removeUnreferencedImages(keeping kept: Set<UUID>) {
+        do {
+            try imageStore?.removeAll(except: kept)
+        } catch {
+            logStorageFailure(error, operation: "sweep images")
+        }
     }
 
     private func loadHistoryAsync() {
@@ -579,18 +662,21 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         }
     }
 
+    /// `pruned` asks for a save: clips were dropped, or the archive was written by an earlier version and
+    /// its inline images must move to their own files.
     private func loadHistoryFromDisk() -> (items: [ClipboardItem], pruned: Bool) {
-        guard storageWritesAllowed, let storageURL else { return ([], false) }
+        guard storageWritesAllowed, let storageURL, let imageStore else { return ([], false) }
 
         do {
             guard let data = try fileSystem.readPrivateFile(at: storageURL, maximumBytes: ClipboardHistoryLimits.archiveReadLimit) else {
+                removeUnreferencedImages(keeping: [])
                 return ([], false)
             }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let stored = try decoder.decode([ClipboardItem].self, from: data)
-            let retained = ClipboardHistoryLimits.retained(stored)
-            return (retained, retained.count != stored.count)
+            let restored = try ClipboardHistoryArchive.restore(ClipboardHistoryArchive.decode(data), images: imageStore)
+            persistedImageIDs = restored.storedImageIDs
+            removeUnreferencedImages(keeping: restored.storedImageIDs)
+            let retained = ClipboardHistoryLimits.retained(restored.items)
+            return (retained, restored.needsRewrite || retained.count != restored.items.count)
         } catch {
             // A failed migration must not let later copies overwrite the old archive.
             storageWritesAllowed = false

@@ -47,6 +47,9 @@ public nonisolated protocol FileSystemProtocol: Sendable {
 
     /// Replace a clipboard archive without exposing its temporary file or following links.
     func writePrivateFile(_ data: Data, to url: URL) throws
+
+    /// Delete a clipboard file inside the owner-only folder; a file that is already gone is not an error.
+    func removePrivateFile(at url: URL) throws
 }
 
 /// Extension to provide default implementations for overloaded methods

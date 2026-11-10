@@ -42,9 +42,19 @@ The preview header shows that app's icon and name, and VoiceOver reads it as
 "Copied from" followed by the app name. When you paste or copy a saved
 clip again, AppleBox passes the same source on to the clipboard.
 
-The history directory and file are owner-only. AppleBox reads up to 64 MiB
-from an existing archive. If it cannot read or migrate that archive, it
-keeps the file intact and captures new clips for the current session.
+The history directory and file are owner-only. The archive holds clip text
+and details only. Each image is a separate owner-only file in the
+`clipboard_images` folder next to it, named by the clip's ID, and is deleted
+when its clip is deleted, expires, or leaves the history. AppleBox saves
+history at most twice a second, and it saves any pending change when it quits.
+
+AppleBox reads up to 64 MiB from an existing archive and up to 8 MiB from
+each image file. An archive from an earlier version, which held images
+inside it, is converted on the first launch, and every clip stays. Going
+back to an earlier version is not supported: it shows image clips without
+their images, and the images are lost when it saves history. If
+AppleBox cannot read or migrate the archive or one of its image files, it
+keeps the files intact and captures new clips for the current session.
 
 Right-click a clip and choose **Delete Clip** to remove that entry. Choose
 **Clear History…** and confirm to remove all saved clips. Both actions leave

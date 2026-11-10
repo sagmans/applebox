@@ -138,6 +138,14 @@ extension SystemFileManager {
         guard renameat(directory, temporaryName, directory, url.lastPathComponent) == 0 else { throw posixFailure() }
     }
 
+    /// Deletes an image file of an evicted or cleared clip; a missing file already has the wanted result.
+    public func removePrivateFile(at url: URL) throws {
+        // Unlink relative to the verified folder, so a swapped parent path cannot redirect the delete.
+        let directory = try openPrivateDirectory(for: url)
+        defer { close(directory) }
+        guard unlinkat(directory, url.lastPathComponent, 0) == 0 || errno == ENOENT else { throw posixFailure() }
+    }
+
     private func openPrivateDirectory(for url: URL) throws -> Int32 {
         let directory = open(url.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard directory >= 0 else { throw posixFailure() }

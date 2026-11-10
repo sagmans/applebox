@@ -197,6 +197,12 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         try write(data, to: url, options: [.atomic])
     }
 
+    func removePrivateFile(at url: URL) throws {
+        fileContents[url.path] = nil
+        existingFiles[url.path] = nil
+        directoryFlags[url.path] = nil
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations
