@@ -33,18 +33,35 @@ struct FooterBar: View {
     @ViewBuilder
     private var hints: some View {
         if hasSelection {
-            hint(symbols: [DesignTokens.Symbol.returnKey], action: model.mode == .clipboard ? DesignTokens.Copy.actionPaste : DesignTokens.Copy.actionOpen)
+            hint(keys: [.symbol(DesignTokens.Symbol.returnKey)], action: model.mode == .clipboard ? DesignTokens.Copy.actionPaste : DesignTokens.Copy.actionOpen)
             if model.mode == .clipboard {
-                hint(symbols: [DesignTokens.Symbol.optionKey, DesignTokens.Symbol.returnKey], action: DesignTokens.Copy.actionCopy)
+                hint(keys: [.symbol(DesignTokens.Symbol.optionKey), .symbol(DesignTokens.Symbol.returnKey)], action: DesignTokens.Copy.actionCopy)
             }
         }
-        hint(symbols: [DesignTokens.Symbol.escapeKey], action: DesignTokens.Copy.actionClose)
+        hint(keys: [.text(DesignTokens.Copy.escapeKeyCap, spokenAs: DesignTokens.Copy.escapeKeySpoken)], action: DesignTokens.Copy.actionClose)
     }
 
-    private func hint(symbols: [String], action: String) -> some View {
+    /// A key cap is a symbol where the system has a clear one, and text where it does not: the `escape`
+    /// symbol renders as a clock-arrow glyph that does not read as the Esc key.
+    private enum KeyCap: Hashable {
+        case symbol(String)
+        case text(String, spokenAs: String)
+    }
+
+    @ViewBuilder
+    private func keyCap(_ cap: KeyCap) -> some View {
+        switch cap {
+        case let .symbol(name):
+            Image(systemName: name)
+        case let .text(label, spokenAs):
+            Text(label).accessibilityLabel(spokenAs)
+        }
+    }
+
+    private func hint(keys: [KeyCap], action: String) -> some View {
         HStack(spacing: DesignTokens.Metrics.hintSpacing) {
-            ForEach(symbols, id: \.self) { symbol in
-                Image(systemName: symbol)
+            ForEach(keys, id: \.self) { key in
+                keyCap(key)
                     .padding(DesignTokens.Metrics.keyCapPadding)
                     .launcherGlass(.clear, in: .capsule)
             }

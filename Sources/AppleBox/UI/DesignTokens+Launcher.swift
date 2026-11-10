@@ -12,6 +12,10 @@ extension DesignTokens.Copy {
     static let actionPaste = "Paste"
     static let actionCopy = "Copy"
     static let actionClose = "Close"
+    /// Text on the Esc key cap, because the `escape` SF Symbol does not look like the key.
+    static let escapeKeyCap = "esc"
+    /// What VoiceOver says for the Esc key cap, since "esc" alone is not a word.
+    static let escapeKeySpoken = "Escape"
     /// Shown instead of a preview image when the stored bytes cannot be decoded, so the pane never looks
     /// like it is still loading.
     static let imageUnavailable = "Image unavailable"
@@ -46,9 +50,9 @@ extension DesignTokens.Copy {
         "\(index) of \(count)"
     }
 
-    /// Size of a text clip for the preview header.
+    /// Size of a text clip for the preview header. Grouped by locale so long clips stay readable.
     static func characterCount(_ count: Int) -> String {
-        "\(count) characters"
+        "\(count.formatted()) characters"
     }
 
     /// Size of an image clip for the preview header.
@@ -112,7 +116,6 @@ extension DesignTokens {
         /// Footer key caps.
         static let returnKey = "return"
         static let optionKey = "option"
-        static let escapeKey = "escape"
         /// Footer status icons, one per severity.
         static let info = "info.circle"
         static let warning = "exclamationmark.triangle.fill"
