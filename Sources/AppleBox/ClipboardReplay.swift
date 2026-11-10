@@ -1,5 +1,6 @@
 import AppKit
 import OSLog
+import SwiftUI
 
 /// Keep ownership of the clipboard and the intended app tied to a single replay.
 final class ClipboardReplay {
@@ -47,13 +48,13 @@ final class ClipboardReplay {
             : item.imageRepresentation()
         guard let representation else {
             logger.error("Cannot replay clipboard history image with invalid or unsupported data")
-            showFeedback(copyFailureMessage)
+            showFeedback(copyFailureMessage, kind: .failure)
             return
         }
 
         guard let ownership = pasteboard.replayData(representation.data, forType: representation.type) else {
             logger.error("Clipboard history replay could not take pasteboard ownership")
-            showFeedback(copyFailureMessage)
+            showFeedback(copyFailureMessage, kind: .failure)
             return
         }
 
@@ -62,7 +63,7 @@ final class ClipboardReplay {
 
         // Copy-only requires pasteboard ownership but no permission to send keyboard events.
         guard pasteAutomatically else {
-            showFeedback(copiedMessage)
+            showFeedback(copiedMessage, kind: .confirmation)
             return
         }
 
@@ -79,7 +80,7 @@ final class ClipboardReplay {
         let canPost = eventSource.canPostPaste
         guard pasteboard.changeCount == ownership else {
             logger.debug("Clipboard history paste skipped after the clipboard changed")
-            showFeedback(changedClipboardMessage)
+            showFeedback(changedClipboardMessage, kind: .failure)
             return
         }
 
@@ -89,7 +90,7 @@ final class ClipboardReplay {
                 eventSource.requestPostAccess()
             }
             logger.info("Clipboard history paste unavailable: no permission to post keyboard events")
-            showFeedback(permissionPasteMessage)
+            showFeedback(permissionPasteMessage, kind: .guidance)
             return
         }
 
@@ -101,71 +102,88 @@ final class ClipboardReplay {
               eventSource.postPaste(to: target.processIdentifier)
         else {
             logger.info("Clipboard history paste unavailable: no verified target; the clip is available for manual paste")
-            showFeedback(manualPasteMessage)
+            showFeedback(manualPasteMessage, kind: .confirmation)
             return
         }
         logger.debug("Requested paste in the originating app")
     }
 
-    private func showFeedback(_ message: String) {
+    private func showFeedback(_ message: String, kind: PasteToastKind) {
         let feedback = feedback ?? ClipboardPasteFeedback()
         self.feedback = feedback
-        feedback.show(message)
+        feedback.show(message, kind: kind)
     }
 }
 
 /// Keep fallback instructions visible without taking focus from the destination.
 private final class ClipboardPasteFeedback {
-    /// Wide enough for the longest message on one line, which is the permission hint.
-    private static let size = NSSize(width: 520, height: 44)
     private let bottomInset: CGFloat = 32
-    private let lifetime = DispatchTimeInterval.seconds(3)
-    private let label = NSTextField(labelWithString: "")
+    private let state = PasteToastState()
+    private let host: NSHostingView<PasteToastView>
     private let panel = NSPanel(
-        contentRect: NSRect(origin: .zero, size: size),
+        contentRect: .zero,
         styleMask: [.borderless, .nonactivatingPanel],
         backing: .buffered,
         defer: false
     )
-    private var dismissal: DispatchWorkItem?
+    private var dismissal: Task<Void, Never>?
 
     init() {
+        host = NSHostingView(rootView: PasteToastView(state: state))
         panel.level = .floating
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
-        panel.hasShadow = true
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        if let content = panel.contentView {
-            content.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            ])
-        }
+        // The glass capsule is not rectangular, so a window shadow or background would show square corners.
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.contentView = host
     }
 
-    func show(_ message: String) {
+    func show(_ message: String, kind: PasteToastKind) {
         hide()
         guard let frame = NSScreen.main?.visibleFrame else { return }
-        label.stringValue = message
-        panel.setFrameOrigin(NSPoint(x: frame.midX - Self.size.width / 2, y: frame.minY + bottomInset))
+        state.message = message
+        state.kind = kind
+
+        // The panel must fit the wrapped text, so it is measured after the message is set.
+        let size = host.fittingSize
+        panel.setContentSize(size)
+        panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.minY + bottomInset))
 
         // The launcher hides the application during replay. The notice must not restore focus.
         if NSApp.isHidden {
             NSApp.unhideWithoutActivation()
         }
         panel.orderFrontRegardless()
+        state.visible = true
 
-        let dismissal = DispatchWorkItem { [weak self] in self?.hide() }
-        self.dismissal = dismissal
-        DispatchQueue.main.asyncAfter(deadline: .now() + lifetime, execute: dismissal)
+        // VoiceOver users get no focus change from a non-activating panel, so the notice is announced.
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue]
+        )
+
+        dismissal = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: kind.lifetime)
+            guard !Task.isCancelled else { return }
+            await self?.fadeOut()
+        }
+    }
+
+    /// Fades first so the notice never vanishes abruptly, then removes the panel once the fade is done.
+    private func fadeOut() async {
+        state.visible = false
+        try? await Task.sleep(for: .seconds(PasteToastMetrics.fadeOut))
+        guard !Task.isCancelled, !state.visible else { return }
+        panel.orderOut(nil)
     }
 
     func hide() {
         dismissal?.cancel()
         dismissal = nil
+        state.visible = false
         panel.orderOut(nil)
     }
 }
