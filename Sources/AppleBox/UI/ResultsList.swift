@@ -42,6 +42,27 @@ struct ResultsList: View {
         DesignTokens.motion(DesignTokens.Motion.selection, reduceMotion: reduceMotion)
     }
 
+    /// Only the first rows are staggered, so a long list settles as fast as a short one.
+    private func arrival(at index: Int) -> AnyTransition {
+        guard index < DesignTokens.Motion.rowStaggerLimit else { return .identity }
+        if reduceMotion {
+            return .opacity.animation(.easeInOut(duration: DesignTokens.Motion.reducedFade))
+        }
+        let delay = Double(index) * DesignTokens.Motion.rowStagger
+        let rise = Animation.easeOut(duration: DesignTokens.Motion.rowRiseDuration).delay(delay)
+        // Removal is immediate: rows leaving while the user types must not hold the new results back.
+        return .asymmetric(
+            insertion: .offset(y: DesignTokens.Motion.rowRise).combined(with: .opacity).animation(rise),
+            removal: .identity
+        )
+    }
+
+    /// Identity of the shown rows. Animating on it, and not on selection, keeps a held arrow key free of
+    /// stagger work: moving the highlight never changes the set.
+    private var shownIDs: [AnyHashable] {
+        model.mode == .clipboard ? model.clips.rows.map(\.id) : model.apps.rows.map(\.id)
+    }
+
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -55,6 +76,7 @@ struct ResultsList: View {
                             container(index: index, id: row.id) {
                                 AppRow(data: row, isSelected: model.selection == index).equatable()
                             }
+                            .transition(arrival(at: index))
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
                             .accessibilityHint(Self.rowHint(for: .applications))
@@ -67,6 +89,7 @@ struct ResultsList: View {
                             container(index: index, id: row.id) {
                                 ClipRow(data: row, isSelected: model.selection == index, thumbnail: thumbnail(for: row), reference: referenceDate).equatable()
                             }
+                            .transition(arrival(at: index))
                             .accessibilityIdentifier(DesignTokens.Identifier.clipboardRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.preview, subtitle: nil, index: index, count: model.resultCount))
                             .accessibilityHint(Self.rowHint(for: .clipboard))
@@ -75,6 +98,9 @@ struct ResultsList: View {
                     }
                 }
                 .padding(DesignTokens.Metrics.listInset)
+                // Opens the transaction that lets the per-row arrival transitions run; rows that stay
+                // keep their place, since only their own transition carries timing.
+                .animation(.linear(duration: 0), value: shownIDs)
             }
             .onChange(of: model.selection) { _, selected in
                 guard let selected, let id = rowID(at: selected) else { return }

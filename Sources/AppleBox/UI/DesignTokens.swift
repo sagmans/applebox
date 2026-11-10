@@ -122,6 +122,8 @@ enum DesignTokens {
         static let rowStaggerLimit = 8
         /// Distance in points a row rises while appearing.
         static let rowRise: CGFloat = 4
+        /// Duration in seconds of one row's rise; short so the last staggered row still lands quickly.
+        static let rowRiseDuration = 0.18
         /// Distance in points an error message rises while appearing.
         static let errorRise: CGFloat = 6
         /// Fade time in seconds that replaces motion when the user asks for reduced motion.
