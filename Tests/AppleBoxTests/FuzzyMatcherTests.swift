@@ -273,4 +273,28 @@ final class FuzzyMatcherTests: XCTestCase {
         XCTAssertGreaterThan(result.score, 0)
         XCTAssertEqual(result.matchedIndices, [5, 6, 7, 8]) // "calc" in "calculateTotal"
     }
+
+    // MARK: - Match runs (ported from WindowManagerTests highlight assertions)
+
+    func testMatchRunsCoverExactSubstringAsSingleRun() throws {
+        let content = "test [main] string"
+        let result = FuzzyMatcher.matchWithIndices(query: "[main]", candidate: content)
+
+        let runs = matchRuns(in: content, indices: result.matchedIndices)
+
+        XCTAssertEqual(runs.count, 1, "Contiguous indices should form one run")
+        let run = try XCTUnwrap(runs.first)
+        XCTAssertEqual(String(content[run.range]), "[main]")
+    }
+
+    func testMatchRunsPointAtFirstBranchOccurrence() throws {
+        let content = "[13:52:52] [~/source/me/dotf][main] (~6, ?1)"
+        let result = FuzzyMatcher.matchWithIndices(query: "[main]", candidate: content)
+
+        let runs = matchRuns(in: content, indices: result.matchedIndices)
+
+        XCTAssertEqual(runs.count, 1)
+        let run = try XCTUnwrap(runs.first)
+        XCTAssertEqual(String(content[run.range]), "[main]", "Highlighted indices should point to '[main]'")
+    }
 }

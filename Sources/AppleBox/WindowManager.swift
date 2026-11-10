@@ -865,7 +865,7 @@ class WindowManager: NSObject {
             textView.textContainerInset = NSSize(width: 4, height: 4)
 
             // Smart formatting: monospace for code-like content
-            let font = isCodeLike(item.content)
+            let font = ClipKind.isCodeLike(item.content)
                 ? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
                 : NSFont.systemFont(ofSize: 13)
 
@@ -941,36 +941,6 @@ class WindowManager: NSObject {
         scrollView.contentView.scroll(to: savedScrollOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         textView.setSelectedRange(savedSelection)
-    }
-
-    /// Heuristic to detect code-like content for monospace formatting.
-    /// Detects: common code patterns, indentation, brackets, semicolons, etc.
-    private func isCodeLike(_ text: String) -> Bool {
-        // Code indicators
-        let codePatterns = [
-            "func ", "class ", "struct ", "enum ", "let ", "var ", "import ", // Swift
-            "function ", "const ", "=>", "===", "!==", // JavaScript
-            "def ", "if __name__", "import ", "from ", // Python
-            "{", "}", "[", "]", "();", "();", "->", "::", // Common syntax
-        ]
-
-        let lowercased = text.lowercased()
-
-        // Check for code patterns
-        for pattern in codePatterns {
-            if lowercased.contains(pattern.lowercased()) {
-                return true
-            }
-        }
-
-        // Check for indentation (multiple leading spaces/tabs on lines)
-        let lines = text.components(separatedBy: "\n")
-        let indentedLines = lines.filter { $0.hasPrefix("  ") || $0.hasPrefix("\t") }
-        if indentedLines.count > 2 {
-            return true
-        }
-
-        return false
     }
 
     func toggle(mode: SearchMode? = nil) {
