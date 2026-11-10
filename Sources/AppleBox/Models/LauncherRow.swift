@@ -14,14 +14,16 @@ nonisolated struct MatchRun: Equatable, Sendable {
 /// are tolerated because callers pass matcher output that may be stale for the text.
 nonisolated func matchRuns(in text: String, indices: [Int]) -> [MatchRun] {
     let wanted = Set(indices.filter { $0 >= 0 })
-    guard !wanted.isEmpty else { return [] }
+    // Offsets past the last wanted one can neither start nor extend a run, so the walk stops there
+    // instead of crossing the rest of a clip that can be 256 KiB, on the main actor, per keystroke.
+    guard let last = wanted.max() else { return [] }
 
     var runs: [MatchRun] = []
     var runStart: String.Index?
     var offset = 0
     var index = text.startIndex
 
-    while index < text.endIndex {
+    while index < text.endIndex, offset <= last {
         let next = text.index(after: index)
         if wanted.contains(offset) {
             if runStart == nil {
@@ -34,8 +36,9 @@ nonisolated func matchRuns(in text: String, indices: [Int]) -> [MatchRun] {
         index = next
         offset += 1
     }
+    // The walk ends at the text's end or just past the last wanted offset; either way `index` closes the run.
     if let start = runStart {
-        runs.append(MatchRun(range: start ..< text.endIndex))
+        runs.append(MatchRun(range: start ..< index))
     }
     return runs
 }

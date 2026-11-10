@@ -3,9 +3,9 @@ import SwiftUI
 
 /// Read-only, selectable text for the preview pane.
 ///
-/// A clip can be 256 KiB, so the attributed string is rebuilt only when the clip, its match offsets or
-/// its font change. Typing in the search field republishes the model constantly, and re-laying out that
-/// much text on every keystroke would stall the field.
+/// A clip can be 256 KiB, so the attributed string is rebuilt only when the clip or its font changes, and
+/// a highlight change restyles only the affected ranges. Typing in the search field republishes the model
+/// constantly, and re-laying out that much text on every keystroke would stall the field.
 struct PreviewTextView: NSViewRepresentable {
     /// Identity of the clip; the cheap key that decides whether the text must be rebuilt.
     let itemID: UUID
@@ -68,56 +68,78 @@ struct PreviewTextView: NSViewRepresentable {
         private var shownID: UUID?
         private var shownIndices: [Int] = []
         private var shownMonospaced: Bool?
+        /// Highlighted ranges now in the text storage, so a highlight change can restyle only them.
+        private var shownRanges: [NSRange] = []
 
-        /// Rebuilds the text only when the clip, offsets or font style differ from what is on screen.
-        /// A different clip also returns to the top; the same clip keeps the user's scroll position
-        /// while its highlights change.
+        /// Rebuilds the text only when the clip or its font style changes. A keystroke that changes only
+        /// the highlights restyles the old and new match ranges on the text already shown, because
+        /// rebuilding a 256 KiB attributed string per keystroke stalls typing. A different clip also
+        /// returns to the top; the same clip keeps the user's scroll position while its highlights change.
         func apply(_ view: PreviewTextView) {
-            guard let textView else { return }
+            guard let textView, let storage = textView.textStorage else { return }
             let isNewItem = shownID != view.itemID
-            guard isNewItem || shownIndices != view.matchedIndices || shownMonospaced != view.isMonospaced else { return }
-            shownID = view.itemID
+            let needsRebuild = isNewItem || shownMonospaced != view.isMonospaced
+            guard needsRebuild || shownIndices != view.matchedIndices else { return }
             shownIndices = view.matchedIndices
-            shownMonospaced = view.isMonospaced
+            let ranges = matchRuns(in: view.content, indices: view.matchedIndices)
+                .map { NSRange($0.range, in: view.content) }
+            let styles = PreviewTextStyles(for: view)
 
-            textView.textStorage?.setAttributedString(Self.attributedString(for: view))
+            if needsRebuild {
+                shownID = view.itemID
+                shownMonospaced = view.isMonospaced
+                storage.setAttributedString(NSAttributedString(string: view.content, attributes: styles.base))
+                shownRanges = []
+            } else if ranges == shownRanges {
+                return
+            }
+
+            storage.beginEditing()
+            for range in shownRanges {
+                storage.setAttributes(styles.base, range: range)
+            }
+            for range in ranges {
+                storage.setAttributes(styles.match, range: range)
+            }
+            storage.endEditing()
+            shownRanges = ranges
+
             if isNewItem {
                 textView.scrollToBeginningOfDocument(nil)
             }
         }
+    }
+}
 
-        /// Matches use the same tint and weight as list rows so a highlight means one thing. The soft
-        /// underlay is kept here only: in a long scrolling body, weight alone is too easy to miss.
-        private static func attributedString(for view: PreviewTextView) -> NSAttributedString {
-            let font = Self.font(weight: DesignTokens.PreviewText.baseWeight, monospaced: view.isMonospaced)
-            let result = NSMutableAttributedString(string: view.content, attributes: [
-                .font: font,
-                .foregroundColor: NSColor.labelColor,
-            ])
-            let matchFont = Self.font(weight: DesignTokens.PreviewText.matchWeight, monospaced: view.isMonospaced)
-            let tint = NSColor(view.tint)
-            let underlay = NSColor(view.tint.opacity(DesignTokens.Palette.matchUnderlayOpacity))
-            for run in matchRuns(in: view.content, indices: view.matchedIndices) {
-                result.addAttributes([
-                    .font: matchFont,
-                    .foregroundColor: tint,
-                    .backgroundColor: underlay,
-                ], range: NSRange(run.range, in: view.content))
-            }
-            return result
-        }
+/// Attributes of plain and matched preview text. Matches use the same tint and weight as list rows so a
+/// highlight means one thing. The soft underlay is kept here only: in a long scrolling body, weight alone
+/// is too easy to miss.
+private struct PreviewTextStyles {
+    let base: [NSAttributedString.Key: Any]
+    let match: [NSAttributedString.Key: Any]
 
-        /// Derived from the body text style's descriptor rather than a point size, so the pane follows the
-        /// same scale as the SwiftUI views; SF Mono is used only for code clips.
-        private static func font(weight: NSFont.Weight, monospaced: Bool) -> NSFont {
-            let base = NSFont.preferredFont(forTextStyle: DesignTokens.PreviewText.textStyle)
-            var descriptor = base.fontDescriptor
-            if monospaced, let mono = descriptor.withDesign(.monospaced) {
-                descriptor = mono
-            }
-            descriptor = descriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight]])
-            // Size zero keeps the descriptor's own size, so no point size is chosen here.
-            return NSFont(descriptor: descriptor, size: 0) ?? base
+    init(for view: PreviewTextView) {
+        base = [
+            .font: Self.font(weight: DesignTokens.PreviewText.baseWeight, monospaced: view.isMonospaced),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        match = [
+            .font: Self.font(weight: DesignTokens.PreviewText.matchWeight, monospaced: view.isMonospaced),
+            .foregroundColor: NSColor(view.tint),
+            .backgroundColor: NSColor(view.tint.opacity(DesignTokens.Palette.matchUnderlayOpacity)),
+        ]
+    }
+
+    /// Derived from the body text style's descriptor rather than a point size, so the pane follows the
+    /// same scale as the SwiftUI views; SF Mono is used only for code clips.
+    private static func font(weight: NSFont.Weight, monospaced: Bool) -> NSFont {
+        let base = NSFont.preferredFont(forTextStyle: DesignTokens.PreviewText.textStyle)
+        var descriptor = base.fontDescriptor
+        if monospaced, let mono = descriptor.withDesign(.monospaced) {
+            descriptor = mono
         }
+        descriptor = descriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight]])
+        // Size zero keeps the descriptor's own size, so no point size is chosen here.
+        return NSFont(descriptor: descriptor, size: 0) ?? base
     }
 }
