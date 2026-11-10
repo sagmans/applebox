@@ -65,6 +65,7 @@ struct ClipboardItem: Codable {
 }
 
 final class ClipboardManager {
+    static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
     private static let capturePausedKey = "ClipboardCapturePaused"
     private let maxHistoryCount = 50
 
@@ -85,6 +86,7 @@ final class ClipboardManager {
     private let capturePreferences: UserDefaults?
     private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
+    private(set) var readAccess: ClipboardReadAccess
     private var monitoringTimer: Timer?
     private let storageURL: URL
 
@@ -108,6 +110,7 @@ final class ClipboardManager {
         loadSynchronously: Bool = true
     ) {
         self.pasteboard = pasteboard
+        readAccess = pasteboard.readAccess
         self.fileSystem = fileSystem
         self.capturePreferences = capturePreferences
         isCapturePaused = capturePreferences?.bool(forKey: Self.capturePausedKey) ?? false
@@ -152,6 +155,7 @@ final class ClipboardManager {
         if isCapturePaused {
             stopMonitoring()
         } else {
+            refreshReadAccess()
             startMonitoring()
         }
     }
@@ -215,10 +219,14 @@ final class ClipboardManager {
     func checkForChanges() {
         guard !isCapturePaused else { return }
         let change = pasteboard.changeCount
+        let previouslyDenied = readAccess == .denied
+        refreshReadAccess()
         guard change != lastChangeCount else { return }
         lastChangeCount = change
 
-        guard let types = pasteboard.types,
+        // Advance the cursor while denied so recovery cannot import copies from that period.
+        guard !previouslyDenied, readAccess != .denied,
+              let types = pasteboard.types,
               excludedTypes.isDisjoint(with: types),
               pasteboard.changeCount == change else { return }
 
@@ -235,6 +243,13 @@ final class ClipboardManager {
         // Discard a payload if its privacy check belonged to a different clipboard change.
         guard pasteboard.changeCount == change else { return }
         record(item)
+    }
+
+    private func refreshReadAccess() {
+        let access = pasteboard.readAccess
+        guard access != readAccess else { return }
+        readAccess = access
+        NotificationCenter.default.post(name: Self.readAccessDidChange, object: self)
     }
 
     /// Check for duplicates and insert on the same queue to keep history ordered.

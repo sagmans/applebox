@@ -304,6 +304,10 @@ class WindowManager: NSObject {
     private let capturePausedHelp = "Capture is paused. Resume to save new copies."
     private let captureActiveHelp = "Pause saving new clipboard copies."
     private let captureButtonSpacing: CGFloat = 12
+    private var clipboardAccessLabel: NSTextField?
+    private let clipboardAccessLabelHeight: CGFloat = 16
+    private let clipboardAccessPrompt = "If macOS asks, allow clipboard access to save new copies."
+    private let clipboardAccessDenied = "Clipboard access blocked. Allow AppleBox in System Settings to resume capture."
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = []
@@ -463,6 +467,15 @@ class WindowManager: NSObject {
 
             searchService?.resetCache()
             scheduleSearch(query: searchField?.stringValue ?? "", preservingSelection: true)
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: ClipboardManager.readAccessDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, notification.object as? ClipboardManager === clipboardManager else { return }
+            updateClipboardAccessLabel()
         }
     }
 
@@ -1204,6 +1217,7 @@ class WindowManager: NSObject {
         tableView?.menu = searchMode == .clipboard ? clipboardMenu : nil
         updateEmptyResultsLabel()
         updateCaptureControl()
+        updateClipboardAccessLabel()
         if animate {
             animateResultsUpdateIfAppropriate()
         }
@@ -1242,6 +1256,44 @@ class WindowManager: NSObject {
     @objc private func toggleCapture() {
         clipboardManager?.toggleCapturePaused()
         updateCaptureControl()
+        updateClipboardAccessLabel()
+    }
+
+    /// Keep permission recovery visible alongside existing clips, even when results are present.
+    private func updateClipboardAccessLabel() {
+        guard searchMode == .clipboard, let clipboardManager, !clipboardManager.isCapturePaused,
+              let content = headerPanel?.superview
+        else {
+            clipboardAccessLabel?.isHidden = true
+            return
+        }
+
+        let message: String? = switch clipboardManager.readAccess {
+        case .mayPrompt: clipboardAccessPrompt
+        case .denied: clipboardAccessDenied
+        case .allowed: nil
+        }
+        guard let message else {
+            clipboardAccessLabel?.isHidden = true
+            return
+        }
+
+        let label = clipboardAccessLabel ?? makeClipboardAccessLabel(in: content, message: message)
+        label.stringValue = message
+        label.isHidden = false
+    }
+
+    private func makeClipboardAccessLabel(in content: NSView, message: String) -> NSTextField {
+        let label = NSTextField(labelWithString: message)
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .center
+        // Match the frame-based layout of the launcher so the footer occupies the bottom inset.
+        label.frame = NSRect(x: 0, y: 0, width: content.bounds.width, height: clipboardAccessLabelHeight)
+        label.autoresizingMask = [.width, .maxYMargin]
+        content.addSubview(label, positioned: .above, relativeTo: nil)
+        clipboardAccessLabel = label
+        return label
     }
 
     /// Explain an empty query result while leaving the search field in place.

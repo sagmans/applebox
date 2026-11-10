@@ -12,6 +12,17 @@ public final class SystemPasteboard: PasteboardProtocol {
         pasteboard.changeCount
     }
 
+    public var readAccess: ClipboardReadAccess {
+        // Clipboard privacy preferences apply to the general pasteboard on supported macOS versions.
+        guard #available(macOS 15.4, *), pasteboard.name == .general else { return .allowed }
+        switch pasteboard.accessBehavior {
+        case .default, .ask: return .mayPrompt
+        case .alwaysAllow: return .allowed
+        case .alwaysDeny: return .denied
+        @unknown default: return .denied
+        }
+    }
+
     public var types: [NSPasteboard.PasteboardType]? {
         pasteboard.types
     }

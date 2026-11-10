@@ -31,6 +31,8 @@ final class MockPasteboard: PasteboardProtocol {
 
     // MARK: - PasteboardProtocol Implementation
 
+    let readAccess = ClipboardReadAccess.allowed
+
     var changeCount: Int {
         mockChangeCount
     }
