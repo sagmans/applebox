@@ -1,27 +1,45 @@
 import AppKit
-import CryptoKit
+import ImageIO
 
-/// Decoded clipboard images are reused across rows and the preview panel so base64 decoding and
-/// SHA-256 keying happen once per image, keeping the redesigned views independent of the AppKit window.
+/// Decoded clipboard images, shared by rows and the preview so each image is decoded once.
+///
+/// Keyed by the clip's id, not a hash of its bytes: a clip is immutable, and payloads reach about 10 MB of
+/// base64, so hashing them on every lookup would cost more than the lookup saves. A history reload gives
+/// clips new ids, which only costs one more decode.
 final class ClipboardImageCache {
-    private let cache = NSCache<NSString, NSImage>()
+    private let full = NSCache<NSUUID, NSImage>()
+    private let thumbnails = NSCache<NSUUID, NSImage>()
 
+    /// Full-size image for the preview; decoded at most once per clip id.
     func image(for item: ClipboardItem) -> NSImage? {
         guard item.contentType == .image, let base64 = item.imageData else { return nil }
-
-        let key = Self.key(forBase64: base64)
-        if let cached = cache.object(forKey: key as NSString) {
+        let key = item.id as NSUUID
+        if let cached = full.object(forKey: key) {
             return cached
         }
-
         guard let data = Data(base64Encoded: base64), let image = NSImage(data: data) else { return nil }
-        cache.setObject(image, forKey: key as NSString)
+        full.setObject(image, forKey: key)
         return image
     }
 
-    private static func key(forBase64 base64: String) -> String {
-        // Keep keys small even for huge images.
-        let digest = SHA256.hash(data: Data(base64.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+    /// Small image for a list row. Decoded straight to thumbnail size, because a 32 pt row must not hold a
+    /// multi-megapixel bitmap in memory or pay for decoding one.
+    func thumbnail(for item: ClipboardItem, pixelSize: CGFloat) -> NSImage? {
+        guard item.contentType == .image, let base64 = item.imageData else { return nil }
+        let key = item.id as NSUUID
+        if let cached = thumbnails.object(forKey: key) {
+            return cached
+        }
+        guard let data = Data(base64Encoded: base64),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: pixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        thumbnails.setObject(image, forKey: key)
+        return image
     }
 }

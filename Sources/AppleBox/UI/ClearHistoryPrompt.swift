@@ -13,7 +13,7 @@ enum ClearHistoryPrompt {
         alert.messageText = DesignTokens.Copy.clearHistoryTitle
         alert.informativeText = DesignTokens.Copy.clearHistoryExplanation
         // Return chooses Cancel so a repeated keypress cannot erase the archive.
-        alert.addButton(withTitle: DesignTokens.Copy.cancel).keyEquivalent = CopyClipShortcut.key
+        alert.addButton(withTitle: DesignTokens.Copy.cancel).keyEquivalent = DesignTokens.Copy.cancelKeyEquivalent
         alert.addButton(withTitle: DesignTokens.Copy.clearHistoryButton).hasDestructiveAction = true
         alert.beginSheetModal(for: window) { [weak model] response in
             guard response == .alertSecondButtonReturn else { return }

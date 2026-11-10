@@ -66,6 +66,8 @@ final class LauncherController: NSObject, NSWindowDelegate {
         // A reopen during the close motion must not be undone by the pending order-out.
         closeTask?.cancel()
         closeTask = nil
+        panel.ignoresMouseEvents = false
+        panel.dropsKeyEvents = false
         model.show(mode: mode)
         guard resizeAndPosition() else {
             // Without a screen there is nowhere to draw; undo the session so the model does not think
@@ -89,6 +91,10 @@ final class LauncherController: NSObject, NSWindowDelegate {
         let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? DesignTokens.Motion.reducedFade
             : DesignTokens.Motion.closeDuration
+        // The fade keeps the panel key, so without this a second Return would replay the clip and typing
+        // would start a search in a hidden field. Keys are swallowed in `handle`; clicks are dropped here.
+        panel.ignoresMouseEvents = true
+        panel.dropsKeyEvents = true
         closeTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(duration))
             guard let self, !Task.isCancelled else { return }
@@ -129,6 +135,11 @@ final class LauncherController: NSObject, NSWindowDelegate {
     /// Runs a reserved key as a model intent. Copy reports whether there was something to copy, so
     /// the panel can let the key through when there was not.
     private func handle(_ key: LauncherKey) -> Bool {
+        // Inert while closing: the session is over, so no key may act on it. Swallowing (true) also stops
+        // typed characters from reaching the field.
+        if closeTask != nil || !model.isPresented {
+            return true
+        }
         switch key {
         case .up: model.moveSelection(by: -1)
         case .down: model.moveSelection(by: 1)

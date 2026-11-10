@@ -84,7 +84,8 @@ struct ResultsList: View {
             }
             .animation(selectionAnimation, value: model.selection)
             .contentShape(Rectangle())
-            // The double click is registered first so the single click does not wait for it to fail.
+            // With a double-tap gesture present, the single tap waits for the double tap to fail, so selection
+            // lands after the system double-click interval; registering the double tap first keeps both working.
             .onTapGesture(count: DesignTokens.Metrics.activationClickCount) {
                 model.select(index)
                 model.activateSelection()
@@ -112,7 +113,8 @@ struct ResultsList: View {
     /// Only image clips need content from the history; looking up text clips would be wasted work per row.
     private func thumbnail(for row: ClipRowData) -> NSImage? {
         guard row.kind == .image, let item = model.clips.item(id: row.id) else { return nil }
-        return images.image(for: item)
+        let scale = NSScreen.main?.backingScaleFactor ?? DesignTokens.Metrics.fallbackBackingScale
+        return images.thumbnail(for: item, pixelSize: DesignTokens.Metrics.thumbnailSize * scale)
     }
 
     /// Menu items bind to the clip id so a live history update cannot retarget them to another row.

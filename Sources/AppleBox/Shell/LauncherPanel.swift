@@ -27,6 +27,10 @@ final class LauncherPanel: NSPanel {
     /// the shell declines still behaves as it would in any window.
     var keyHandler: ((LauncherKey) -> Bool)?
 
+    /// Set by the controller during the close fade. Only reserved keys reach the key handler, so ordinary
+    /// typing must be dropped here, or it would start a search in a field the user can no longer see.
+    var dropsKeyEvents = false
+
     /// Required so the search field can take focus even though the panel never activates the app.
     override var canBecomeKey: Bool {
         true
@@ -94,6 +98,9 @@ final class LauncherPanel: NSPanel {
     /// Intercepts reserved keys before the field editor sees them. Skipped during IME composition,
     /// because those keys then confirm or cancel the composed text and must reach the input method.
     override func sendEvent(_ event: NSEvent) {
+        if dropsKeyEvents, event.type == .keyDown || event.type == .keyUp {
+            return
+        }
         if (firstResponder as? NSTextView)?.hasMarkedText() != true,
            let key = Self.launcherKey(for: event),
            Self.routes(key, firstResponder: firstResponder),

@@ -18,6 +18,9 @@ extension DesignTokens.Copy {
     /// Accessibility label of the preview pane as a whole.
     static let previewLabel = "Clip preview"
 
+    /// Key that chooses Cancel in the clear-history sheet: Return, so a repeated press can never erase history.
+    static let cancelKeyEquivalent = "\r"
+
     /// Joins the parts of a row's spoken label with a pause, so VoiceOver reads them as separate phrases.
     static let labelSeparator = ", "
 
@@ -37,7 +40,21 @@ extension DesignTokens.Copy {
     }
 }
 
+extension DesignTokens.Motion {
+    /// Dismissal curve: short ease-out so closing never feels like a wait.
+    static let close = Animation.easeOut(duration: closeDuration)
+}
+
+extension DesignTokens.Palette {
+    /// Strength of the fill behind the link host in the preview header; its own value so retuning match
+    /// underlays does not change the link badge.
+    static let linkHostOpacity: Double = 0.18
+}
+
 extension DesignTokens {
+    /// Date format of the copy time in the preview header: day and time, no year, because clips are recent.
+    static let clipDateFormat = Date.FormatStyle().month().day().hour().minute()
+
     /// SF Symbol names, centralised so a symbol swap is a one-line change and views hold no string literals.
     enum Symbol {
         /// Mode symbol while searching apps.
@@ -128,6 +145,8 @@ extension DesignTokens {
         static let rowTextSpacing: CGFloat = 1
         /// Side of the mode symbol; sized to the title font so the field and symbol line up.
         static let modeSymbolWidth: CGFloat = 24
+        /// Backing scale assumed for thumbnails when no screen reports one, so they are sharp on Retina.
+        static let fallbackBackingScale: CGFloat = 2
         /// Hairline weight of separators.
         static let hairline: CGFloat = 1
         /// Inset of the preview glass from the body edge and the list.

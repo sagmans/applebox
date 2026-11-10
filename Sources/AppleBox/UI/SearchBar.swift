@@ -52,6 +52,12 @@ struct SearchBar: View {
         .padding(.vertical, DesignTokens.Metrics.searchVerticalPadding)
         .animation(DesignTokens.motion(DesignTokens.Motion.selection, reduceMotion: reduceMotion), value: model.mode)
         .onAppear { isFocused = true }
+        // Showing again during the close fade posts no didBecomeKey, so presentation itself refocuses.
+        .onChange(of: model.isPresented) { _, presented in
+            if presented {
+                isFocused = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             // Only the launcher: other windows becoming key must not steal focus into this field.
             if note.object is LauncherPanel {

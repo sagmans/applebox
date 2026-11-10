@@ -79,10 +79,9 @@ struct LauncherView: View {
                 }
             }
         } else {
-            let closing: Animation = reduceMotion
-                ? .easeInOut(duration: DesignTokens.Motion.reducedFade)
-                : .easeOut(duration: DesignTokens.Motion.closeDuration)
-            withAnimation(closing) { phase = .leaving }
+            withAnimation(DesignTokens.motion(DesignTokens.Motion.close, reduceMotion: reduceMotion)) {
+                phase = .leaving
+            }
         }
     }
 }
