@@ -305,10 +305,16 @@ class WindowManager: NSObject {
     private let capturePausedHelp = "Capture is paused. Resume to save new copies."
     private let captureActiveHelp = "Pause saving new clipboard copies."
     private let captureButtonSpacing: CGFloat = 12
-    private var clipboardAccessLabel: NSTextField?
-    private let clipboardAccessLabelHeight: CGFloat = 16
+    private var statusLabel: NSTextField?
+    private let statusLabelHeight: CGFloat = 16
     private let clipboardAccessPrompt = "If macOS asks, allow clipboard access to save new copies."
     private let clipboardAccessDenied = "Clipboard access blocked. Allow AppleBox in System Settings to resume capture."
+    private let missingApplicationMessage = "App was moved or removed. Search again for its new location."
+    private let launchFailedMessage = "Couldn’t open this app. Try opening it in Finder."
+    private let launchTimedOutMessage = "The app hasn’t opened yet. Try again or open it in Finder."
+    private let applicationLaunchTimeout: DispatchTimeInterval = .seconds(10)
+    private var applicationLaunchStatus: String?
+    private var pendingApplicationLaunch: UUID?
 
     private var searchService: SearchService?
     private var searchResults: [SearchResult] = [] {
@@ -480,7 +486,7 @@ class WindowManager: NSObject {
             queue: .main
         ) { [weak self] notification in
             guard let self, notification.object as? ClipboardManager === clipboardManager else { return }
-            updateClipboardAccessLabel()
+            updateStatusLabel()
         }
     }
 
@@ -1222,7 +1228,7 @@ class WindowManager: NSObject {
         tableView?.menu = searchMode == .clipboard ? clipboardMenu : nil
         updateEmptyResultsLabel()
         updateCaptureControl()
-        updateClipboardAccessLabel()
+        updateStatusLabel()
         if animate {
             animateResultsUpdateIfAppropriate()
         }
@@ -1270,43 +1276,41 @@ class WindowManager: NSObject {
     @objc private func toggleCapture() {
         clipboardManager?.toggleCapturePaused()
         updateCaptureControl()
-        updateClipboardAccessLabel()
+        updateStatusLabel()
     }
 
-    /// Keep permission recovery visible alongside existing clips, even when results are present.
-    private func updateClipboardAccessLabel() {
-        guard searchMode == .clipboard, let clipboardManager, !clipboardManager.isCapturePaused,
-              let content = headerPanel?.superview
-        else {
-            clipboardAccessLabel?.isHidden = true
-            return
-        }
-
-        let message: String? = switch clipboardManager.readAccess {
+    private var clipboardAccessStatus: String? {
+        guard let clipboardManager, !clipboardManager.isCapturePaused else { return nil }
+        return switch clipboardManager.readAccess {
         case .mayPrompt: clipboardAccessPrompt
         case .denied: clipboardAccessDenied
         case .allowed: nil
         }
-        guard let message else {
-            clipboardAccessLabel?.isHidden = true
+    }
+
+    /// Keep recovery guidance visible without covering the query or existing results.
+    private func updateStatusLabel() {
+        let message = searchMode == .clipboard ? clipboardAccessStatus : applicationLaunchStatus
+        guard let message, let content = headerPanel?.superview else {
+            statusLabel?.isHidden = true
             return
         }
 
-        let label = clipboardAccessLabel ?? makeClipboardAccessLabel(in: content, message: message)
+        let label = statusLabel ?? makeStatusLabel(in: content, message: message)
         label.stringValue = message
         label.isHidden = false
     }
 
-    private func makeClipboardAccessLabel(in content: NSView, message: String) -> NSTextField {
+    private func makeStatusLabel(in content: NSView, message: String) -> NSTextField {
         let label = NSTextField(labelWithString: message)
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        label.textColor = .secondaryLabelColor
+        label.textColor = .labelColor
         label.alignment = .center
         // Match the frame-based layout of the launcher so the footer occupies the bottom inset.
-        label.frame = NSRect(x: 0, y: 0, width: content.bounds.width, height: clipboardAccessLabelHeight)
+        label.frame = NSRect(x: 0, y: 0, width: content.bounds.width, height: statusLabelHeight)
         label.autoresizingMask = [.width, .maxYMargin]
         content.addSubview(label, positioned: .above, relativeTo: nil)
-        clipboardAccessLabel = label
+        statusLabel = label
         return label
     }
 
@@ -1436,6 +1440,7 @@ class WindowManager: NSObject {
     }
 
     private func switchToMode(_ mode: SearchMode) {
+        clearApplicationLaunchStatus()
         searchMode = mode
 
         if let searchField {
@@ -1474,6 +1479,7 @@ class WindowManager: NSObject {
 
     func show(mode: SearchMode? = nil) {
         guard let window else { return }
+        clearApplicationLaunchStatus()
         clipboardReplay.begin()
 
         // Center on the active screen
@@ -1534,6 +1540,7 @@ class WindowManager: NSObject {
     }
 
     func hide() {
+        clearApplicationLaunchStatus()
         clipboardReplay.end()
         hideSidecar()
         window?.orderOut(nil)
@@ -1552,6 +1559,7 @@ class WindowManager: NSObject {
         let query = sender.stringValue
 
         if query != lastSearchQuery {
+            clearApplicationLaunchStatus()
             userHasOverriddenPinnedScrollSinceLastQueryChange = false
             lastSearchQuery = query
         }
@@ -1804,43 +1812,64 @@ class WindowManager: NSObject {
         }
     }
 
-    /// Launch an application using WorkspaceProtocol
-    /// - Parameter appInfo: The application information containing the bundle path
     private func launchApplication(_ appInfo: ApplicationInfo) {
+        guard pendingApplicationLaunch == nil else { return }
+        clearApplicationLaunchStatus()
         let bundlePath = appInfo.bundlePath
-        let appUrl = URL(fileURLWithPath: bundlePath)
-
-        print("Launching: \(appInfo.name) at \(bundlePath)")
-
-        // Check if the app bundle exists
         guard fileSystem.fileExists(atPath: bundlePath) else {
-            print("Error: Application bundle not found at \(bundlePath)")
-            // Show error to user (optional - for now just print)
+            logger.notice("Selected application bundle no longer exists")
+            showApplicationLaunchFailure(missingApplicationMessage)
             return
         }
 
-        // Launch the application
+        let request = UUID()
+        pendingApplicationLaunch = request
         let config = NSWorkspace.OpenConfiguration()
         // A running copy at another path must not replace the row the user chose.
         config.allowsRunningApplicationSubstitution = false
-        workspace.openApplication(at: appUrl, configuration: config) { [weak self] app, error in
-            if let error {
-                print("Error launching \(appInfo.name): \(error.localizedDescription)")
-                // Handle error gracefully - could show alert here
-                return
-            }
-
-            if let app {
-                print("Successfully launched: \(app.localizedName ?? appInfo.name)")
-            }
-
-            self?.recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
-
-            // Close the window after launching (on main thread)
+        config.promptsUserIfNeeded = false
+        workspace.openApplication(at: URL(fileURLWithPath: bundlePath), configuration: config) { [weak self] app, error in
             DispatchQueue.main.async {
-                self?.hide()
+                self?.finishApplicationLaunch(request, bundlePath: bundlePath, opened: app != nil, error: error)
             }
         }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + applicationLaunchTimeout) { [weak self] in
+            guard let self, pendingApplicationLaunch == request else { return }
+            logger.error("Application launch timed out")
+            showApplicationLaunchFailure(launchTimedOutMessage)
+        }
+    }
+
+    private func finishApplicationLaunch(_ request: UUID, bundlePath: String, opened: Bool, error: Error?) {
+        if opened, error == nil {
+            // Record confirmed success even if activation already dismissed the launcher.
+            recentApplicationsStore.recordLaunch(bundlePath: bundlePath)
+            if pendingApplicationLaunch == request {
+                hide()
+            }
+            return
+        }
+        guard pendingApplicationLaunch == request else { return }
+        if let failure = error as NSError? {
+            logger.error("Application launch failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+        } else {
+            logger.error("Application launch returned without a running application")
+        }
+        showApplicationLaunchFailure(launchFailedMessage)
+    }
+
+    private func showApplicationLaunchFailure(_ message: String) {
+        pendingApplicationLaunch = nil
+        applicationLaunchStatus = message
+        updateStatusLabel()
+        window?.makeFirstResponder(searchField)
+    }
+
+    private func clearApplicationLaunchStatus() {
+        pendingApplicationLaunch = nil
+        applicationLaunchStatus = nil
+        updateStatusLabel()
     }
 
     func isVisible() -> Bool {
