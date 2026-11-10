@@ -144,6 +144,8 @@ final class LauncherModel {
     /// looks the same whatever the user did last time. Call before the window activates, because the
     /// paste target is whichever app has focus at this moment.
     func show(mode requested: SearchMode? = nil) {
+        // First, while the app the user copied from still has focus, so a pending copy is credited to it.
+        clips.setPanelVisible(true)
         clips.clearRemovalStatus()
         apps.clearLaunchStatus()
         clips.beginReplay()
@@ -162,6 +164,7 @@ final class LauncherModel {
     func hide() {
         apps.clearLaunchStatus()
         clips.endReplay()
+        clips.setPanelVisible(false)
         cancelWork()
         isPresented = false
     }

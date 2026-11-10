@@ -150,8 +150,6 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     static let historyDidUpdate = Notification.Name("applebox.clipboardHistory.didUpdate")
     private static let capturePausedKey = "ClipboardCapturePaused"
     private static let privateDirectoryMode = 0o700
-    private static let captureInterval: TimeInterval = 0.2
-    private static let captureTolerance: TimeInterval = 0.02
     /// Share of the expiry sweep interval the system may delay a sweep by. Reads already hide expired clips,
     /// so only the on-disk removal waits a few minutes against a retention of days, and the slack lets macOS
     /// fold the wakeup into one it already has; Apple's energy guide suggests at least 10%.
@@ -162,6 +160,33 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     /// Characters a bundle id may contain: Apple's CFBundleIdentifier rule plus the underscore, which
     /// third-party apps ship with in practice. A declaration with others is ignored rather than shown.
     private static let bundleIDCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+
+    /// How often the clipboard is polled. macOS has no change notification, so the poll runs all day;
+    /// its wakeups cost energy, while each check itself costs less than a microsecond.
+    private enum CapturePace {
+        /// The panel is hidden nearly all day, so this rate sets the idle cost. Half a second keeps two
+        /// wakeups per second at most, and the 50% tolerance lets macOS fold them into other wakeups.
+        /// A slower poll widens the window in which the user switches apps before a copy is seen, so the
+        /// guessed "Copied from" app is more often wrong; this rate keeps that window under a second.
+        case hidden
+        /// The open list should show a new copy almost at once, and the panel is open only briefly.
+        /// Tolerance stays at the 10% that macOS suggests as the minimum for a timer.
+        case visible
+
+        var interval: TimeInterval {
+            switch self {
+            case .hidden: 0.5
+            case .visible: 0.2
+            }
+        }
+
+        var tolerance: TimeInterval {
+            switch self {
+            case .hidden: 0.25
+            case .visible: 0.02
+            }
+        }
+    }
 
     /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
@@ -190,6 +215,8 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     @MainActor private(set) var isCapturePaused: Bool
     private var lastChangeCount: Int = 0
     @MainActor private(set) var readAccess: ClipboardReadAccess
+    /// Picks the poll rate; kept even while paused so resuming starts at the rate the panel needs.
+    @MainActor private var capturePace = CapturePace.hidden
     private var monitoringTimer: Timer?
     private var expiryTimer: Timer?
     private let storageURL: URL?
@@ -358,19 +385,44 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
             .map(\.match)
     }
 
+    /// The launcher calls this as it opens and closes, so the poll is fast only while the list is on screen.
+    /// On opening, access is read again for the status line and a pending copy is taken at once: the app
+    /// the user copied from is still in front, because the panel does not activate AppleBox.
+    @MainActor
+    func setPanelVisible(_ visible: Bool) {
+        let pace: CapturePace = visible ? .visible : .hidden
+        guard pace != capturePace else { return }
+        capturePace = pace
+        if visible {
+            // Check first: it judges a pending copy by the access seen before it, so a copy made while
+            // denied is never imported just because access came back as the panel opened.
+            checkForChanges()
+            refreshReadAccess()
+        }
+        guard !isCapturePaused else { return }
+        // Not `startMonitoring`: that skips copies made since the last tick, and they must still be taken.
+        scheduleMonitoringTimer()
+    }
+
     // MARK: - Private Methods
 
     @MainActor
     private func startMonitoring() {
         // Initialize last change count
         lastChangeCount = pasteboard.changeCount
+        scheduleMonitoringTimer()
+    }
 
-        let timer = Timer(timeInterval: Self.captureInterval, repeats: true) { [weak self] _ in
+    @MainActor
+    private func scheduleMonitoringTimer() {
+        // Replaces any running timer, so a pace change or a repeated start never leaves two polling.
+        monitoringTimer?.invalidate()
+        let timer = Timer(timeInterval: capturePace.interval, repeats: true) { [weak self] _ in
             // The timer runs on the main run loop, which the compiler cannot see through the Sendable block.
             MainActor.assumeIsolated { self?.checkForChanges() }
         }
         // Coalesce idle wakeups while still capturing copies made during menu tracking.
-        timer.tolerance = Self.captureTolerance
+        timer.tolerance = capturePace.tolerance
         RunLoop.main.add(timer, forMode: .common)
         monitoringTimer = timer
     }
@@ -387,7 +439,12 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
         guard !isCapturePaused else { return }
         let change = pasteboard.changeCount
         let previouslyDenied = readAccess == .denied
-        refreshReadAccess()
+        // Access matters only when there is a copy to read, and the panel re-reads it on opening for its
+        // status line. While denied it is still read on every tick, so recovery is seen before the next
+        // copy, and that copy is kept instead of being taken for one made while denied.
+        if previouslyDenied || change != lastChangeCount {
+            refreshReadAccess()
+        }
         guard change != lastChangeCount else { return }
         lastChangeCount = change
 

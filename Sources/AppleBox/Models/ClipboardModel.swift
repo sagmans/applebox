@@ -110,6 +110,8 @@ final class ClipboardModel {
     @ObservationIgnored var onPublish: ((_ previousCount: Int) -> Void)?
 
     @ObservationIgnored private(set) var manager: ClipboardManager?
+    /// Remembered so a manager supplied later starts at the right poll rate.
+    @ObservationIgnored private var isPanelVisible = false
     @ObservationIgnored private let replayer: ClipboardReplay
     /// Full matches back the rows: previews and highlights need the clip text and its unshortened offsets.
     @ObservationIgnored private var matches: [ClipboardManager.ClipboardSearchMatch] = []
@@ -124,7 +126,16 @@ final class ClipboardModel {
     /// Set by the shell once history exists, because the UI must be usable before history has loaded.
     func setManager(_ manager: ClipboardManager) {
         self.manager = manager
+        // History can arrive while the launcher is already open, and the poll rate must still match.
+        manager.setPanelVisible(isPanelVisible)
         refreshCaptureState()
+    }
+
+    /// Tells the manager whether the list is on screen, so it polls fast only then and re-reads
+    /// clipboard access as the launcher opens.
+    func setPanelVisible(_ visible: Bool) {
+        isPanelVisible = visible
+        manager?.setPanelVisible(visible)
     }
 
     /// Recovery guidance for blocked clipboard reads; hidden while paused because no read is attempted.
