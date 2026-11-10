@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 struct ApplicationInfo {
     let name: String
@@ -28,6 +29,11 @@ private struct CachedApplication: Codable {
     let bundlePath: String
 }
 
+private struct ApplicationIndexCache: Codable {
+    let version: Int
+    let entries: [CachedApplication]
+}
+
 final class ApplicationIndexer {
     private let fileSystem: FileSystemProtocol
     private let storageURL: URL
@@ -39,7 +45,12 @@ final class ApplicationIndexer {
     private let persistenceQueue = DispatchQueue(label: "applebox.applicationIndexer.persistence", qos: .utility)
 
     private let cacheFileName = "applications_cache.json"
+    private let cacheVersion = 2
     private let applicationExtension = "app"
+    private let maximumDirectoryDepth = 5
+    private let maximumEntriesPerRoot = 4096
+    private let scanResourceKeys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox", category: "index")
 
     /// Paths to scan for applications
     private var searchPaths: [URL] {
@@ -122,20 +133,23 @@ final class ApplicationIndexer {
 
         do {
             let decoder = JSONDecoder()
-            let cached = try decoder.decode([CachedApplication].self, from: data)
-            return cached.map { ApplicationInfo(name: $0.name, bundlePath: $0.bundlePath) }
+            let cached = try decoder.decode(ApplicationIndexCache.self, from: data)
+            // Older scans accepted directories that happened to end in .app.
+            guard cached.version == cacheVersion else { return [] }
+            return cached.entries.map { ApplicationInfo(name: $0.name, bundlePath: $0.bundlePath) }
         } catch {
             return []
         }
     }
 
     private func persistApplicationsAsync(_ applications: [ApplicationInfo]) {
-        let snapshot = applications.map { CachedApplication(name: $0.name, bundlePath: $0.bundlePath) }
+        let entries = applications.map { CachedApplication(name: $0.name, bundlePath: $0.bundlePath) }
+        let snapshot = ApplicationIndexCache(version: cacheVersion, entries: entries)
         persistenceQueue.async { [snapshot, storageURL, fileSystem] in
             do {
                 let encoder = JSONEncoder()
                 let data = try encoder.encode(snapshot)
-                _ = fileSystem.createFile(atPath: storageURL.path, contents: data, attributes: nil)
+                try fileSystem.write(data, to: storageURL, options: [.atomic])
             } catch {
                 // Best-effort persistence.
             }
@@ -147,7 +161,8 @@ final class ApplicationIndexer {
         found.reserveCapacity(1024)
 
         for path in searchPaths {
-            found.append(contentsOf: scanDirectory(at: path))
+            var remainingEntries = maximumEntriesPerRoot
+            scanDirectory(at: path, depth: 0, remainingEntries: &remainingEntries, into: &found)
         }
 
         // De-dupe by bundle path
@@ -164,43 +179,39 @@ final class ApplicationIndexer {
         return deduped
     }
 
-    private func scanDirectory(at url: URL) -> [ApplicationInfo] {
-        // Skip if directory doesn't exist
-        guard fileSystem.fileExists(atPath: url.path) else {
-            return []
-        }
+    private func scanDirectory(at url: URL, depth: Int, remainingEntries: inout Int, into results: inout [ApplicationInfo]) {
+        guard remainingEntries > 0, fileSystem.fileExists(atPath: url.path) else { return }
 
         do {
             let contents = try fileSystem.contentsOfDirectory(
                 at: url,
-                includingPropertiesForKeys: [URLResourceKey.isRegularFileKey, URLResourceKey.isDirectoryKey],
-                options: [FileManager.DirectoryEnumerationOptions.skipsHiddenFiles]
+                includingPropertiesForKeys: scanResourceKeys,
+                options: [.skipsHiddenFiles],
+                limit: remainingEntries
             )
-
-            var results: [ApplicationInfo] = []
-            results.reserveCapacity(contents.count)
+            // Account for the shallow listing before descending so each root gets an independent budget.
+            remainingEntries -= contents.count
 
             for item in contents {
-                var isDirectory: ObjCBool = false
-
-                if fileSystem.fileExists(atPath: item.path, isDirectory: &isDirectory),
-                   isDirectory.boolValue,
-                   item.pathExtension == applicationExtension
-                {
-                    results.append(ApplicationInfo(name: displayName(for: item), bundlePath: item.path))
+                if item.pathExtension.caseInsensitiveCompare(applicationExtension) == .orderedSame {
+                    // Never index embedded helpers, including inside malformed bundles.
+                    if fileSystem.isApplicationBundle(at: item) {
+                        results.append(ApplicationInfo(name: displayName(for: item), bundlePath: item.path))
+                    }
+                } else if depth < maximumDirectoryDepth, fileSystem.isApplicationSearchFolder(at: item) {
+                    scanDirectory(at: item, depth: depth + 1, remainingEntries: &remainingEntries, into: &results)
                 }
             }
-
-            return results
         } catch {
-            return []
+            let failure = error as NSError
+            logger.error("Cannot enumerate application folder at depth \(depth, privacy: .public): \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
         }
     }
 
     private func displayName(for app: URL) -> String {
         // Use the same filesystem name as Finder while keeping the launcher free of bundle extensions.
         let displayName = fileSystem.displayName(atPath: app.path).trimmingCharacters(in: .whitespacesAndNewlines) as NSString
-        let name = displayName.pathExtension == applicationExtension ? displayName.deletingPathExtension : displayName as String
+        let name = displayName.pathExtension.caseInsensitiveCompare(applicationExtension) == .orderedSame ? displayName.deletingPathExtension : displayName as String
         return name.isEmpty ? app.deletingPathExtension().lastPathComponent : name
     }
 

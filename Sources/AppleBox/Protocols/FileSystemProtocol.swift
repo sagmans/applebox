@@ -18,8 +18,14 @@ public protocol FileSystemProtocol {
     /// and optionally whether it is a directory
     func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool
 
-    /// Performs a shallow search of the specified directory and returns URLs for the contained items
-    func contentsOfDirectory(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions) throws -> [URL]
+    /// Return a bounded shallow listing so a large folder cannot exhaust the indexer.
+    func contentsOfDirectory(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, limit: Int) throws -> [URL]
+
+    /// Avoid traversing packages and links that can leave the application's search roots.
+    func isApplicationSearchFolder(at url: URL) -> Bool
+
+    /// Exclude directories that have an app extension but lack a launchable bundle structure.
+    func isApplicationBundle(at url: URL) -> Bool
 
     /// Creates a directory with the given attributes at the specified URL
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws

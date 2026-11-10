@@ -133,12 +133,21 @@ final class MockFileSystem: FileSystemProtocol {
         return exists
     }
 
-    func contentsOfDirectory(at url: URL, includingPropertiesForKeys _: [URLResourceKey]?, options _: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
+    func contentsOfDirectory(at url: URL, includingPropertiesForKeys _: [URLResourceKey]?, options _: FileManager.DirectoryEnumerationOptions, limit: Int) throws -> [URL] {
         contentsOfDirectoryCalls.append(url)
         if let error = contentsOfDirectoryError {
             throw error
         }
-        return directoryContents[url] ?? []
+        return Array((directoryContents[url] ?? []).prefix(limit))
+    }
+
+    func isApplicationSearchFolder(at url: URL) -> Bool {
+        directoryFlags[url.path] == true && url.pathExtension.isEmpty
+    }
+
+    func isApplicationBundle(at url: URL) -> Bool {
+        // The fixture directory flag stands in for the native bundle structure check.
+        existingFiles[url.path] == true && directoryFlags[url.path] == true
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes _: [FileAttributeKey: Any]?) throws {
