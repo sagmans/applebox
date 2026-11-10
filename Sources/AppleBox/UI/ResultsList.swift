@@ -11,6 +11,12 @@ struct ResultsList: View {
     /// Clips whose delete was requested. The history confirms asynchronously, so the row collapses at
     /// once instead of waiting for the data to change.
     @State private var departing: Set<UUID> = []
+    /// Captions per row index for the result set named by `headersKey`. Derived once per result set, not
+    /// per row on each redraw, because a held arrow key redraws the list on every repeat.
+    @State private var headers: [String?] = []
+    /// The result set `headers` was built for; captions are used only while it matches the shown rows,
+    /// so a stale array can never put a caption over the wrong row.
+    @State private var headersKey: SectionKey?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.clipImages) private var images
     @Environment(\.referenceDate) private var referenceDate
@@ -67,13 +73,15 @@ struct ResultsList: View {
     }
 
     private var list: some View {
-        ScrollViewReader { proxy in
+        // Read once per pass; rows below only index into it.
+        let shownHeaders = headersKey == sectionKey ? headers : []
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: DesignTokens.Metrics.rowSpacing) {
                     switch model.mode {
                     case .applications:
                         ForEach(Array(model.apps.rows.enumerated()), id: \.element.id) { index, row in
-                            if showsSections, let title = ListSections.appHeader(in: model.apps.rows, at: index) {
+                            if let title = header(at: index, in: shownHeaders) {
                                 sectionHeader(title)
                             }
                             container(index: index, id: row.id) {
@@ -86,7 +94,7 @@ struct ResultsList: View {
                         }
                     case .clipboard:
                         ForEach(Array(model.clips.rows.enumerated()), id: \.element.id) { index, row in
-                            if showsSections, let title = clipHeader(at: index) {
+                            if let title = header(at: index, in: shownHeaders) {
                                 sectionHeader(title)
                             }
                             container(index: index, id: row.id) {
@@ -114,11 +122,14 @@ struct ResultsList: View {
             .onChange(of: model.clips.removalsFinished) { _, _ in
                 withAnimation(selectionAnimation) { departing.removeAll() }
             }
+            .onChange(of: sectionKey, initial: true) { _, key in
+                rebuildHeaders(for: key)
+            }
             .onChange(of: model.selection) { _, selected in
                 guard let selected, let id = rowID(at: selected) else { return }
                 // The first row's header sits above it; scrolling to the row alone would leave the header
                 // clipped when the user returns to the top.
-                if selected == 0, showsSections {
+                if selected == 0, header(at: 0, in: headers) != nil {
                     proxy.scrollTo(Self.listTopID, anchor: .top)
                     return
                 }
@@ -138,18 +149,43 @@ struct ResultsList: View {
         }
     }
 
+    /// Names one result set: the mode picks the model and the generation its rows.
+    private struct SectionKey: Equatable {
+        let mode: SearchMode
+        let generation: Int
+    }
+
+    private var sectionKey: SectionKey {
+        SectionKey(mode: model.mode, generation: rowsGeneration)
+    }
+
+    private func header(at index: Int, in titles: [String?]) -> String? {
+        titles.indices.contains(index) ? titles[index] : nil
+    }
+
+    /// One pass over the rows per result set, with one calendar and one "now", so every caption in the
+    /// set agrees on what today is. Buckets count calendar days while a row's relative time counts elapsed
+    /// time, so "13 hr. ago" can sit under "Yesterday"; both are true, and the panel is short-lived, so
+    /// neither is re-rendered as the clock moves.
+    private func rebuildHeaders(for key: SectionKey) {
+        headersKey = key
+        guard showsSections else {
+            headers = []
+            return
+        }
+        switch key.mode {
+        case .applications:
+            headers = ListSections.appHeaders(for: model.apps.rows)
+        case .clipboard:
+            var zoned = calendar
+            zoned.timeZone = timeZone
+            headers = ListSections.clipHeaders(for: model.clips.rows, now: referenceDate ?? Date(), calendar: zoned)
+        }
+    }
+
     /// Scroll target of the padded list as a whole, so returning to the first row shows its header and the
     /// list inset instead of stopping at the row's own edge.
     private static let listTopID = "results-list-top"
-
-    /// Buckets count calendar days while the row's relative time counts elapsed time, so "13 hr. ago" can
-    /// sit under "Yesterday"; both are true, and the panel is short-lived, so neither is re-rendered as
-    /// the clock moves.
-    private func clipHeader(at index: Int) -> String? {
-        var zoned = calendar
-        zoned.timeZone = timeZone
-        return ListSections.clipHeader(in: model.clips.rows, at: index, now: referenceDate ?? Date(), calendar: zoned)
-    }
 
     /// A caption between rows. It sits beside the rows in the stack and is not one of them, so selection
     /// indices and the "n of N" VoiceOver positions are untouched; VoiceOver still announces it as a heading.
