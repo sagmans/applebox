@@ -10,7 +10,11 @@ struct SourceApp: Equatable {
 /// Resolves bundle ids to installed apps. Results are memoized because the header re-reads on every
 /// selection change and a Launch Services lookup per keystroke would be waste. It lives apart from the
 /// icon cache because it answers a different question: which app, not what it looks like.
-final class SourceAppResolver: @unchecked Sendable {
+///
+/// Main-actor isolated by default, and that isolation is what makes the shared instance safe to reach
+/// from anywhere: every caller is a view on the main actor. It is deliberately not `@unchecked Sendable`,
+/// which would add nothing here and would let a future off-main caller race the memo unnoticed.
+final class SourceAppResolver {
     static let shared = SourceAppResolver()
 
     /// Bounds the memo; far more distinct source apps than a 50-clip history can name, so a live session

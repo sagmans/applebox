@@ -246,12 +246,19 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
     }
 
     /// Not `isolated deinit`: the compiler rejects it because the class opts out of main-actor isolation
-    /// (it must, for its private queues). Invalidating directly is safe because the timers are only ever
-    /// created and cleared from main-actor members, and nothing else holds the manager by then.
+    /// (it must, for its private queues). The last release can happen on `persistenceQueue`, because
+    /// `removeHistory` holds the manager there, but a timer must be invalidated on the thread whose run
+    /// loop it was added to, which is main. So the invalidation hops to main when needed.
     deinit {
-        // Invalidate directly because deinit cannot call the main-actor stopMonitoring().
-        monitoringTimer?.invalidate()
-        expiryTimer?.invalidate()
+        // The timers are only ever touched on main, and the hop below runs there; the manager that owned
+        // them is gone, so nothing else can reach them meanwhile.
+        nonisolated(unsafe) let timers = [monitoringTimer, expiryTimer].compactMap(\.self)
+        guard !timers.isEmpty else { return }
+        if Thread.isMainThread {
+            timers.forEach { $0.invalidate() }
+        } else {
+            DispatchQueue.main.async { timers.forEach { $0.invalidate() } }
+        }
     }
 
     // MARK: - Public Methods
