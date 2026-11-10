@@ -12,7 +12,9 @@ APP_NAME := AppleBox
 BUNDLE_ID := com.assagman.applebox
 BUILD_DIR := .build/release
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
-INSTALL_DIR := /Applications
+INSTALL_DIR := $(HOME)/Applications
+LOCAL_INSTALLER := scripts/install-local.swift
+LOCAL_SIGNING_IDENTITY ?= -
 LOG_DIR := $(HOME)/Library/Logs/$(APP_NAME)
 DIST_DIR := $(BUILD_DIR)/dist
 
@@ -40,7 +42,7 @@ SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/
 # fixes in one commit.
 SWIFTLINT_VERSION := 0.65.1
 SWIFTLINT_RELEASE_URL := https://github.com/realm/SwiftLint/releases/tag/$(SWIFTLINT_VERSION)
-SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift
+SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift $(LOCAL_INSTALLER)
 SEARCH_BENCHMARK := .build/applebox-search-benchmark
 SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 	Sources/AppleBox/SearchService.swift Sources/AppleBox/ApplicationIndexer.swift \
@@ -78,8 +80,8 @@ help:
 	@echo "  make logs         - Stream app logs"
 	@echo ""
 	@echo "$(GREEN)Installation:$(NC)"
-	@echo "  make install      - Install to /Applications"
-	@echo "  make uninstall    - Remove from /Applications"
+	@echo "  make install      - Install or update in ~/Applications"
+	@echo "  make uninstall    - Move the local bundle to Trash, keeping history"
 	@echo ""
 	@echo "$(GREEN)Code Signing:$(NC)"
 	@echo "  make sign         - Sign app with Developer ID"
@@ -224,16 +226,12 @@ logs:
 # ==============================================================================
 
 install: bundle
-	@rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
-	@cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/"
-	@echo "$(GREEN)Installed: $(INSTALL_DIR)/$(APP_NAME).app$(NC)"
+	@codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" "$(APP_BUNDLE)"
+	@codesign --verify --strict "$(APP_BUNDLE)"
+	@swift "$(LOCAL_INSTALLER)" install "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app" "$(BUNDLE_ID)"
 
-uninstall: stop
-	@rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
-	@rm -rf "$(LOG_DIR)"
-	@rm -rf "$(HOME)/Library/Caches/$(APP_NAME)"
-	@rm -rf "$(HOME)/Library/Application Support/$(APP_NAME)"
-	@echo "$(GREEN)Uninstalled$(NC)"
+uninstall:
+	@swift "$(LOCAL_INSTALLER)" uninstall "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app" "$(BUNDLE_ID)"
 
 # ==============================================================================
 # Code Signing & Notarization

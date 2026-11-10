@@ -16,6 +16,22 @@ swift build
 swift run
 ```
 
+## Local Install
+
+`make install` puts a signed development copy at
+`~/Applications/AppleBox.app`. Open it from Finder or run
+`open ~/Applications/AppleBox.app`.
+
+To update, choose **Quit AppleBox** in the menu bar, then run `make install`
+again. The installer replaces the bundle and keeps saved clips, recent apps,
+and preferences. `make uninstall` moves the bundle to Trash and keeps that data.
+
+To opt in to startup, select **Launch at Login → Start AppleBox Automatically**
+in the menu bar. Select it again to disable it. If macOS asks for approval,
+choose **Open Login Items Settings** from the same submenu. You can also add or
+remove the installed app under **System Settings → General → Login Items &
+Extensions → Open at Login**. Disable automatic startup before uninstalling.
+
 ## Testing
 
 For a comprehensive testing guide, see **[docs/TESTING.md](docs/TESTING.md)**.

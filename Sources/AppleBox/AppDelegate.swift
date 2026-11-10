@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appIndexer: ApplicationIndexer?
     private var clipboardManager: ClipboardManager?
     private var statusItem: NSStatusItem?
+    private let loginItemMenu = LoginItemMenu()
 
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
@@ -89,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: MenuTitle.shortcuts, action: nil, keyEquivalent: ""))
         addStatusAction(to: menu, title: MenuTitle.retry, action: #selector(retryShortcutsFromMenu))
         menu.addItem(.separator())
+        menu.addItem(loginItemMenu.item)
         addStatusAction(to: menu, title: MenuTitle.quit, action: #selector(quitFromMenu))
         item.menu = menu
         statusItem = item
