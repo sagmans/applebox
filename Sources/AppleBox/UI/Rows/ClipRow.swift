@@ -41,6 +41,10 @@ struct ClipRow: View, Equatable {
                 Image(nsImage: thumbnail)
                     .resizable()
                     .scaledToFill()
+                    // Fill overflows the slot for any non-square image; framing before the clip crops it to the
+                    // slot, because the outer frame only sizes the layout and a wide image would spill past
+                    // the selection highlight.
+                    .frame(width: DesignTokens.Metrics.thumbnailSize, height: DesignTokens.Metrics.thumbnailSize)
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Metrics.imageCornerRadius))
             } else if case let .color(swatch) = data.kind {
                 // The clip's own color says more than a palette icon: the user sees the color they copied.

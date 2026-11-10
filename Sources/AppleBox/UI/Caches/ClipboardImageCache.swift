@@ -38,6 +38,10 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     static let defaultFullLimit = 3
     /// Floor for both limits, so a store always keeps the entry a view is drawing.
     private static let minimumLimit = 1
+    /// Longest-to-shortest side ratio honoured when sizing a thumbnail decode. Rows fill a square slot, so
+    /// the short side must reach the slot size or it is upscaled and blurs; past this ratio a panorama or
+    /// a long screenshot would decode a strip many times the slot's width that the crop throws away.
+    private static let maximumThumbnailAspect: CGFloat = 8
 
     /// Names one decode: the full image and the thumbnail of a clip are separate work.
     private struct Job: Hashable {
@@ -141,7 +145,7 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
             return image
         case .missing:
             schedule(job) {
-                Self.decodeThumbnail(item: item, pixelSize: pixelSize)
+                Self.decodeThumbnail(item: item, slotPixels: pixelSize)
             }
             return nil
         }
@@ -164,13 +168,25 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
         state.withLock { $0.store(thumbnail: job.isThumbnail) { $0.get(job.id) } }
     }
 
-    private static func decodeThumbnail(item: ClipboardItem, pixelSize: CGFloat) -> NSImage? {
+    /// The decode's long-side size that makes its short side cover a square slot of `slot` pixels. The
+    /// thumbnail option bounds the long side only, so a wide or tall image sized by the slot alone comes
+    /// out a few pixels thick and blurs when the row crops it to fill.
+    private static func fillingPixelSize(source: CGImageSource, slot: CGFloat) -> CGFloat {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+              min(width, height) > 0 else { return slot }
+        let aspect = min(max(width, height) / min(width, height), maximumThumbnailAspect)
+        return (slot * aspect).rounded(.up)
+    }
+
+    private static func decodeThumbnail(item: ClipboardItem, slotPixels: CGFloat) -> NSImage? {
         guard let data = item.imageData.flatMap({ Data(base64Encoded: $0) }),
               let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: pixelSize,
+            kCGImageSourceThumbnailMaxPixelSize: fillingPixelSize(source: source, slot: slotPixels),
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
