@@ -42,8 +42,8 @@ private nonisolated struct ApplicationIndexCache: Codable {
 
 /// Scans run on private dispatch queues, so the type opts out of default main-actor isolation.
 /// `@unchecked Sendable` is safe because `applications` and `revision` are only touched through
-/// `applicationsQueue`, `folderRefreshPending` only on `scanQueue`, and `folderMonitor` only from
-/// the main-thread lifecycle calls that start monitoring.
+/// `applicationsQueue`, the folder refresh state and per-root results only on `scanQueue`, and
+/// `folderMonitor` only from the main-thread lifecycle calls that start monitoring.
 final nonisolated class ApplicationIndexer: @unchecked Sendable {
     static let didUpdate = Notification.Name("applebox.applicationIndex.didUpdate")
 
@@ -57,8 +57,13 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
     private let scanQueue = DispatchQueue(label: "applebox.applicationIndexer.scan", qos: .utility)
     private let persistenceQueue = DispatchQueue(label: "applebox.applicationIndexer.persistence", qos: .utility)
     private var folderMonitor: ApplicationFolderMonitor?
-    private var folderRefreshPending = false
+    /// Scope collected across one debounce window; `nil` while no refresh is scheduled.
+    private var pendingRefresh: ApplicationRefreshScope?
+    /// Last scan result per root scan path, so a folder event rescans only its own root and
+    /// rebuilds the full list from the others' cached results.
+    private var rootApplications: [String: [ApplicationInfo]] = [:]
     private let refreshDelay: DispatchTimeInterval = .milliseconds(250)
+    private let scanRoots: ApplicationScanRoots
 
     private let cacheFileName = "applications_cache.json"
     private let cacheVersion = 2
@@ -68,8 +73,9 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
     private let scanResourceKeys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
     private let logger = Logger(subsystem: LogSubsystem.name, category: "index")
 
-    /// Paths to scan for applications
-    private var searchPaths: [URL] {
+    /// Paths to scan for applications. The Utilities folders also sit inside other roots;
+    /// `ApplicationScanRoots` makes the parent scan skip them so each is listed once.
+    private static func searchPaths(homeDirectory: URL) -> [URL] {
         var paths: [URL] = []
 
         // System Applications
@@ -85,7 +91,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
         paths.append(URL(fileURLWithPath: "/Applications/Utilities"))
 
         // User Applications folder
-        let userApps = fileSystem.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        let userApps = homeDirectory.appendingPathComponent("Applications", isDirectory: true)
         paths.append(userApps)
 
         return paths
@@ -102,6 +108,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
 
     init(fileSystem: FileSystemProtocol = SystemFileManager(), scanSynchronously: Bool = true) {
         self.fileSystem = fileSystem
+        scanRoots = ApplicationScanRoots(urls: Self.searchPaths(homeDirectory: fileSystem.homeDirectoryForCurrentUser))
 
         let appSupportURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileSystem.homeDirectoryForCurrentUser
@@ -127,9 +134,9 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
     @MainActor
     func startMonitoring() {
         guard folderMonitor == nil else { return }
-        let paths = searchPaths.map(\.path)
-        folderMonitor = ApplicationFolderMonitor(paths: paths) { [weak self] in
-            self?.scheduleFolderRefresh()
+        let paths = scanRoots.roots.map(\.url.path)
+        folderMonitor = ApplicationFolderMonitor(paths: paths) { [weak self] events in
+            self?.scheduleFolderRefresh(for: events)
         }
         if folderMonitor == nil {
             logger.error("Cannot start application folder monitoring for \(paths.count, privacy: .public) roots")
@@ -143,21 +150,28 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
         }
     }
 
-    private func scheduleFolderRefresh() {
+    private func scheduleFolderRefresh(for events: [ApplicationFolderMonitor.Event]) {
         scanQueue.async { [weak self] in
-            guard let self, !folderRefreshPending else { return }
-            folderRefreshPending = true
+            guard let self else { return }
+            let scope = scanRoots.refreshScope(for: events)
+            // Writes deep inside bundles, such as updater or build output, never change the index.
+            guard !scope.isEmpty else { return }
+            if let pending = pendingRefresh {
+                pendingRefresh = pending.merging(scope)
+                return
+            }
+            pendingRefresh = scope
             // A copy or move can emit several batches while bundle contents settle.
             scanQueue.asyncAfter(deadline: .now() + refreshDelay) { [weak self] in
-                guard let self else { return }
-                folderRefreshPending = false
-                publishScan(completion: nil)
+                guard let self, let scope = pendingRefresh else { return }
+                pendingRefresh = nil
+                publishScan(scope: scope, completion: nil)
             }
         }
     }
 
-    private func publishScan(completion: (@MainActor @Sendable ([ApplicationInfo]) -> Void)?) {
-        let scanned = scanForApplicationsInternal()
+    private func publishScan(scope: ApplicationRefreshScope = .all, completion: (@MainActor @Sendable ([ApplicationInfo]) -> Void)?) {
+        let scanned = scanForApplicationsInternal(scope: scope)
         applicationsQueue.async(flags: .barrier) {
             let changed = !self.applications.elementsEqual(scanned) {
                 $0.bundlePath == $1.bundlePath && $0.name == $1.name
@@ -225,16 +239,28 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
         }
     }
 
-    private func scanForApplicationsInternal() -> [ApplicationInfo] {
+    /// Rescan the roots in scope and rebuild the full list in root order from cached results.
+    private func scanForApplicationsInternal(scope: ApplicationRefreshScope = .all) -> [ApplicationInfo] {
         var found: [ApplicationInfo] = []
         found.reserveCapacity(1024)
+        var rescanned = 0
 
-        for path in searchPaths {
+        for root in scanRoots.roots {
+            // A root without a cached result is scanned regardless, so a narrow refresh never drops it.
+            if !scope.includes(root.scanPath), let cached = rootApplications[root.scanPath] {
+                found.append(contentsOf: cached)
+                continue
+            }
             var remainingEntries = maximumEntriesPerRoot
-            scanDirectory(at: path, depth: 0, remainingEntries: &remainingEntries, into: &found)
+            var rootFound: [ApplicationInfo] = []
+            scanDirectory(at: root.url, depth: 0, remainingEntries: &remainingEntries, into: &rootFound)
+            rootApplications[root.scanPath] = rootFound
+            found.append(contentsOf: rootFound)
+            rescanned += 1
         }
+        logger.debug("Rescanned \(rescanned, privacy: .public) of \(self.scanRoots.roots.count, privacy: .public) application roots")
 
-        // De-dupe by bundle path
+        // Symlinked or firmlinked folders can still expose one bundle under two roots.
         var seen = Set<String>()
         seen.reserveCapacity(found.count)
         var deduped: [ApplicationInfo] = []
@@ -267,7 +293,7 @@ final nonisolated class ApplicationIndexer: @unchecked Sendable {
                     if fileSystem.isApplicationBundle(at: item) {
                         results.append(ApplicationInfo(name: displayName(for: item), bundlePath: item.path))
                     }
-                } else if depth < maximumDirectoryDepth, fileSystem.isApplicationSearchFolder(at: item) {
+                } else if depth < maximumDirectoryDepth, !scanRoots.isNestedRoot(item), fileSystem.isApplicationSearchFolder(at: item) {
                     scanDirectory(at: item, depth: depth + 1, remainingEntries: &remainingEntries, into: &results)
                 }
             }
