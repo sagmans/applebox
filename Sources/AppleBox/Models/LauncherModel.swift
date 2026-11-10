@@ -65,7 +65,8 @@ final class LauncherModel {
     @ObservationIgnored private var preservesSelectionOnPublish = false
     @ObservationIgnored private var isResettingResults = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
-    /// Records why a pointer activation did nothing, since a silent double-click is hard to diagnose.
+    /// Records why a pointer activation did nothing and which searches were superseded, since neither
+    /// shows on screen. Never carries query text, clip content or bundle ids.
     @ObservationIgnored private let logger = Logger(
         subsystem: LogSubsystem.name,
         category: "launcher"
@@ -207,6 +208,8 @@ final class LauncherModel {
         let generation = searchGeneration
 
         let text = query
+        let queryLength = text.count
+        let started = ContinuousClock.now
         switch mode {
         case .applications where text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             apps.resetSearchCache()
@@ -220,7 +223,7 @@ final class LauncherModel {
                 pendingSearchPreserves = preserving
                 inFlightSearch = Task { [apps, weak self] in
                     await apps.search(text)
-                    self?.searchFinished(generation)
+                    self?.searchFinished(generation, queryLength: queryLength, started: started)
                 }
             }
         case .clipboard:
@@ -231,7 +234,7 @@ final class LauncherModel {
                 pendingSearchPreserves = preserving
                 inFlightSearch = Task { [clips, weak self] in
                     await clips.search(text)
-                    self?.searchFinished(generation)
+                    self?.searchFinished(generation, queryLength: queryLength, started: started)
                 }
             }
         }
@@ -244,8 +247,16 @@ final class LauncherModel {
     }
 
     /// A superseded search must not clear the flag of the search that replaced it.
-    private func searchFinished(_ generation: Int) {
-        guard generation == searchGeneration else { return }
+    ///
+    /// A superseded or cancelled search is logged once, so slow searches that keep being replaced while
+    /// the user types can be seen. Counts only: the query text is what the user searched for and never
+    /// reaches the log.
+    private func searchFinished(_ generation: Int, queryLength: Int, started: ContinuousClock.Instant) {
+        guard generation == searchGeneration, !Task.isCancelled else {
+            let elapsed = started.duration(to: .now) / .milliseconds(1)
+            logger.debug("Search superseded: queryLength=\(queryLength, privacy: .public) elapsedMs=\(elapsed, privacy: .public)")
+            return
+        }
         pendingSearchPreserves = nil
     }
 
