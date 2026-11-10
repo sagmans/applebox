@@ -250,7 +250,8 @@ extension DesignTokens {
         static let hintSpacing: CGFloat = 4
         /// Blur radius of the glow behind an app icon.
         static let iconGlowRadius: CGFloat = 7
-        /// Side of the source app icon in the preview header; header text is caption-sized.
+        /// Side of the source app icon in the preview header; small enough to sit on one line with the
+        /// header's callout text.
         static let sourceIconSize: CGFloat = 14
         /// Corner radius of a color swatch in a clip row, matching the badge it replaces.
         static let swatchCornerRadius: CGFloat = 8
