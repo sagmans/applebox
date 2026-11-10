@@ -48,8 +48,10 @@ nonisolated enum ClipboardHistoryArchive {
     }
 
     /// Reads image files only for clips that retention can still keep, so a large or hostile archive
-    /// cannot make the load read more than one payload budget of images. Any read failure other than a
-    /// missing file throws, so the caller treats the archive as unreadable and never overwrites it.
+    /// cannot make the load read more than one payload budget of images. Each file is read once to check
+    /// it and take its digest, then released, so history holds file references instead of image bytes.
+    /// Any read failure other than a missing file throws, so the caller treats the archive as unreadable
+    /// and never overwrites it.
     static func restore(_ records: [StoredClip], images: ClipboardImageStore, now: Date = Date()) throws -> Restored {
         let earliest = ClipboardHistoryLimits.cutoff(at: now)
         var items: [ClipboardItem] = []
@@ -60,19 +62,25 @@ nonisolated enum ClipboardHistoryArchive {
             let id = record.id ?? UUID()
             // A repeated id would make two clips share and later delete one image file.
             guard seen.insert(id).inserted else { continue }
-            var imageData = record.imageData
-            // An image record without inline bytes or an id, as an earlier version writes after reading a
-            // current archive, has no way to reach its file, so it cannot be shown or pasted.
-            if record.contentType == .image, imageData == nil, record.id == nil {
-                continue
+            var image: ClipboardImagePayload?
+            if record.contentType == .image, let inline = record.imageData {
+                // Inline Base64 from an earlier version stays in memory until the rewrite this load asks
+                // for moves it to a file. Text that is not Base64 leaves no image, and retention drops it.
+                image = Data(base64Encoded: inline).map(ClipboardImagePayload.init(bytes:))
+            } else if record.contentType == .image {
+                // An image record without inline bytes or an id, as an earlier version writes after
+                // reading a current archive, has no way to reach its file, so it cannot be shown or pasted.
+                guard record.id != nil else { continue }
+                // A clip whose image file is gone cannot be shown or pasted, so it is dropped. The pool
+                // releases each file's bytes before the next read, so the load never holds all of them.
+                let stored = try autoreleasepool { () throws -> ClipboardImagePayload? in
+                    try images.read(id).map { .stored(bytes: $0, in: images, id: id) }
+                }
+                guard let stored else { continue }
+                image = stored
+                imageBytesRead += stored.byteCount
             }
-            if isStoredImage(record) {
-                // A clip whose image file is gone cannot be shown or pasted, so it is dropped.
-                guard let bytes = try images.read(id) else { continue }
-                imageData = bytes.base64EncodedString()
-                imageBytesRead += bytes.count
-            }
-            items.append(ClipboardItem(id: id, content: record.content, timestamp: record.timestamp, contentType: record.contentType, imageData: imageData, sourceBundleID: record.sourceBundleID))
+            items.append(ClipboardItem(id: id, content: record.content, timestamp: record.timestamp, contentType: record.contentType, image: image, sourceBundleID: record.sourceBundleID))
         }
         let isCurrentFormat = records.allSatisfy { $0.id != nil && $0.imageData == nil }
         return Restored(

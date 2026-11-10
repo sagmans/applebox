@@ -8,21 +8,23 @@ nonisolated enum ClipboardContentType: String, Codable, Sendable {
     case image
 }
 
-nonisolated struct ClipboardItem: Codable, Sendable {
+nonisolated struct ClipboardItem: Decodable, Sendable {
     /// Distinguish repeated copies, and name the clip's image file in `ClipboardImageStore`, so it is
     /// archived and survives a restart. Archives written before it existed get a fresh id on load.
     let id: UUID
     let content: String
     let timestamp: Date
     let contentType: ClipboardContentType
-    /// Keep the original bytes so replay does not change the image encoding.
-    let imageData: String?
+    /// The original image bytes, so replay does not change the image encoding. Held as a file reference
+    /// once saved, not as bytes, because history keeps every image for the whole run.
+    let image: ClipboardImagePayload?
     /// Bundle id of the app the clip came from, so the preview can say where it was copied. The writer's
     /// own `org.nspasteboard.source` declaration wins; without one it is the frontmost app when the poll
     /// noticed the change, which can be wrong if focus moved within one poll interval or a background
     /// tool wrote the clipboard. Metadata only; optional because history saved by earlier versions has none.
     let sourceBundleID: String?
 
+    /// Keys of the record shape that `init(from:)` reads, where `imageData` holds the image as Base64.
     private enum CodingKeys: String, CodingKey {
         case content, timestamp, contentType, imageData, sourceBundleID
     }
@@ -32,7 +34,7 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         self.content = content
         timestamp = Date()
         contentType = .text
-        imageData = nil
+        image = nil
         self.sourceBundleID = sourceBundleID
     }
 
@@ -41,18 +43,24 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         content = "[Image]"
         timestamp = Date()
         contentType = .image
-        self.imageData = imageData.base64EncodedString()
+        image = ClipboardImagePayload(bytes: imageData)
         self.sourceBundleID = sourceBundleID
     }
 
     /// Rebuilds a clip read back from the archive, keeping its id so its image file stays attached.
-    init(id: UUID, content: String, timestamp: Date, contentType: ClipboardContentType, imageData: String?, sourceBundleID: String?) {
+    init(id: UUID, content: String, timestamp: Date, contentType: ClipboardContentType, image: ClipboardImagePayload?, sourceBundleID: String?) {
         self.id = id
         self.content = content
         self.timestamp = timestamp
         self.contentType = contentType
-        self.imageData = imageData
+        self.image = image
         self.sourceBundleID = sourceBundleID
+    }
+
+    /// The same clip after a save wrote its image file, so history stops holding the bytes.
+    func withStoredImage(in store: ClipboardImageStore) -> ClipboardItem {
+        guard let image, image.isInMemory else { return self }
+        return ClipboardItem(id: id, content: content, timestamp: timestamp, contentType: contentType, image: image.storedCopy(in: store, id: id), sourceBundleID: sourceBundleID)
     }
 
     /// Decoded by hand so an archive written before `sourceBundleID` existed still loads; a missing key
@@ -63,24 +71,25 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         content = try container.decode(String.self, forKey: .content)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         contentType = try container.decode(ClipboardContentType.self, forKey: .contentType)
-        imageData = try container.decodeIfPresent(String.self, forKey: .imageData)
+        // Text that is not Base64 leaves the clip without an image, which retention then drops.
+        image = try container.decodeIfPresent(String.self, forKey: .imageData)
+            .flatMap { Data(base64Encoded: $0) }
+            .map(ClipboardImagePayload.init(bytes:))
         sourceBundleID = try container.decodeIfPresent(String.self, forKey: .sourceBundleID)
     }
 
     /// Deduplicate neighboring copies without conflating distinct history entries.
     func hasSamePayload(as other: ClipboardItem) -> Bool {
         guard contentType == other.contentType else { return false }
-        return contentType == .text ? content == other.content : imageData == other.imageData
+        guard contentType == .image else { return content == other.content }
+        guard let image, let otherImage = other.image else { return false }
+        return image.hasSameBytes(as: otherImage)
     }
 
-    /// Returns the decoded NSImage for image content types
-    func getImage() -> NSImage? {
-        imageBytes.flatMap(NSImage.init(data:))
-    }
-
-    /// Identify the original format because older history stores only the bytes.
-    func imageRepresentation() -> (data: Data, type: NSPasteboard.PasteboardType)? {
-        guard let data = imageBytes,
+    /// Identify the original format because older history stores only the bytes. Throws when the image
+    /// file cannot be read, so replay can report it instead of pasting nothing.
+    func imageRepresentation() throws -> (data: Data, type: NSPasteboard.PasteboardType)? {
+        guard let data = try imageBytes(),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetStatus(source) == .statusComplete,
               let identifier = CGImageSourceGetType(source) else { return nil }
@@ -90,10 +99,11 @@ nonisolated struct ClipboardItem: Codable, Sendable {
         return (data, type)
     }
 
-    /// Internal so persistence can write the original bytes to the clip's image file.
-    var imageBytes: Data? {
-        guard contentType == .image, let imageData else { return nil }
-        return Data(base64Encoded: imageData)
+    /// The original image bytes, read from the clip's image file when it is saved. Internal so
+    /// persistence can write them and the image cache can decode them.
+    func imageBytes() throws -> Data? {
+        guard contentType == .image else { return nil }
+        return try image?.bytes()
     }
 }
 
@@ -107,11 +117,9 @@ nonisolated enum ClipboardHistoryLimits {
     private static let retentionDays: TimeInterval = 30
     private static let base64GroupWidth = 4
     private static let base64GroupBytes = 3
-    private static let maximumBase64Padding = 2
     static let itemCount = 50
     static let textBytes = 256 * kibibyte
     static let imageBytes = 8 * mebibyte
-    private static let base64ImageBytes = base64GroupWidth * ((imageBytes + base64GroupBytes - 1) / base64GroupBytes)
     /// Internal so the archive load can stop reading image files once retention could keep no more.
     static let payloadBudget = 32 * mebibyte
     static let archiveReadLimit = 64 * mebibyte
@@ -140,13 +148,12 @@ nonisolated enum ClipboardHistoryLimits {
         guard textSize <= textBytes else { return nil }
         // Budget for JSON escaping without re-encoding history during capture or search.
         let textCost = textSize * maximumJSONEscapeBytes
-        guard let image = item.imageData else { return textCost }
-        let encodedSize = image.utf8.count
-        guard encodedSize <= base64ImageBytes, encodedSize.isMultiple(of: base64GroupWidth) else { return nil }
-        let padding = image.utf8.suffix(base64GroupWidth).reversed().prefix(while: { $0 == UInt8(ascii: "=") }).count
-        let decodedSize = encodedSize / base64GroupWidth * base64GroupBytes - padding
-        guard padding <= maximumBase64Padding, decodedSize <= imageBytes else { return nil }
-        return textCost + encodedSize
+        guard item.contentType == .image else { return textCost }
+        // An image clip without bytes cannot be shown or pasted, so it is not kept.
+        guard let byteCount = item.image?.byteCount, byteCount <= imageBytes else { return nil }
+        // Costed at its Base64 size, as when images sat inline in the archive, so keeping bytes out of
+        // memory does not change how many clips history keeps.
+        return textCost + base64GroupWidth * ((byteCount + base64GroupBytes - 1) / base64GroupBytes)
     }
 }
 
@@ -487,7 +494,7 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
 
     @MainActor
     private func readSupportedClipboardItem(types: [NSPasteboard.PasteboardType]) -> ClipboardItem? {
-        // Check the raw image size before allocating its base64 representation.
+        // Check the raw image size before hashing it.
         let source = captureSource(types: types)
         if let image = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             guard image.count <= ClipboardHistoryLimits.imageBytes else { return nil }
@@ -603,17 +610,31 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
             persistedImageIDs.removeAll()
         }
         var archivedImageIDs = Set<UUID>()
+        var writtenImageIDs = Set<UUID>()
         for item in snapshot where item.contentType == .image {
-            // Checked before decoding, because decoding every image on each save costs more than the write.
+            // Checked first, so a save never reads back an image file that is already on disk.
             if persistedImageIDs.contains(item.id) {
                 archivedImageIDs.insert(item.id)
                 continue
             }
-            guard let bytes = item.imageBytes else { continue }
+            // Nil or a failed read means the bytes already left memory and their file is gone or changed:
+            // that clip cannot be saved again here, and it must not block the others. The next load drops
+            // a missing file and reads a changed one as it then is.
+            let bytes: Data?
+            do {
+                bytes = try item.imageBytes()
+            } catch {
+                logger.error("Clipboard history reread image failed: clip=\(item.id, privacy: .public) \(ClipboardImagePayload.failureSummary(error), privacy: .public)")
+                continue
+            }
+            guard let bytes else { continue }
             try imageStore.write(bytes, for: item.id)
             archivedImageIDs.insert(item.id)
+            writtenImageIDs.insert(item.id)
         }
         try fileSystem.writePrivateFile(data, to: storageURL)
+        // After the archive, so a failed save leaves every new clip holding its own bytes.
+        releaseImageBytes(of: writtenImageIDs, to: imageStore)
         let staleImageIDs = persistedImageIDs.subtracting(archivedImageIDs)
         persistedImageIDs = archivedImageIDs
         for id in staleImageIDs {
@@ -622,6 +643,17 @@ final nonisolated class ClipboardManager: @unchecked Sendable {
             } catch {
                 // The archive no longer names the file, so the next load's sweep retries the delete.
                 logStorageFailure(error, operation: "remove image")
+            }
+        }
+    }
+
+    /// Swaps each clip's in-memory image for a reference to the file just written, so history no longer
+    /// holds bytes it can read back. Matched by id, so copies that arrived during the save keep theirs.
+    private func releaseImageBytes(of ids: Set<UUID>, to store: ClipboardImageStore) {
+        guard !ids.isEmpty else { return }
+        historyQueue.sync {
+            for index in history.indices where ids.contains(history[index].id) {
+                history[index] = history[index].withStoredImage(in: store)
             }
         }
     }

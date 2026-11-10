@@ -88,9 +88,7 @@ final class LauncherModelTests: XCTestCase {
         let storageURL = appSupportURL
             .appendingPathComponent("AppleBox", isDirectory: true)
             .appendingPathComponent("clipboard_history.json")
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        _ = try mockFileSystem.createFile(atPath: storageURL.path, contents: encoder.encode(items), attributes: nil)
+        _ = try mockFileSystem.createFile(atPath: storageURL.path, contents: ClipboardHistoryArchive.encode(items), attributes: nil)
 
         clipboardManager = ClipboardManager(pasteboard: mockPasteboard, fileSystem: mockFileSystem)
         model.setClipboardManager(clipboardManager)

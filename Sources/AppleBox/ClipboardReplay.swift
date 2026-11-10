@@ -45,9 +45,17 @@ final class ClipboardReplay {
     }
 
     func replay(_ item: ClipboardItem, pasteAutomatically: Bool = true, dismiss: () -> Void) {
-        let representation = item.contentType == .text
-            ? (data: Data(item.content.utf8), type: NSPasteboard.PasteboardType.string)
-            : item.imageRepresentation()
+        let representation: (data: Data, type: NSPasteboard.PasteboardType)?
+        do {
+            representation = item.contentType == .text
+                ? (data: Data(item.content.utf8), type: NSPasteboard.PasteboardType.string)
+                : try item.imageRepresentation()
+        } catch {
+            // The image file is read only now, so a file removed or changed since capture surfaces here.
+            logger.error("Cannot read clipboard history image for replay: clip=\(item.id, privacy: .public) \(ClipboardImagePayload.failureSummary(error), privacy: .public)")
+            showFeedback(copyFailureMessage, kind: .failure)
+            return
+        }
         guard let representation else {
             logger.error("Cannot replay clipboard history image with invalid or unsupported data")
             showFeedback(copyFailureMessage, kind: .failure)

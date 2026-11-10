@@ -32,8 +32,8 @@ System Settings and allow it. Copy something new to confirm that capture has
 resumed. Previously saved clips remain available while access is blocked.
 
 AppleBox keeps up to 50 clips for 30 days. It skips text above 256 KiB and
-images above 8 MiB. A 32 MiB storage budget counts Base64 image data and
-reserves room for JSON escaping. When the budget fills, the newest clips
+images above 8 MiB. A 32 MiB storage budget counts each image at its Base64
+size and reserves room for JSON escaping. When the budget fills, the newest clips
 take priority. Expired clips disappear from search and are removed from the
 saved archive on the next capture or hourly cleanup.
 
@@ -47,6 +47,9 @@ and details only. Each image is a separate owner-only file in the
 `clipboard_images` folder next to it, named by the clip's ID, and is deleted
 when its clip is deleted, expires, or leaves the history. AppleBox saves
 history at most twice a second, and it saves any pending change when it quits.
+After a save, AppleBox does not keep image bytes in memory. It reads an image
+file only to show a thumbnail or preview, or to paste the clip. If the file
+changed after the save, AppleBox does not show or paste it.
 
 AppleBox reads up to 64 MiB from an existing archive and up to 8 MiB from
 each image file. An archive from an earlier version, which held images

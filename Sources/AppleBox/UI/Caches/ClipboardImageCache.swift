@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import OSLog
 import Synchronization
 
 /// What the cache holds for a clip image right now. A view tells "still decoding" from "cannot be
@@ -20,15 +21,15 @@ nonisolated struct ClipPreviewImage: Sendable {
 
 /// Decoded clipboard images, shared by rows and the preview so each image is decoded once.
 ///
-/// Keyed by the clip's id, not a hash of its bytes: a clip is immutable, and payloads reach about 10 MB of
-/// base64, so hashing them on every lookup would cost more than the lookup saves. Ids are assigned when
-/// the archive is decoded at startup, so only a restart gives clips new ids, which costs one more decode.
+/// Keyed by the clip's id, not a hash of its bytes: a clip is immutable, and its bytes may sit in a file,
+/// so hashing them on every lookup would cost more than the lookup saves.
 ///
-/// Decoding runs on `decodeQueue`, because a base64 payload of that size plus the image decode takes tens
-/// of milliseconds, and doing it inside a view's body stalls the open motion and typing. Lookups return
-/// at once; `didLoad` tells views to look again. Every image leaves the queue as a decoded bitmap at the
-/// size it is drawn: an `NSImage(data:)` defers its decode to the first draw, which put a full-resolution
-/// decode of about 150 ms and 56 MB per 5K screenshot on the main thread each time the selection moved.
+/// Decoding runs on `decodeQueue`, because reading an image file of up to
+/// `ClipboardHistoryLimits.imageBytes` plus the image decode takes tens of milliseconds, and doing it
+/// inside a view's body stalls the open motion and typing. Lookups return at once; `didLoad` tells views
+/// to look again. Every image leaves the queue as a decoded bitmap at the size it is drawn: an
+/// `NSImage(data:)` defers its decode to the first draw, which put a full-resolution decode of about 150 ms
+/// and 56 MB per 5K screenshot on the main thread each time the selection moved.
 ///
 /// Entries leave by count, least recently used first, or when the panel hides (`releaseHidden`), never
 /// while a view may still draw them. NSCache is not used: it also purges on system
@@ -55,6 +56,8 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// the short side must reach the slot size or it is upscaled and blurs; past this ratio a panorama or
     /// a long screenshot would decode a strip many times the slot's width that the crop throws away.
     private static let maximumThumbnailAspect: CGFloat = 8
+    /// A failed read shows as "unavailable" in the view, so the log is where its cause is kept.
+    private static let logger = Logger(subsystem: LogSubsystem.name, category: "clipboardImageCache")
 
     /// Names one decode: the full image and the thumbnail of a clip are separate work.
     private struct Job: Hashable {
@@ -134,7 +137,7 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// The size is fixed by the first lookup; full images are dropped each time the panel hides, so a
     /// move to a screen with another backing scale is picked up on the next open.
     func image(for item: ClipboardItem, maxPixelSize: CGFloat) -> ClipImageLookup {
-        guard item.contentType == .image, item.imageData != nil else { return .unavailable }
+        guard item.contentType == .image, item.image != nil else { return .unavailable }
         switch lookup(id: item.id, in: \.full) {
         case let .decoded(image):
             return image.map(ClipImageLookup.ready) ?? .unavailable
@@ -150,7 +153,7 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
     /// its kind badge then. Decoded straight to thumbnail size, because a 32 pt row must not hold a
     /// multi-megapixel bitmap in memory or pay for decoding one.
     func thumbnail(for item: ClipboardItem, pixelSize: CGFloat) -> NSImage? {
-        guard item.contentType == .image, item.imageData != nil else { return nil }
+        guard item.contentType == .image, item.image != nil else { return nil }
         switch lookup(id: item.id, in: \.thumbnails) {
         case let .decoded(image):
             return image
@@ -211,10 +214,17 @@ final nonisolated class ClipboardImageCache: @unchecked Sendable {
         return (slot * aspect).rounded(.up)
     }
 
-    /// The clip's image as an ImageIO source; nil when the payload is not base64 or not an image.
+    /// The clip's image as an ImageIO source; nil when its file is gone, unreadable or not an image.
+    /// Read here, on the decode queue, so a file read never runs on the main thread.
     private static func imageSource(item: ClipboardItem) -> CGImageSource? {
-        guard let data = item.imageData.flatMap({ Data(base64Encoded: $0) }) else { return nil }
-        return CGImageSourceCreateWithData(data as CFData, nil)
+        let data: Data?
+        do {
+            data = try item.imageBytes()
+        } catch {
+            logger.error("Cannot read clipboard image for decode: clip=\(item.id, privacy: .public) \(ClipboardImagePayload.failureSummary(error), privacy: .public)")
+            return nil
+        }
+        return data.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
     }
 
     /// The one decode path for rows and preview. ImageIO decodes straight to the target size, and

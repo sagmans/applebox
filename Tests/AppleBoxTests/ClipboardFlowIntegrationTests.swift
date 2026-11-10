@@ -60,9 +60,7 @@ final class ClipboardFlowIntegrationTests: XCTestCase {
 
     /// Encodes clipboard items to JSON data (matching ClipboardManager's format)
     private func encodeHistory(_ items: [ClipboardItem]) -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return try! encoder.encode(items)
+        try! ClipboardHistoryArchive.encode(items)
     }
 
     // MARK: - Test: End-to-End Flow (Mock Pasteboard Change -> ClipboardManager -> History Retrieval)

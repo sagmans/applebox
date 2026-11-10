@@ -52,9 +52,7 @@ final class ClipboardManagerTests: XCTestCase {
 
     /// Encodes clipboard items to JSON data (matching ClipboardManager's format)
     private func encodeHistory(_ items: [ClipboardItem]) -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return try! encoder.encode(items)
+        try! ClipboardHistoryArchive.encode(items)
     }
 
     /// Creates a ClipboardItem for testing (note: timestamp will be different each time)
