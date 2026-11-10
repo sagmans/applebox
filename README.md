@@ -24,9 +24,20 @@ swift run
 `~/Applications/AppleBox.app`. Open it from Finder or run
 `open ~/Applications/AppleBox.app`.
 
-To update, choose **Quit AppleBox** in the menu bar, then run `make install`
-again. The installer replaces the bundle and keeps saved clips, recent apps,
-and preferences. `make uninstall` moves the bundle to Trash and keeps that data.
+Run `make local-signing` once first. It creates a self-signed code-signing
+identity, "AppleBox Local Development", in your login keychain. Local builds
+sign with it, so macOS keeps the paste permission across rebuilds; you grant
+it once. Without it, builds are ad-hoc signed and macOS forgets the permission
+after each build. The identity is for local builds only: releases are signed
+with the Developer ID and notarized (`make ship`).
+
+Dev and release builds share the bundle ID, saved data, and hotkeys, so run
+one at a time. Because their signatures differ, macOS asks for the paste
+permission again when you switch between them.
+
+To update, run `make install` again. It stops any running copy first. The
+installer replaces the bundle and keeps saved clips, recent apps, and
+preferences. `make uninstall` moves the bundle to Trash and keeps that data.
 
 To opt in to startup, select **Launch at Login → Start AppleBox Automatically**
 in the menu bar. Select it again to disable it. If macOS asks for approval,

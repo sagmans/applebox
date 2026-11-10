@@ -1,6 +1,6 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
         audit-swift-dependencies swift-sast benchmark-search \
-        sign verify-sign check-adhoc notarize check-notarize staple \
+        local-signing sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
 
@@ -14,7 +14,18 @@ BUILD_DIR := .build/release
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 INSTALL_DIR := $(HOME)/Applications
 LOCAL_INSTALLER := scripts/install-local.swift
-LOCAL_SIGNING_IDENTITY ?= -
+# Local builds sign with a stable self-signed identity (made once by `make local-signing`),
+# because an ad-hoc signature changes on every build and macOS then forgets the app's
+# privacy grants, such as the paste permission. Without that identity, builds fall back to
+# ad-hoc and warn. Set LOCAL_SIGNING_IDENTITY to override, e.g. `-` to force ad-hoc.
+# The keychain is read only inside `bundle`, so lint, format and test never touch it.
+LOCAL_SIGNING_NAME := AppleBox Local Development
+LOCAL_SIGNING_SETUP := scripts/setup-local-signing
+LOCAL_SIGNING_IDENTITY ?=
+ADHOC_SIGNING_IDENTITY := -
+# `make stop` polls once per STOP_POLL_SECONDS, STOP_POLL_LIMIT times, before it fails.
+STOP_POLL_SECONDS := 1
+STOP_POLL_LIMIT := 10
 LOG_DIR := $(HOME)/Library/Logs/$(APP_NAME)
 DIST_DIR := $(BUILD_DIR)/dist
 
@@ -80,6 +91,7 @@ help:
 	@echo "  make logs         - Stream app logs"
 	@echo ""
 	@echo "$(GREEN)Installation:$(NC)"
+	@echo "  make local-signing - Create the local signing identity (once) so permissions survive rebuilds"
 	@echo "  make install      - Install or update in ~/Applications"
 	@echo "  make uninstall    - Move the local bundle to Trash, keeping history"
 	@echo ""
@@ -206,8 +218,18 @@ bundle: build
 		cp "$(ENTITLEMENTS)" "$(APP_BUNDLE)/Contents/Resources/"; \
 	fi
 	@# Seal the whole bundle: the linker signs only the binary, and macOS privacy grants
-	@# (Accessibility, Screen Recording) never match a bundle whose resources are unsealed.
-	@codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" "$(APP_BUNDLE)"
+	@# (paste permission, Screen Recording) never match a bundle whose resources are unsealed.
+	@# The setup script resolves the identity so a duplicate or a failed keychain query stops
+	@# the build with a reason instead of a vague codesign error.
+	@identity="$(LOCAL_SIGNING_IDENTITY)"; \
+	if [ -z "$$identity" ]; then \
+		identity="$$(bash "$(LOCAL_SIGNING_SETUP)" --resolve "$(LOCAL_SIGNING_NAME)")" || exit 1; \
+	fi; \
+	if [ -z "$$identity" ] || [ "$$identity" = "$(ADHOC_SIGNING_IDENTITY)" ]; then \
+		identity="$(ADHOC_SIGNING_IDENTITY)"; \
+		echo "$(YELLOW)Ad-hoc signing: macOS forgets the paste permission after each build. Run 'make local-signing' once to keep it.$(NC)"; \
+	fi; \
+	codesign --force --sign "$$identity" "$(APP_BUNDLE)"
 	@codesign --verify --strict "$(APP_BUNDLE)"
 	@echo "$(GREEN)Bundle created: $(APP_BUNDLE)$(NC)"
 
@@ -216,8 +238,17 @@ run: stop bundle
 	@open "$(APP_BUNDLE)"
 	@echo "$(GREEN)Started $(APP_NAME)$(NC)"
 
+# Stops every running copy, dev or release: they share the bundle ID and the global hotkeys,
+# so only one may run, and the installer refuses to replace a bundle while any copy runs.
+# Fails when a copy outlives the wait, so `install` never races a live process.
 stop:
-	@pkill -x $(APP_NAME) 2>/dev/null && echo "$(YELLOW)Stopped $(APP_NAME)$(NC)" || true
+	@if pkill -x "$(APP_NAME)" 2>/dev/null; then \
+		for _ in $$(seq $(STOP_POLL_LIMIT)); do pgrep -x "$(APP_NAME)" >/dev/null || break; sleep $(STOP_POLL_SECONDS); done; \
+		if pgrep -x "$(APP_NAME)" >/dev/null; then \
+			echo "$(RED)$(APP_NAME) still running after $(STOP_POLL_LIMIT) checks; quit it from the menu bar$(NC)"; exit 1; \
+		fi; \
+		echo "$(YELLOW)Stopped $(APP_NAME)$(NC)"; \
+	fi
 
 status:
 	@pgrep -x $(APP_NAME) >/dev/null && echo "$(GREEN)$(APP_NAME) running (PID: $$(pgrep -x $(APP_NAME)))$(NC)" || echo "$(YELLOW)$(APP_NAME) not running$(NC)"
@@ -229,7 +260,12 @@ logs:
 # Installation
 # ==============================================================================
 
-install: bundle
+# Creates the stable local signing identity once; see LOCAL_SIGNING_NAME above.
+local-signing:
+	@bash "$(LOCAL_SIGNING_SETUP)" "$(LOCAL_SIGNING_NAME)"
+
+# Bundle first, then stop, so the running copy keeps working during the build.
+install: bundle stop
 	@swift "$(LOCAL_INSTALLER)" install "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app" "$(BUNDLE_ID)"
 
 uninstall:
@@ -249,8 +285,12 @@ check-adhoc:
 			echo "$(RED)This will NOT work for distribution.$(NC)"; \
 			echo "$(YELLOW)Run 'make sign' to sign with Developer ID.$(NC)"; \
 			exit 1; \
+		elif ! codesign -dvv "$(APP_BUNDLE)" 2>&1 | grep -q "^Authority=Developer ID Application"; then \
+			echo "$(RED)ERROR: App is not signed with Developer ID (local builds use a self-signed identity).$(NC)"; \
+			echo "$(YELLOW)Run 'make sign' to sign with Developer ID.$(NC)"; \
+			exit 1; \
 		else \
-			echo "$(GREEN)OK: Not ad-hoc signed$(NC)"; \
+			echo "$(GREEN)OK: Signed with Developer ID$(NC)"; \
 		fi \
 	else \
 		echo "$(YELLOW)No bundle found yet$(NC)"; \

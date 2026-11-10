@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Creates the self-signed code-signing identity that `make bundle` uses for local builds.
+#
+# Why: an ad-hoc signature makes macOS identify the app by a hash of the build, so every
+# rebuild looks like a new app and loses its privacy grants (the paste permission under
+# Privacy & Security). A stable identity makes macOS identify the app by its bundle ID and
+# this certificate instead, so one grant survives every rebuild.
+#
+# Safety: the private key is created in a private temporary directory, imported into the
+# login keychain as non-extractable, and the temporary files are deleted on every exit
+# path. Only codesign may use the key. The script adds no trust settings and needs no admin
+# rights, so the certificate cannot vouch for anything outside this keychain.
+#
+# Usage: scripts/setup-local-signing [--resolve] <identity-name>
+# The Makefile owns the name (LOCAL_SIGNING_NAME) and passes it in.
+# Safe to run again: it does nothing when the identity already exists.
+# --resolve: create nothing; print the name when exactly one such identity exists, print
+# nothing when none does, and fail on duplicates. `make bundle` uses it to pick the identity.
+set -euo pipefail
+
+# Long-lived on purpose: a new certificate changes the app's identity and resets its grants.
+readonly VALIDITY_DAYS=3650
+readonly KEY_BITS=3072
+# LibreSSL is pinned because its PKCS#12 defaults are the ones `security import` can read;
+# an OpenSSL 3 from Homebrew earlier in PATH writes files the keychain rejects.
+readonly OPENSSL=/usr/bin/openssl
+readonly CODESIGN=/usr/bin/codesign
+readonly PASSPHRASE_BYTES=32
+
+resolve_only=false
+if [ "${1:-}" = "--resolve" ]; then
+	resolve_only=true
+	shift
+fi
+identity_name="${1:?usage: setup-local-signing [--resolve] <identity-name>}"
+
+fail() {
+	printf 'setup-local-signing: %s\n' "$1" >&2
+	exit 1
+}
+
+[ "$(uname -s)" = "Darwin" ] || fail "needs macOS: the identity lives in the macOS login keychain"
+case "$identity_name" in
+'' | *[!A-Za-z0-9\ ._-]*) fail "identity name must be letters, digits, spaces, dots, dashes or underscores: '$identity_name'" ;;
+esac
+for tool in "$OPENSSL" "$CODESIGN" /usr/bin/security; do
+	[ -x "$tool" ] || fail "missing $tool"
+done
+
+# Without -v the listing includes untrusted identities; a self-signed one is never trusted,
+# and codesign still signs with it.
+# The query runs on its own so its failure stops the script; read as "no identity", it would
+# make a duplicate.
+identity_count() {
+	local listing
+	listing="$(/usr/bin/security find-identity -p codesigning)" || fail "could not list code-signing identities"
+	# grep -c exits 1 on zero matches, which is a valid answer here.
+	printf '%s\n' "$listing" | grep -cF "\"$identity_name\"" || true
+}
+
+existing="$(identity_count)"
+# Two identities with one name make codesign refuse to choose, so say so instead of
+# reporting success.
+[ "$existing" -le 1 ] || fail "$existing identities named '$identity_name' exist; delete the extras in Keychain Access"
+if [ "$resolve_only" = true ]; then
+	[ "$existing" -eq 0 ] || printf '%s\n' "$identity_name"
+	exit 0
+fi
+if [ "$existing" -eq 1 ]; then
+	printf 'Signing identity "%s" already exists.\n' "$identity_name"
+	exit 0
+fi
+
+# The tool prints the path indented and quoted; strip only those, so a path with spaces survives.
+keychain="$(/usr/bin/security login-keychain | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+[ -f "$keychain" ] || fail "login keychain not found: '$keychain'"
+
+umask 077
+workdir="$(mktemp -d)"
+# The directory holds an unencrypted key until import; signals become a normal exit so the
+# EXIT trap removes it on Ctrl-C too.
+trap 'rm -rf "$workdir"' EXIT
+trap 'exit 130' INT TERM HUP
+
+# Code signing only: no CA rights, no other key usage, so the certificate cannot sign other
+# certificates, servers or mail even if someone trusted it.
+cat >"$workdir/cert.cnf" <<EOF
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = $identity_name
+[ext]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+subjectKeyIdentifier = hash
+EOF
+
+"$OPENSSL" req -x509 -newkey "rsa:$KEY_BITS" -nodes -days "$VALIDITY_DAYS" -sha256 \
+	-config "$workdir/cert.cnf" -keyout "$workdir/key.pem" -out "$workdir/cert.pem" 2>/dev/null ||
+	fail "openssl could not create the certificate"
+
+# The bundle passphrase only protects a file that is deleted seconds later; `security import`
+# accepts it only as an argument.
+passphrase="$("$OPENSSL" rand -hex "$PASSPHRASE_BYTES")"
+P12_PASS="$passphrase" "$OPENSSL" pkcs12 -export -name "$identity_name" \
+	-inkey "$workdir/key.pem" -in "$workdir/cert.pem" -out "$workdir/identity.p12" -passout env:P12_PASS ||
+	fail "openssl could not package the identity"
+
+# -x: the key can never be exported again. -T: codesign may use it without a prompt.
+/usr/bin/security import "$workdir/identity.p12" -k "$keychain" -f pkcs12 -x \
+	-P "$passphrase" -T "$CODESIGN" >/dev/null ||
+	fail "could not import the identity into $keychain"
+
+[ "$(identity_count)" -eq 1 ] || fail "the identity was imported but codesign cannot find it"
+printf 'Created signing identity "%s" in %s.\n' "$identity_name" "$keychain"
+printf 'Next: make install, then allow AppleBox once in System Settings > Privacy & Security.\n'
