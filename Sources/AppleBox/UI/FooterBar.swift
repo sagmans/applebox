@@ -62,14 +62,26 @@ struct FooterBar: View {
         HStack(spacing: DesignTokens.Metrics.hintSpacing) {
             ForEach(keys, id: \.self) { key in
                 keyCap(key)
-                    .padding(DesignTokens.Metrics.keyCapPadding)
-                    .launcherGlass(.clear, in: .capsule)
+                    .font(DesignTokens.Typography.keyCap)
+                    .padding(.horizontal, DesignTokens.Metrics.keyCapHorizontalPadding)
+                    .padding(.vertical, DesignTokens.Metrics.keyCapVerticalPadding)
+                    .frame(minWidth: DesignTokens.Metrics.keyCapMinWidth)
+                    .background(.quaternary, in: Self.keyCapShape)
+                    // The system separator color strengthens itself under Increase Contrast, so the cap
+                    // keeps a visible edge without a contrast branch here.
+                    .overlay {
+                        Self.keyCapShape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: DesignTokens.Metrics.hairline)
+                    }
             }
             Text(action)
-                .foregroundStyle(.secondary)
         }
+        .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
     }
+
+    /// Solid fill instead of glass: a key cap is a label, and an opaque system fill also stays correct
+    /// under Reduce Transparency.
+    private static let keyCapShape = RoundedRectangle(cornerRadius: DesignTokens.Metrics.keyCapCornerRadius)
 
     /// Severity decides color and symbol, so a warning is not mistaken for plain guidance.
     private func statusLine(_ status: LauncherStatus) -> some View {

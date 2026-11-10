@@ -238,8 +238,14 @@ extension DesignTokens {
         static let imageCornerRadius: CGFloat = 8
         /// Side of the image thumbnail in a clip row.
         static let thumbnailSize: CGFloat = 32
-        /// Padding around a footer key cap's symbol.
-        static let keyCapPadding: CGFloat = 5
+        /// Side padding inside a footer key cap, so a glyph does not touch the cap's edge.
+        static let keyCapHorizontalPadding: CGFloat = 5
+        /// Top and bottom padding inside a key cap; small so caps stay as tall as the hint text line.
+        static let keyCapVerticalPadding: CGFloat = 1
+        /// Narrowest key cap, so single-glyph caps (⏎, ⌥) read as square keys like menu shortcuts do.
+        static let keyCapMinWidth: CGFloat = 20
+        /// Corner radius of a key cap: a rounded rectangle like a physical key, not a pill.
+        static let keyCapCornerRadius: CGFloat = 4
         /// Gap between a key cap group and its action name.
         static let hintSpacing: CGFloat = 4
         /// Blur radius of the glow behind an app icon.
