@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import OSLog
 
 /// Which result set the launcher shows.
 nonisolated enum SearchMode: Sendable {
@@ -79,6 +80,11 @@ final class LauncherModel {
     @ObservationIgnored private var preservesSelectionOnPublish = false
     @ObservationIgnored private var isResettingResults = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// Records why a pointer activation did nothing, since a silent double-click is hard to diagnose.
+    @ObservationIgnored private let logger = Logger(
+        subsystem: LogSubsystem.name,
+        category: "launcher"
+    )
 
     init(apps: AppSearchModel, clips: ClipboardModel) {
         self.apps = apps
@@ -352,6 +358,36 @@ final class LauncherModel {
             guard let bundlePath = id as? String else { return }
             inFlightLaunch = Task { [apps] in _ = await apps.launch(bundlePath: bundlePath) }
         }
+    }
+
+    /// Launches the app or pastes the clip the pointer double-clicked, named by its row identity.
+    ///
+    /// Unlike Return, this never waits for a search in flight: a double-click names a row that is on
+    /// screen, and a search landing first would reset the selection to row 0 of a new ranking, which
+    /// would paste a different, possibly sensitive clip or open the wrong app. The search is cancelled
+    /// so it cannot replace the rows the user clicked. An id that is no longer listed does nothing.
+    func activate(id: AnyHashable) {
+        cancelWork()
+        switch mode {
+        case .clipboard:
+            guard let clipID = id.base as? UUID,
+                  clips.replay(id: clipID, pasteAutomatically: true, dismiss: { onDismiss() })
+            else {
+                logStaleActivation()
+                return
+            }
+        case .applications:
+            guard let bundlePath = id.base as? String, apps.rows.contains(where: { $0.id == bundlePath }) else {
+                logStaleActivation()
+                return
+            }
+            Task { [apps] in _ = await apps.launch(bundlePath: bundlePath) }
+        }
+    }
+
+    /// Only the mode is logged: the id is a clip or a bundle path, and neither may reach the log.
+    private func logStaleActivation() {
+        logger.info("Pointer activation skipped: row no longer listed, mode=\(String(describing: self.mode), privacy: .public)")
     }
 
     /// Copies the highlighted clip without pasting. Returns whether the key press was consumed, which in

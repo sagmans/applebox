@@ -215,9 +215,10 @@ struct ResultsList: View {
             .contentShape(Rectangle())
             // With a double-tap gesture present, the single tap waits for the double tap to fail, so selection
             // lands after the system double-click interval; registering the double tap first keeps both working.
+            // The row acts by its id, not the selection, so a search landing meanwhile cannot redirect it.
             .onTapGesture(count: DesignTokens.Metrics.activationClickCount) {
                 model.select(index)
-                model.activateSelection()
+                model.activate(id: AnyHashable(id))
             }
             .onTapGesture { model.select(index) }
             .id(id)
