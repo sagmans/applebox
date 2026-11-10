@@ -2,10 +2,20 @@ import AppKit
 import OSLog
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum MenuTitle {
+        static let app = "AppleBox"
+        static let icon = "square.grid.2x2"
+        static let search = "Search Applications"
+        static let clipboard = "Clipboard History"
+        static let retry = "Retry Global Shortcuts"
+        static let quit = "Quit AppleBox"
+    }
+
     private var hotkeyManager: HotkeyManager?
     private var windowManager: WindowManager?
     private var appIndexer: ApplicationIndexer?
     private var clipboardManager: ClipboardManager?
+    private var statusItem: NSStatusItem?
 
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.assagman.applebox",
@@ -42,12 +52,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toggleWindow(mode: searchMode)
         }
 
+        // The menu must be available even if macOS rejects every global shortcut.
+        installStatusMenu()
         hotkeyManager?.start()
     }
 
     func applicationWillTerminate(_: Notification) {
         logger.info("AppleBox terminating")
+        hotkeyManager?.stop()
         clipboardManager?.flushPendingPersistence()
+    }
+
+    private func installStatusMenu() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = item.button {
+            if let icon = NSImage(systemSymbolName: MenuTitle.icon, accessibilityDescription: MenuTitle.app) {
+                icon.isTemplate = true
+                button.image = icon
+            } else {
+                button.title = MenuTitle.app
+            }
+            button.setAccessibilityLabel(MenuTitle.app)
+            button.toolTip = MenuTitle.app
+        }
+
+        let menu = NSMenu(title: MenuTitle.app)
+        addStatusAction(to: menu, title: MenuTitle.search, action: #selector(openAppSearchFromMenu))
+        addStatusAction(to: menu, title: MenuTitle.clipboard, action: #selector(openClipboardFromMenu))
+        menu.addItem(.separator())
+        addStatusAction(to: menu, title: MenuTitle.retry, action: #selector(retryShortcutsFromMenu))
+        menu.addItem(.separator())
+        addStatusAction(to: menu, title: MenuTitle.quit, action: #selector(quitFromMenu))
+        item.menu = menu
+        statusItem = item
+    }
+
+    private func addStatusAction(to menu: NSMenu, title: String, action: Selector) {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+    }
+
+    @objc private func openAppSearchFromMenu() {
+        appIndexer?.refreshIfMonitoringUnavailable()
+        openFromMenu(mode: .applications)
+    }
+
+    @objc private func openClipboardFromMenu() {
+        openFromMenu(mode: .clipboard)
+    }
+
+    private func openFromMenu(mode: SearchMode) {
+        // Let AppKit finish tracking the menu before the launcher takes keyboard focus.
+        DispatchQueue.main.async { [weak self] in self?.windowManager?.show(mode: mode) }
+    }
+
+    @objc private func retryShortcutsFromMenu() {
+        hotkeyManager?.start()
+    }
+
+    @objc private func quitFromMenu() {
+        NSApp.terminate(nil)
     }
 
     private func toggleWindow(mode: SearchMode? = nil) {

@@ -2,7 +2,7 @@
 
 ![Coverage](https://img.shields.io/badge/coverage-66%25-green)
 
-A minimal, native macOS application designed to replace Spotlight with fast app search and clipboard history.
+AppleBox is a minimal macOS launcher for app search and clipboard history.
 
 ## Building
 
@@ -22,14 +22,16 @@ For a comprehensive testing guide, see **[docs/TESTING.md](docs/TESTING.md)**.
 
 ### Quick Start
 
-Run all tests:
+Run all tests.
+
 ```bash
 swift test
 ```
 
 ### Code Coverage
 
-Run tests with code coverage and view a report:
+Run tests with code coverage and view a report.
+
 ```bash
 # Run tests with coverage and show per-file report
 ./scripts/coverage-report.sh
@@ -44,7 +46,8 @@ Run tests with code coverage and view a report:
 ./scripts/coverage-report.sh --json
 ```
 
-You can also run coverage manually with Swift:
+You can also run coverage manually with Swift.
+
 ```bash
 # Run tests with coverage enabled
 swift test --enable-code-coverage
@@ -62,18 +65,23 @@ xcrun llvm-cov report \
 
 ### Setting Up Git Hooks
 
-All checks run locally; there is no push or pull-request CI. Once per clone:
+Run this once per clone to enable the local checks.
 
 ```bash
 make hooks   # same as ./scripts/setup-hooks
 ```
 
-The generic checks run first (sign-off, message structure, secret scan, signed push), then `pre-commit` runs `make format-check` and `make lint`, and `pre-push` runs `swift build` and `swift test`. These repo checks need macOS and fail on other hosts. `make format` and `make format-check` need the exact SwiftFormat release in `SWIFTFORMAT_VERSION` (Makefile) and fail with any other release. `make lint` needs the exact SwiftLint release in `SWIFTLINT_VERSION` the same way. All checks must pass before a push; do not bypass them with `--no-verify`.
+The hooks check commit messages, signatures, sign-off, and secrets. On macOS,
+they also run the Swift format and lint checks, dependency audit, static scan,
+build, tests, and search benchmark. The Makefile pins the required SwiftFormat
+and SwiftLint versions.
 
 ## Features
 
-- **Global Hotkeys**: `Cmd+Space` opens app search, `Opt+Space` opens clipboard history
-- **Escape Key**: Press `Esc` to quit the app
+- **Global shortcuts** open app search with `Cmd+Space` and clipboard history
+  with `Opt+Space`.
+- **Menu bar**: Open either mode, retry global shortcuts, or quit AppleBox
+- **Escape Key**: Press `Esc` to dismiss the launcher
 - **Centered Window**: Window appears centered on the active screen
 - **No Dock Icon**: Runs as a background application (LSUIElement style)
 

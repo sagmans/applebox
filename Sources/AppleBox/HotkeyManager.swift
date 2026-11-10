@@ -37,7 +37,10 @@ final class HotkeyManager {
     func start() {
         let carbonOk = installHotkeyHandlerIfNeeded() && registerCarbonHotkeys()
 
-        if !carbonOk {
+        if carbonOk {
+            eventMonitor?.stop()
+            eventMonitor = nil
+        } else {
             logger.warning("Falling back to NSEvent global monitor")
             startEventMonitorFallback()
         }
@@ -175,8 +178,10 @@ final class HotkeyManager {
     // MARK: - NSEvent Fallback
 
     private func startEventMonitorFallback() {
-        eventMonitor = EventMonitor(mask: .keyDown) { [weak self] event in
-            self?.handleKeyEventFallback(event)
+        if eventMonitor == nil {
+            eventMonitor = EventMonitor(mask: .keyDown) { [weak self] event in
+                self?.handleKeyEventFallback(event)
+            }
         }
         eventMonitor?.start()
     }
@@ -217,6 +222,7 @@ final class EventMonitor {
     }
 
     func start() {
+        guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler)
     }
 
