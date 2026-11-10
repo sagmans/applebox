@@ -64,10 +64,65 @@ struct ClipboardItem: Codable {
     }
 }
 
+private enum ClipboardHistoryLimits {
+    private static let kibibyte = 1024
+    private static let mebibyte = kibibyte * kibibyte
+    private static let maximumJSONEscapeBytes = 6
+    private static let secondsPerDay: TimeInterval = 24 * 60 * 60
+    private static let retentionDays: TimeInterval = 30
+    private static let base64GroupWidth = 4
+    private static let base64GroupBytes = 3
+    private static let maximumBase64Padding = 2
+    static let itemCount = 50
+    static let textBytes = 256 * kibibyte
+    static let imageBytes = 8 * mebibyte
+    private static let base64ImageBytes = base64GroupWidth * ((imageBytes + base64GroupBytes - 1) / base64GroupBytes)
+    private static let payloadBudget = 32 * mebibyte
+    static let archiveReadLimit = 64 * mebibyte
+    static let expirySweepInterval: TimeInterval = 60 * 60
+
+    static func cutoff(at now: Date = Date()) -> Date {
+        now.addingTimeInterval(-retentionDays * secondsPerDay)
+    }
+
+    static func retained(_ history: [ClipboardItem], at now: Date = Date()) -> [ClipboardItem] {
+        var remaining = payloadBudget
+        var retained: [ClipboardItem] = []
+        let earliest = cutoff(at: now)
+        for item in history where item.timestamp >= earliest {
+            guard let cost = storageCost(of: item) else { continue }
+            // Keep the newest supported clips together and evict the oldest when the budget fills.
+            guard cost <= remaining, retained.count < itemCount else { break }
+            retained.append(item)
+            remaining -= cost
+        }
+        return retained
+    }
+
+    private static func storageCost(of item: ClipboardItem) -> Int? {
+        let textSize = item.content.utf8.count
+        guard textSize <= textBytes else { return nil }
+        // Budget for JSON escaping without re-encoding history during capture or search.
+        let textCost = textSize * maximumJSONEscapeBytes
+        guard let image = item.imageData else { return textCost }
+        let encodedSize = image.utf8.count
+        guard encodedSize <= base64ImageBytes, encodedSize.isMultiple(of: base64GroupWidth) else { return nil }
+        let padding = image.utf8.suffix(base64GroupWidth).reversed().prefix(while: { $0 == UInt8(ascii: "=") }).count
+        let decodedSize = encodedSize / base64GroupWidth * base64GroupBytes - padding
+        guard padding <= maximumBase64Padding, decodedSize <= imageBytes else { return nil }
+        return textCost + encodedSize
+    }
+}
+
+private enum ClipboardStorageError: Error {
+    case unavailable
+    case archiveTooLarge
+}
+
 final class ClipboardManager {
     static let readAccessDidChange = Notification.Name("applebox.clipboardReadAccess.didChange")
     private static let capturePausedKey = "ClipboardCapturePaused"
-    private let maxHistoryCount = 50
+    private static let privateDirectoryMode = 0o700
 
     /// Keep private, temporary, and generated content out of user copy history.
     private let excludedTypes: Set<NSPasteboard.PasteboardType> = [
@@ -88,12 +143,14 @@ final class ClipboardManager {
     private var lastChangeCount: Int = 0
     private(set) var readAccess: ClipboardReadAccess
     private var monitoringTimer: Timer?
-    private let storageURL: URL
+    private var expiryTimer: Timer?
+    private let storageURL: URL?
 
     private let historyQueue = DispatchQueue(label: "applebox.clipboard.history", qos: .userInitiated)
     private var history: [ClipboardItem] = []
 
     private let persistenceQueue = DispatchQueue(label: "applebox.clipboard.persistence", qos: .utility)
+    private var storageWritesAllowed = true
 
     /// File location for persistent storage
     private let fileName = "clipboard_history.json"
@@ -116,15 +173,10 @@ final class ClipboardManager {
         isCapturePaused = capturePreferences?.bool(forKey: Self.capturePausedKey) ?? false
 
         // Store in Application Support directory
-        let appSupportURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDirectory = appSupportURL.appendingPathComponent("AppleBox", isDirectory: true)
-
-        // Create directory if it doesn't exist
-        if !fileSystem.fileExists(atPath: appDirectory.path) {
-            try? fileSystem.createDirectory(at: appDirectory, withIntermediateDirectories: true)
-        }
-
-        storageURL = appDirectory.appendingPathComponent(fileName)
+        storageURL = fileSystem.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AppleBox", isDirectory: true)
+            .appendingPathComponent(fileName)
+        prepareStorage()
 
         if loadSynchronously {
             loadHistorySync()
@@ -136,16 +188,23 @@ final class ClipboardManager {
         if !isCapturePaused {
             startMonitoring()
         }
+
+        // Expiry continues even when the clipboard monitor is paused.
+        expiryTimer = Timer.scheduledTimer(withTimeInterval: ClipboardHistoryLimits.expirySweepInterval, repeats: true) { [weak self] _ in
+            self?.pruneExpiredHistory()
+        }
     }
 
     deinit {
         stopMonitoring()
+        expiryTimer?.invalidate()
     }
 
     // MARK: - Public Methods
 
     func getHistory() -> [ClipboardItem] {
-        historyQueue.sync { history }
+        let earliest = ClipboardHistoryLimits.cutoff()
+        return historyQueue.sync { history.filter { $0.timestamp >= earliest } }
     }
 
     /// Restart the monitor from the current change count so paused copies stay excluded.
@@ -231,19 +290,20 @@ final class ClipboardManager {
               excludedTypes.isDisjoint(with: types),
               pasteboard.changeCount == change else { return }
 
-        let item: ClipboardItem
-        // Keep the richest supported representation when the pasteboard offers both.
-        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            item = ClipboardItem(imageData: imageData)
-        } else if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            item = ClipboardItem(content: text)
-        } else {
-            return
-        }
-
         // Discard a payload if its privacy check belonged to a different clipboard change.
-        guard pasteboard.changeCount == change else { return }
+        guard let item = readSupportedClipboardItem(), pasteboard.changeCount == change else { return }
         record(item)
+    }
+
+    private func readSupportedClipboardItem() -> ClipboardItem? {
+        // Check the raw image size before allocating its base64 representation.
+        if let image = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            guard image.count <= ClipboardHistoryLimits.imageBytes else { return nil }
+            return ClipboardItem(imageData: image)
+        }
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty,
+              text.utf8.count <= ClipboardHistoryLimits.textBytes else { return nil }
+        return ClipboardItem(content: text)
     }
 
     private func refreshReadAccess() {
@@ -256,18 +316,29 @@ final class ClipboardManager {
     /// Check for duplicates and insert on the same queue to keep history ordered.
     private func record(_ item: ClipboardItem) {
         let didInsert = historyQueue.sync {
-            if history.first?.hasSamePayload(as: item) == true {
+            if let latest = history.first, latest.timestamp >= ClipboardHistoryLimits.cutoff(), latest.hasSamePayload(as: item) {
                 return false
             }
 
             history.insert(item, at: 0)
-            if history.count > maxHistoryCount {
-                history = Array(history.prefix(maxHistoryCount))
-            }
+            history = ClipboardHistoryLimits.retained(history)
             return true
         }
 
         if didInsert {
+            postHistoryUpdated()
+            saveHistoryAsync()
+        }
+    }
+
+    private func pruneExpiredHistory() {
+        let earliest = ClipboardHistoryLimits.cutoff()
+        let changed = historyQueue.sync {
+            let previousCount = history.count
+            history.removeAll { $0.timestamp < earliest }
+            return history.count != previousCount
+        }
+        if changed {
             postHistoryUpdated()
             saveHistoryAsync()
         }
@@ -281,52 +352,90 @@ final class ClipboardManager {
 
     private func saveHistoryAsync() {
         persistenceQueue.async { [self] in
+            guard storageWritesAllowed else { return }
             // A save queued during startup must include history loaded ahead of it.
-            let snapshot = getHistory()
             do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(snapshot)
-
-                // Atomic write to reduce risk of corrupted/partial files.
-                try fileSystem.write(data, to: storageURL, options: [.atomic])
+                try persistHistory(getHistory())
             } catch {
-                // Best-effort persistence, but keep a breadcrumb for debugging.
-                logger.error("Failed to persist clipboard history: \(String(describing: error))")
+                logStorageFailure(error, operation: "save")
             }
         }
+    }
+
+    private func persistHistory(_ snapshot: [ClipboardItem]) throws {
+        guard storageWritesAllowed, let storageURL else { throw ClipboardStorageError.unavailable }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = try encoder.encode(snapshot)
+        guard data.count <= ClipboardHistoryLimits.archiveReadLimit else { throw ClipboardStorageError.archiveTooLarge }
+        try fileSystem.writePrivateFile(data, to: storageURL)
     }
 
     private func loadHistoryAsync() {
         persistenceQueue.async { [weak self] in
             guard let self else { return }
-            let loaded = loadHistoryFromDisk()
+            let (loaded, pruned) = loadHistoryFromDisk()
             historyQueue.sync {
                 // Copies captured during startup are newer than everything on disk.
                 let duplicateBoundary = self.history.last.map { loaded.first?.hasSamePayload(as: $0) == true } ?? false
                 let olderItems = duplicateBoundary ? loaded.dropFirst() : loaded[...]
-                self.history.append(contentsOf: olderItems.prefix(self.maxHistoryCount - self.history.count))
+                self.history = ClipboardHistoryLimits.retained(self.history + olderItems)
+            }
+            if pruned {
+                saveHistoryAsync()
             }
             postHistoryUpdated()
         }
     }
 
     private func loadHistorySync() {
-        let loaded = loadHistoryFromDisk()
+        let (loaded, pruned) = persistenceQueue.sync { loadHistoryFromDisk() }
         historyQueue.sync {
             history = loaded
         }
+        if pruned {
+            saveHistoryAsync()
+        }
     }
 
-    private func loadHistoryFromDisk() -> [ClipboardItem] {
-        guard fileSystem.fileExists(atPath: storageURL.path), let data = fileSystem.contents(atPath: storageURL.path) else { return [] }
+    private func loadHistoryFromDisk() -> (items: [ClipboardItem], pruned: Bool) {
+        guard storageWritesAllowed, let storageURL else { return ([], false) }
 
         do {
+            guard let data = try fileSystem.readPrivateFile(at: storageURL, maximumBytes: ClipboardHistoryLimits.archiveReadLimit) else {
+                return ([], false)
+            }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode([ClipboardItem].self, from: data)
+            let stored = try decoder.decode([ClipboardItem].self, from: data)
+            let retained = ClipboardHistoryLimits.retained(stored)
+            return (retained, retained.count != stored.count)
         } catch {
-            return []
+            // A failed migration must not let later copies overwrite the old archive.
+            storageWritesAllowed = false
+            logStorageFailure(error, operation: "load")
+            return ([], false)
         }
+    }
+
+    private func prepareStorage() {
+        guard let folder = storageURL?.deletingLastPathComponent() else {
+            logger.error("Clipboard storage directory is unavailable")
+            storageWritesAllowed = false
+            return
+        }
+        guard !fileSystem.fileExists(atPath: folder.path) else { return }
+        do {
+            try fileSystem.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: Self.privateDirectoryMode])
+        } catch {
+            logStorageFailure(error, operation: "prepare")
+            storageWritesAllowed = false
+        }
+    }
+
+    private func logStorageFailure(_ error: Error, operation: String) {
+        let failure = error as NSError
+        logger.error("Clipboard history \(operation, privacy: .public) failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
     }
 }

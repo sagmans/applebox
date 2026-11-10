@@ -38,6 +38,12 @@ public protocol FileSystemProtocol {
 
     /// Writes data to the specified URL (supports atomic writes via options)
     func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws
+
+    /// Keep clipboard archives owner-only and refuse to read past the migration bound.
+    func readPrivateFile(at url: URL, maximumBytes: Int) throws -> Data?
+
+    /// Replace a clipboard archive without exposing its temporary file or following links.
+    func writePrivateFile(_ data: Data, to url: URL) throws
 }
 
 /// Extension to provide default implementations for overloaded methods

@@ -81,3 +81,86 @@ public final class SystemFileManager: FileSystemProtocol {
         try data.write(to: url, options: options)
     }
 }
+
+private enum PrivateFileError: Error {
+    case unsafeOwnerOrType
+    case exceedsReadLimit
+    case changedDuringRead
+}
+
+extension SystemFileManager {
+    private static let ownerFileMode: mode_t = 0o600
+    private static let ownerDirectoryMode: mode_t = 0o700
+    private static let permissionMask: mode_t = 0o7777
+
+    public func readPrivateFile(at url: URL, maximumBytes: Int) throws -> Data? {
+        guard maximumBytes > 0, maximumBytes < Int.max else { throw PrivateFileError.exceedsReadLimit }
+        let directory = try openPrivateDirectory(for: url)
+        defer { close(directory) }
+
+        // Reject symlinks and avoid waiting on a non-regular file before validation.
+        let descriptor = openat(directory, url.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            if errno == ENOENT {
+                return nil
+            }
+            throw posixFailure()
+        }
+
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        let info = try protect(descriptor, type: mode_t(S_IFREG), permissions: Self.ownerFileMode)
+        guard (0 ... Int64(maximumBytes)).contains(info.st_size) else { throw PrivateFileError.exceedsReadLimit }
+        let expectedSize = Int(info.st_size)
+        let data = try file.read(upToCount: expectedSize + 1) ?? Data()
+        guard data.count == expectedSize else { throw PrivateFileError.changedDuringRead }
+        return data
+    }
+
+    public func writePrivateFile(_ data: Data, to url: URL) throws {
+        let directory = try openPrivateDirectory(for: url)
+        defer { close(directory) }
+
+        // A same-directory replacement keeps the old archive intact until the new file is complete.
+        let temporaryName = UUID().uuidString
+        let descriptor = openat(directory, temporaryName, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, Self.ownerFileMode)
+        guard descriptor >= 0 else { throw posixFailure() }
+        defer { unlinkat(directory, temporaryName, 0) }
+
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        _ = try protect(descriptor, type: mode_t(S_IFREG), permissions: Self.ownerFileMode)
+        try file.write(contentsOf: data)
+        try file.synchronize()
+        try file.close()
+        guard renameat(directory, temporaryName, directory, url.lastPathComponent) == 0 else { throw posixFailure() }
+    }
+
+    private func openPrivateDirectory(for url: URL) throws -> Int32 {
+        let directory = open(url.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard directory >= 0 else { throw posixFailure() }
+        do {
+            _ = try protect(directory, type: mode_t(S_IFDIR), permissions: Self.ownerDirectoryMode)
+            return directory
+        } catch {
+            close(directory)
+            throw error
+        }
+    }
+
+    private func protect(_ descriptor: Int32, type: mode_t, permissions: mode_t) throws -> stat {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw posixFailure() }
+        guard info.st_uid == geteuid(), info.st_mode & mode_t(S_IFMT) == type,
+              type != mode_t(S_IFREG) || info.st_nlink == 1
+        else {
+            throw PrivateFileError.unsafeOwnerOrType
+        }
+        if info.st_mode & Self.permissionMask != permissions, fchmod(descriptor, permissions) != 0 {
+            throw posixFailure()
+        }
+        return info
+    }
+
+    private func posixFailure() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}

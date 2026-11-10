@@ -18,3 +18,13 @@ If macOS asks for clipboard access, allow AppleBox to capture new copies.
 If capture is blocked, find AppleBox’s pasteboard access preference in
 System Settings and allow it. Copy something new to confirm that capture has
 resumed. Previously saved clips remain available while access is blocked.
+
+AppleBox keeps up to 50 clips for 30 days. It skips text above 256 KiB and
+images above 8 MiB. A 32 MiB storage budget counts Base64 image data and
+reserves room for JSON escaping. When the budget fills, the newest clips
+take priority. Expired clips disappear from search and are removed from the
+saved archive on the next capture or hourly cleanup.
+
+The history directory and file are owner-only. AppleBox reads up to 64 MiB
+from an existing archive. If it cannot read or migrate that archive, it
+keeps the file intact and captures new clips for the current session.

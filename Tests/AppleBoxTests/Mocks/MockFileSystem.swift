@@ -184,6 +184,16 @@ final class MockFileSystem: FileSystemProtocol {
         directoryFlags[url.path] = false
     }
 
+    func readPrivateFile(at url: URL, maximumBytes: Int) throws -> Data? {
+        guard let data = contents(atPath: url.path) else { return nil }
+        guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        return data
+    }
+
+    func writePrivateFile(_ data: Data, to url: URL) throws {
+        try write(data, to: url, options: [.atomic])
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations
