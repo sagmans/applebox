@@ -207,6 +207,40 @@ final class ClipboardManager {
         return historyQueue.sync { history.filter { $0.timestamp >= earliest } }
     }
 
+    enum HistoryRemoval {
+        case item(UUID)
+        case all
+    }
+
+    func removeHistory(_ removal: HistoryRemoval, completion: @escaping (Bool) -> Void) {
+        persistenceQueue.async { [self] in
+            let snapshot = getHistory()
+            let removedIDs: Set<UUID>
+            let replaceUnreadableArchive: Bool
+            switch removal {
+            case let .item(id):
+                removedIDs = [id]
+                replaceUnreadableArchive = false
+            case .all:
+                removedIDs = Set(snapshot.map(\.id))
+                replaceUnreadableArchive = true
+            }
+
+            let retained = snapshot.filter { !removedIDs.contains($0.id) }
+            do {
+                try persistHistory(retained, replaceUnreadableArchive: replaceUnreadableArchive)
+                storageWritesAllowed = true
+                // Copies arriving during the write have different identities and must survive it.
+                historyQueue.sync { history.removeAll { removedIDs.contains($0.id) } }
+                postHistoryUpdated()
+                DispatchQueue.main.async { completion(true) }
+            } catch {
+                logStorageFailure(error, operation: "remove")
+                DispatchQueue.main.async { completion(false) }
+            }
+        }
+    }
+
     /// Restart the monitor from the current change count so paused copies stay excluded.
     func toggleCapturePaused() {
         isCapturePaused.toggle()
@@ -362,8 +396,9 @@ final class ClipboardManager {
         }
     }
 
-    private func persistHistory(_ snapshot: [ClipboardItem]) throws {
-        guard storageWritesAllowed, let storageURL else { throw ClipboardStorageError.unavailable }
+    private func persistHistory(_ snapshot: [ClipboardItem], replaceUnreadableArchive: Bool = false) throws {
+        // Only an explicitly confirmed clear can replace an unreadable archive.
+        guard storageWritesAllowed || replaceUnreadableArchive, let storageURL else { throw ClipboardStorageError.unavailable }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.withoutEscapingSlashes]

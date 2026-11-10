@@ -297,6 +297,14 @@ class WindowManager: NSObject {
     private let emptyClipboardResultsMessage = "No matching clips"
     private let emptyClipboardHistoryMessage = "Clipboard history is empty"
     private let copyClipMenuTitle = "Copy to Clipboard"
+    private let deleteClipMenuTitle = "Delete Clip"
+    private let clearClipboardMenuTitle = "Clear History…"
+    private let clearClipboardButtonTitle = "Clear History"
+    private let cancelButtonTitle = "Cancel"
+    private let clearClipboardTitle = "Clear clipboard history?"
+    private let clearClipboardExplanation = "This removes saved clips from AppleBox. Your current clipboard stays available."
+    private let clipboardRemovalFailedMessage = "Couldn’t remove saved clips. Try again."
+    private var clipboardRemovalStatus: String?
     private let clipboardMenu = NSMenu()
     private var captureButton: NSButton?
     private var fullSearchFieldWidth: CGFloat?
@@ -1281,7 +1289,7 @@ class WindowManager: NSObject {
 
     /// Keep recovery guidance visible without covering the query or existing results.
     private func updateStatusLabel() {
-        let message = searchMode == .clipboard ? clipboardAccessStatus : applicationLaunchStatus
+        let message = searchMode == .clipboard ? clipboardRemovalStatus ?? clipboardAccessStatus : applicationLaunchStatus
         guard let message, let content = headerPanel?.superview else {
             statusLabel?.isHidden = true
             return
@@ -1470,6 +1478,7 @@ class WindowManager: NSObject {
 
     func show(mode: SearchMode? = nil) {
         guard let window else { return }
+        clipboardRemovalStatus = nil
         clearApplicationLaunchStatus()
         clipboardReplay.begin()
 
@@ -1531,6 +1540,9 @@ class WindowManager: NSObject {
     }
 
     func hide() {
+        if let window, let sheet = window.attachedSheet {
+            window.endSheet(sheet, returnCode: .cancel)
+        }
         clearApplicationLaunchStatus()
         clipboardReplay.end()
         hideSidecar()
@@ -1785,6 +1797,35 @@ class WindowManager: NSObject {
               let id = action.representedObject as? UUID,
               let item = clipboardResults.first(where: { $0.item.id == id })?.item else { return }
         clipboardReplay.replay(item, pasteAutomatically: false, dismiss: hide)
+    }
+
+    @objc private func deleteClickedClip(_ action: NSMenuItem) {
+        guard searchMode == .clipboard, let id = action.representedObject as? UUID else { return }
+        removeClipboardHistory(.item(id))
+    }
+
+    @objc private func confirmClearClipboardHistory(_: NSMenuItem) {
+        guard searchMode == .clipboard, let window, window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = clearClipboardTitle
+        alert.informativeText = clearClipboardExplanation
+        // Return chooses Cancel so a repeated keypress cannot erase the archive.
+        alert.addButton(withTitle: cancelButtonTitle).keyEquivalent = CopyClipShortcut.key
+        alert.addButton(withTitle: clearClipboardButtonTitle).hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertSecondButtonReturn else { return }
+            self?.removeClipboardHistory(.all)
+        }
+    }
+
+    private func removeClipboardHistory(_ removal: ClipboardManager.HistoryRemoval) {
+        clipboardRemovalStatus = nil
+        updateStatusLabel()
+        clipboardManager?.removeHistory(removal) { [weak self] succeeded in
+            guard let self, !succeeded else { return }
+            clipboardRemovalStatus = clipboardRemovalFailedMessage
+            updateStatusLabel()
+        }
     }
 
     @objc private func handleDoubleClick(_ sender: NSTableView) {
@@ -2390,14 +2431,27 @@ extension WindowManager: NSTableViewDelegate {
 extension WindowManager: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        guard searchMode == .clipboard, let row = tableView?.clickedRow, clipboardResults.indices.contains(row) else { return }
+        guard searchMode == .clipboard else { return }
 
-        let action = NSMenuItem(title: copyClipMenuTitle, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
-        action.keyEquivalentModifierMask = CopyClipShortcut.modifiers
-        action.target = self
-        // Keep the clicked identity even if live capture reorders the rows while the menu is open.
-        action.representedObject = clipboardResults[row].item.id
-        menu.addItem(action)
+        if let row = tableView?.clickedRow, clipboardResults.indices.contains(row) {
+            // Bind the menu to the clip even if live capture reorders rows before a click.
+            let id = clipboardResults[row].item.id
+            let copy = NSMenuItem(title: copyClipMenuTitle, action: #selector(copyClickedClip(_:)), keyEquivalent: CopyClipShortcut.key)
+            copy.keyEquivalentModifierMask = CopyClipShortcut.modifiers
+            copy.target = self
+            copy.representedObject = id
+            menu.addItem(copy)
+
+            let delete = NSMenuItem(title: deleteClipMenuTitle, action: #selector(deleteClickedClip(_:)), keyEquivalent: "")
+            delete.target = self
+            delete.representedObject = id
+            menu.addItem(delete)
+            menu.addItem(.separator())
+        }
+
+        let clear = NSMenuItem(title: clearClipboardMenuTitle, action: #selector(confirmClearClipboardHistory(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
     }
 }
 
@@ -2406,7 +2460,8 @@ extension WindowManager: NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         // Hide when main window loses focus (clicking outside)
         // But not when sidecar gains focus (it's part of our UI)
-        guard notification.object as? NSWindow === window, sidecarWindow?.isKeyWindow != true else { return }
+        guard notification.object as? NSWindow === window, sidecarWindow?.isKeyWindow != true,
+              window?.attachedSheet == nil else { return }
         hide()
     }
 }

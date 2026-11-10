@@ -28,3 +28,7 @@ saved archive on the next capture or hourly cleanup.
 The history directory and file are owner-only. AppleBox reads up to 64 MiB
 from an existing archive. If it cannot read or migrate that archive, it
 keeps the file intact and captures new clips for the current session.
+
+Right-click a clip and choose **Delete Clip** to remove that entry. Choose
+**Clear History…** and confirm to remove all saved clips. Both actions leave
+the current system clipboard available for pasting.
