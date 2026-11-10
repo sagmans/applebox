@@ -30,6 +30,9 @@ nonisolated enum ClipKind: Sendable, Equatable {
     private static let hueSectors = 6.0
     private static let argumentSeparator = ","
     private static let percentSuffix = "%"
+    /// Every kind is decided by the start of a clip, and a clip can be hundreds of KiB. Bounding the scan
+    /// keeps classification cheap when rows are built on the main actor at open time.
+    private static let classificationScanLimit = 4096
 
     /// Pure function of the item so it can run on a background queue while rows are built.
     static func classify(_ item: ClipboardItem) -> ClipKind {
@@ -37,7 +40,8 @@ nonisolated enum ClipKind: Sendable, Equatable {
             return .image
         }
 
-        let trimmed = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scanned = String(item.content.prefix(classificationScanLimit))
+        let trimmed = scanned.trimmingCharacters(in: .whitespacesAndNewlines)
         if let url = singleURL(trimmed) {
             if let scheme = url.scheme?.lowercased() {
                 if linkSchemes.contains(scheme), let host = url.host, !host.isEmpty {
@@ -51,7 +55,7 @@ nonisolated enum ClipKind: Sendable, Equatable {
         if let color = parseColor(trimmed) {
             return .color(color)
         }
-        if isCodeLike(item.content) {
+        if isCodeLike(scanned) {
             return .code
         }
         return .text

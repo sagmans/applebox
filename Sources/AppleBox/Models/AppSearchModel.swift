@@ -190,16 +190,18 @@ final class AppSearchModel {
 
     // MARK: - Launching
 
-    /// Opens the app in row `index`. Returns the failure to show, or nil when the launch succeeded, was
+    /// Opens the app at `bundlePath`. Returns the failure to show, or nil when the launch succeeded, was
     /// superseded, or had nothing to act on.
+    ///
+    /// The caller names the app by path, not by row position, because rows can be replaced between the
+    /// key press and this call; a path no longer listed is ignored rather than launching a neighbour.
     ///
     /// Success dismisses the launcher through `onLaunched` only while the request is still the one the
     /// user is waiting for, so a launch they abandoned cannot close a window they moved on to.
-    func launch(at index: Int) async -> LauncherStatus? {
-        guard rows.indices.contains(index), pendingLaunch == nil else { return nil }
+    func launch(bundlePath: String) async -> LauncherStatus? {
+        guard rows.contains(where: { $0.id == bundlePath }), pendingLaunch == nil else { return nil }
         clearLaunchStatus()
 
-        let bundlePath = rows[index].id
         guard fileSystem.fileExists(atPath: bundlePath) else {
             logger.notice("Selected application bundle no longer exists")
             return fail(DesignTokens.Copy.appMissing)

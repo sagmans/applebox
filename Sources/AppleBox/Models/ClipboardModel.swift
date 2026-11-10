@@ -5,6 +5,9 @@ import Observation
 private nonisolated enum ClipPreview {
     /// One line fits roughly this many characters at list width, so the rest only costs layout time.
     static let characterLimit = 100
+    /// Whitespace collapsing can shrink text, so more than the limit is read; but a clip can be hundreds of
+    /// KiB and the opening list is built on the main actor, so the work must not grow with clip size.
+    static let scanLimit = characterLimit * 4
     static let ellipsis = "..."
     static let space = " "
     /// Whitespace that would break a one-line preview, longest first so CRLF counts once.
@@ -16,12 +19,14 @@ private nonisolated enum ClipPreview {
 nonisolated enum ClipRowBuilder {
     /// Collapses whitespace and truncates, because a row shows one line and the preview pane shows the rest.
     static func preview(of content: String) -> String {
+        let isCut = !content.dropFirst(ClipPreview.scanLimit).isEmpty
         let singleLine = ClipPreview.lineBreaks
-            .reduce(content) { $0.replacingOccurrences(of: $1, with: ClipPreview.space) }
+            .reduce(String(content.prefix(ClipPreview.scanLimit))) { $0.replacingOccurrences(of: $1, with: ClipPreview.space) }
             .split(separator: Character(ClipPreview.space), omittingEmptySubsequences: true)
             .joined(separator: ClipPreview.space)
 
-        return singleLine.count > ClipPreview.characterLimit
+        // Text dropped before collapsing must still be signalled, or a long clip would look complete.
+        return singleLine.count > ClipPreview.characterLimit || isCut
             ? String(singleLine.prefix(ClipPreview.characterLimit)) + ClipPreview.ellipsis
             : singleLine
     }
@@ -63,6 +68,8 @@ final class ClipboardModel {
 
     /// Mirrors the manager because the manager is not observable; refreshed whenever it can change.
     private(set) var isPaused = false
+    /// Whether the system lets AppleBox read the pasteboard; drives the recovery guidance, since a blocked
+    /// read looks identical to an empty history.
     private(set) var access: ClipboardReadAccess = .allowed
 
     /// Set when a removal could not be saved, because the clip is still stored and the user must know.
@@ -171,6 +178,7 @@ final class ClipboardModel {
         replayer.begin()
     }
 
+    /// Releases the recorded paste target, so a later session cannot paste into a stale app.
     func endReplay() {
         replayer.end()
     }
@@ -202,12 +210,15 @@ final class ClipboardModel {
         removalStatus = nil
     }
 
+    /// Flips capture through the manager and re-reads state, because the manager is the source of truth
+    /// and the footer and menu must show what it actually did.
     func toggleCapture() {
         manager?.toggleCapturePaused()
         refreshCaptureState()
     }
 
-    /// Re-reads state the manager owns, because it changes without any notification to this model.
+    /// Re-reads state the manager owns. Access changes are announced by notification, but pause state is not,
+    /// and callers also need an explicit refresh right after they change either.
     func refreshCaptureState() {
         guard let manager else { return }
         isPaused = manager.isCapturePaused

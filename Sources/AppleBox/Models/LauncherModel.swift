@@ -36,12 +36,16 @@ nonisolated enum LauncherChange: Equatable, Sendable {
 /// the models publish.
 @Observable
 final class LauncherModel {
+    /// Which list the launcher shows. Changing it without `switchMode` would leave rows from the other list.
     var mode: SearchMode = .applications
+    /// The text the user typed; kept here so Esc and refreshes act on what is on screen.
     var query = ""
     /// Index of the highlighted row, or nil when focus is on the search field.
     private(set) var selection: Int?
 
+    /// Application results and launching, split out so each list owns its own search.
     let apps: AppSearchModel
+    /// Clipboard results, replay and capture state, split out for the same reason.
     let clips: ClipboardModel
 
     /// Whether the launcher is on screen, because background refreshes only matter while it is.
@@ -59,6 +63,10 @@ final class LauncherModel {
     /// The launch an activation started. Awaiting it is how a caller knows the outcome is final.
     @ObservationIgnored private(set) var inFlightLaunch: Task<Void, Never>?
 
+    /// Whether the search in flight keeps the selection when it publishes; nil when none is pending. A
+    /// typed query must never inherit a refresh's preserve flag, or it would keep the old query's row.
+    @ObservationIgnored private var pendingSearchPreserves: Bool?
+    @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var selectedRowID: AnyHashable?
     @ObservationIgnored private var preservesSelectionOnPublish = false
     @ObservationIgnored private var isResettingResults = false
@@ -100,10 +108,12 @@ final class LauncherModel {
 
     // MARK: - Derived state
 
+    /// Rows in the active list, so views and key handling agree on what can be selected.
     var resultCount: Int {
         mode == .clipboard ? clips.rows.count : apps.rows.count
     }
 
+    /// Tells the user which list they are searching, since both modes share one field.
     var placeholder: String {
         mode == .clipboard
             ? DesignTokens.Copy.searchClipboardPlaceholder
@@ -190,7 +200,12 @@ final class LauncherModel {
     private func startSearch(preservingSelection: Bool, immediately: Bool) {
         inFlightSearch?.cancel()
         inFlightSearch = nil
-        preservesSelectionOnPublish = preservingSelection
+        // A refresh landing while a typed search is pending joins that search, which goes to the top.
+        let preserving = preservingSelection && (pendingSearchPreserves ?? true)
+        pendingSearchPreserves = nil
+        preservesSelectionOnPublish = preserving
+        searchGeneration &+= 1
+        let generation = searchGeneration
 
         let text = query
         switch mode {
@@ -203,14 +218,22 @@ final class LauncherModel {
                 apps.searchImmediately(text)
                 preservesSelectionOnPublish = false
             } else {
-                inFlightSearch = Task { [apps] in await apps.search(text) }
+                pendingSearchPreserves = preserving
+                inFlightSearch = Task { [apps, weak self] in
+                    await apps.search(text)
+                    self?.searchFinished(generation)
+                }
             }
         case .clipboard:
             if immediately {
                 clips.searchImmediately(text)
                 preservesSelectionOnPublish = false
             } else {
-                inFlightSearch = Task { [clips] in await clips.search(text) }
+                pendingSearchPreserves = preserving
+                inFlightSearch = Task { [clips, weak self] in
+                    await clips.search(text)
+                    self?.searchFinished(generation)
+                }
             }
         }
     }
@@ -221,9 +244,16 @@ final class LauncherModel {
         startSearch(preservingSelection: true, immediately: false)
     }
 
+    /// A superseded search must not clear the flag of the search that replaced it.
+    private func searchFinished(_ generation: Int) {
+        guard generation == searchGeneration else { return }
+        pendingSearchPreserves = nil
+    }
+
     private func cancelWork() {
         inFlightSearch?.cancel()
         inFlightSearch = nil
+        pendingSearchPreserves = nil
         apps.invalidatePendingSearch()
         clips.invalidatePendingSearch()
     }
@@ -270,15 +300,34 @@ final class LauncherModel {
     // MARK: - Actions
 
     /// Launches the highlighted app or pastes the highlighted clip, then dismisses on success.
+    ///
+    /// Return acts on what was typed, so a search still in flight finishes first; the row is then named by
+    /// its stable identity at that moment, so later list changes cannot redirect the action.
     func activateSelection() {
-        guard let index = selection, index < resultCount else { return }
+        guard pendingSearchPreserves != nil, inFlightSearch != nil else {
+            activateResolvedSelection()
+            return
+        }
+        inFlightLaunch = Task { [weak self] in
+            var awaited: Task<Void, Never>?
+            while let self, pendingSearchPreserves != nil, let search = inFlightSearch, search != awaited {
+                awaited = search
+                await search.value
+            }
+            self?.activateResolvedSelection()
+        }
+    }
+
+    private func activateResolvedSelection() {
+        guard let index = selection, index < resultCount, let id = rowID(at: index) else { return }
 
         switch mode {
         case .clipboard:
-            guard let id = rowID(at: index) as? UUID else { return }
-            clips.replay(id: id, pasteAutomatically: true) { onDismiss() }
+            guard let clipID = id as? UUID else { return }
+            clips.replay(id: clipID, pasteAutomatically: true) { onDismiss() }
         case .applications:
-            inFlightLaunch = Task { [apps] in _ = await apps.launch(at: index) }
+            guard let bundlePath = id as? String else { return }
+            inFlightLaunch = Task { [apps] in _ = await apps.launch(bundlePath: bundlePath) }
         }
     }
 
@@ -299,27 +348,33 @@ final class LauncherModel {
         clips.replay(id: id, pasteAutomatically: false) { onDismiss() }
     }
 
+    /// Removes one clip by id, because the row index can shift under live capture before the call lands.
     func deleteClip(id: UUID) {
         guard mode == .clipboard else { return }
         clips.remove(.item(id))
     }
 
+    /// Wipes the whole history; the caller confirms first, since this cannot be undone.
     func clearHistory() {
         guard mode == .clipboard else { return }
         clips.remove(.all)
     }
 
+    /// Pauses or resumes capture so the user can copy secrets without them entering history.
     func toggleCapture() {
         clips.toggleCapture()
     }
 
     // MARK: - Dependencies
 
+    /// Supplies the index once it exists, because the launcher opens before indexing finishes; the cache
+    /// is reset so results from any earlier service cannot leak in.
     func setSearchService(_ service: SearchService) {
         apps.searchService = service
         service.resetCache()
     }
 
+    /// Supplies the history once it has loaded, for the same reason the launcher cannot wait for it.
     func setClipboardManager(_ manager: ClipboardManager) {
         clips.setManager(manager)
     }
