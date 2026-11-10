@@ -20,7 +20,7 @@ struct ClipRow: View, Equatable {
         .frame(height: DesignTokens.Layout.rowHeight)
     }
 
-    /// The thumbnail identifies an image clip better than its placeholder text; every other clip, and an
+    /// The thumbnail identifies an image clip better than its placeholder text, and a swatch a color; every other clip, and an
     /// image that failed to decode, shows the kind badge so the row never has an empty slot.
     private var leading: some View {
         Group {
@@ -29,6 +29,14 @@ struct ClipRow: View, Equatable {
                     .resizable()
                     .scaledToFill()
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Metrics.imageCornerRadius))
+            } else if case let .color(swatch) = data.kind {
+                // The clip's own color says more than a palette icon: the user sees the color they copied.
+                RoundedRectangle(cornerRadius: DesignTokens.Metrics.swatchCornerRadius)
+                    .fill(swatch)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DesignTokens.Metrics.swatchCornerRadius)
+                            .strokeBorder(Color.primary.opacity(DesignTokens.Palette.swatchOutlineOpacity), lineWidth: DesignTokens.Metrics.hairline)
+                    }
             } else {
                 Image(systemName: DesignTokens.Symbol.badge(for: data.kind))
                     .font(DesignTokens.Typography.badge)

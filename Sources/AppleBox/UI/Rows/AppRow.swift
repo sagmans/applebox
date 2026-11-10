@@ -47,9 +47,13 @@ struct AppRow: View, Equatable {
 ///
 /// The cache hands out a placeholder first and loads the real icon off the main thread, so the view
 /// listens for the load notification instead of polling.
-private struct AppIconView: View {
+struct AppIconView: View {
     let bundlePath: String
     let icons: AppIconCache
+    /// Row icons use the full size and glow; the preview header reuses the view small and flat, so one
+    /// view owns the placeholder-then-reload behavior.
+    var size = DesignTokens.Layout.iconSize
+    var glows = true
 
     /// Bumped on load notifications so the body re-reads the cache.
     @State private var loadCount = 0
@@ -70,7 +74,13 @@ private struct AppIconView: View {
                     .scaledToFit()
             }
         }
-        .frame(width: DesignTokens.Layout.iconSize, height: DesignTokens.Layout.iconSize)
+        .frame(width: size, height: size)
+        // The glow borrows the icon's own tone so each app has a soft identity color; absent until the
+        // background average lands, which is why the view re-reads on the load notification.
+        .shadow(
+            color: (glows ? icons.averageColor(forBundlePath: bundlePath) : nil)?.opacity(DesignTokens.Palette.iconGlowOpacity) ?? .clear,
+            radius: DesignTokens.Metrics.iconGlowRadius
+        )
         .id(loadCount)
         .onReceive(NotificationCenter.default.publisher(for: AppIconCache.didLoad)) { note in
             if note.userInfo?[AppIconCache.pathKey] as? String == bundlePath {

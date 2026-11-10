@@ -5,8 +5,20 @@ import SwiftUI
 /// Tokens that only the SwiftUI launcher views use. They live beside `DesignTokens` rather than in it
 /// so the shared file stays about values the models and the views both read.
 extension DesignTokens.Copy {
-    /// Caption for apps the user opened recently, so an empty query explains why these apps lead.
+    /// Section captions. "Recent" explains why the apps the user opened lately lead an empty query, and
+    /// "Applications" names the alphabetical rest.
     static let recent = "Recent"
+    static let applications = "Applications"
+    /// Day buckets of the clip list on an empty query, newest first.
+    static let today = "Today"
+    static let yesterday = "Yesterday"
+    static let earlier = "Earlier"
+    /// Spoken prefix of the source app in the preview header, because the icon and name alone do not say
+    /// what the app has to do with the clip.
+    static func copiedFrom(_ appName: String) -> String {
+        "Copied from \(appName)"
+    }
+
     /// Footer action names, one per key cap, so the hints say what each key does for the current mode.
     static let actionOpen = "Open"
     static let actionPaste = "Paste"
@@ -77,6 +89,12 @@ extension DesignTokens.Palette {
     /// Stand-in for the selection capsule in snapshot mode; set apart from the surface so the highlighted
     /// row is visible in the references.
     static let snapshotSelection = dynamicColor(light: (0.86, 0.70, 0.48), dark: (0.45, 0.30, 0.16))
+
+    /// Strength of the glow behind an app icon, tinted with the icon's own average color. Low so it
+    /// reads as depth rather than a second highlight competing with the selection capsule.
+    static let iconGlowOpacity: Double = 0.45
+    /// Strength of the outline around a color swatch, so a swatch close to the panel color keeps an edge.
+    static let swatchOutlineOpacity: Double = 0.25
 
     /// Palette colors are opaque: any transparency would let the host's backdrop leak into the references.
     private static let fixedAlpha: CGFloat = 1
@@ -212,6 +230,16 @@ extension DesignTokens {
         static let keyCapPadding: CGFloat = 5
         /// Gap between a key cap group and its action name.
         static let hintSpacing: CGFloat = 4
+        /// Blur radius of the glow behind an app icon.
+        static let iconGlowRadius: CGFloat = 7
+        /// Side of the source app icon in the preview header; header text is caption-sized.
+        static let sourceIconSize: CGFloat = 14
+        /// Corner radius of a color swatch in a clip row, matching the badge it replaces.
+        static let swatchCornerRadius: CGFloat = 8
+        /// Space above a section header, so each group is set apart from the rows before it.
+        static let sectionHeaderTopPadding: CGFloat = 8
+        /// Space below a section header, small so the caption stays attached to its own group.
+        static let sectionHeaderBottomPadding: CGFloat = 2
         /// Gap between footer hints.
         static let hintGroupSpacing: CGFloat = 16
         /// Number of clicks that activates a row.

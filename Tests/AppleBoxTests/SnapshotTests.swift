@@ -55,6 +55,8 @@ final class SnapshotTests: XCTestCase {
             "Some longer text that might appear in clipboard history that the user copied recently.",
             "{ \"key\": \"value\", \"number\": 42 }",
             "user@example.com",
+            // A color clip, so the references cover the swatch in a row.
+            "#C8502A",
         ]
         static let applicationNames = ["Safari", "Mail", "Notes", "Calendar", "Reminders"]
     }

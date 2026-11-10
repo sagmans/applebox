@@ -8,6 +8,7 @@ struct ClipPreviewPane: View {
     @Bindable var model: LauncherModel
 
     @Environment(\.clipImages) private var images
+    @Environment(\.appIcons) private var icons
     /// Memo of character counts so a keystroke does not recount a clip of hundreds of KiB.
     @State private var counts = CharacterCountMemo()
 
@@ -45,11 +46,28 @@ struct ClipPreviewPane: View {
                     .lineLimit(1)
             }
             Text(item.timestamp, format: DesignTokens.clipDateFormat)
+            if let source = item.sourceBundleID.flatMap(SourceAppResolver.shared.app(forBundleID:)) {
+                sourceLabel(source)
+            }
             Spacer(minLength: 0)
             Text(sizeDescription(item: item, image: image))
         }
         .font(DesignTokens.Typography.previewHeader)
         .foregroundStyle(.secondary)
+    }
+
+    /// Where the clip was copied from, so similar clips can be told apart by origin. Truncates first when
+    /// the header is tight, because the date and size matter more.
+    private func sourceLabel(_ source: SourceApp) -> some View {
+        HStack(spacing: DesignTokens.Metrics.tightSpacing) {
+            AppIconView(bundlePath: source.path, icons: icons, size: DesignTokens.Metrics.sourceIconSize, glows: false)
+            Text(source.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .layoutPriority(-1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(DesignTokens.Copy.copiedFrom(source.name))
     }
 
     @ViewBuilder
