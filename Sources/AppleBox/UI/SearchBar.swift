@@ -37,6 +37,8 @@ struct SearchBar: View {
                 .textFieldStyle(.plain)
                 .font(DesignTokens.Typography.search)
                 .focused($isFocused)
+                // The caret follows the mode accent; the system accent would clash with the warm palette.
+                .tint(tint)
                 .accessibilityIdentifier(DesignTokens.Identifier.searchField)
                 .accessibilityLabel(DesignTokens.Copy.searchFieldLabel)
                 .accessibilityHint(model.searchShortcutHelp)

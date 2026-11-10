@@ -28,8 +28,8 @@ struct LauncherView: View {
 
     var body: some View {
         GlassEffectContainer(spacing: DesignTokens.Metrics.glassMergeSpacing) {
-            // A flexible body keeps the search bar and footer fixed whatever the result
-            // count; without them an empty state shrinks and the stack centers in the fixed-size panel.
+            // A flexible body keeps the search bar and footer fixed whatever the result count; without
+            // it an empty state shrinks and the stack centers in the fixed-size panel.
             VStack(spacing: 0) {
                 SearchBar(model: model)
                 Divider()
