@@ -19,8 +19,8 @@ final class PasteRelaunchMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     /// Set while a new copy is starting. A second click in that window would start another copy, and
     /// both would pass the handoff once this one quits, leaving two instances, so the item is disabled.
     private var isRelaunching = false
-    /// True once a paste was blocked in this launch. Only then does the app ask for attention, so
-    /// people who use copy-only and never grant the permission get no lasting badge.
+    /// True while the badge and the highlighted item ask the user to grant paste and relaunch.
+    /// Paste is the app's main action, so a missing permission is flagged from launch, not first use.
     private var needsAttention = false
     /// Lets the owner of the status item show or clear its badge; the menu does not own the button.
     var onAttentionChange: ((Bool) -> Void)?
@@ -58,7 +58,23 @@ final class PasteRelaunchMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
         }
     }
 
+    /// Called once the status item exists, so the badge has a button to sit on. Asking at launch
+    /// lists AppleBox in the permission pane before the first paste, so the user can grant it and
+    /// relaunch before paste is needed.
+    /// This is the only place that prompts, so the user sees the macOS prompt once per launch.
+    func checkPermissionAtLaunch() {
+        guard !eventSource.canPostPaste else { return }
+        eventSource.requestPostAccess()
+        requestAttention()
+    }
+
+    /// A backstop for the launch check: the paste path checks the permission again, and if it finds
+    /// it missing after a launch check that passed, the menu must still point at the relaunch.
     @objc private func pasteWasBlocked() {
+        requestAttention()
+    }
+
+    private func requestAttention() {
         guard !needsAttention else { return }
         needsAttention = true
         // Same color as the menu bar dot and the toast, so the eye goes from the dot straight to this item.

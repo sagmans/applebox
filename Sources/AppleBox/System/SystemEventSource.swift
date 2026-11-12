@@ -15,7 +15,7 @@ public final class SystemEventSource: EventSourceProtocol {
     }
 
     public func requestPostAccess() {
-        // The answer is not needed: the next paste preflights again, and the prompt is the point.
+        // The answer is not used: macOS caches it per process, and the menu and paste path preflight again.
         _ = CGRequestPostEventAccess()
     }
 

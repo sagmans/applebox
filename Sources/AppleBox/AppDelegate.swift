@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = menu
         statusItem = item
         pasteRelaunch.onAttentionChange = { [weak self] needed in self?.showStatusBadge(needed) }
+        pasteRelaunch.checkPermissionAtLaunch()
     }
 
     /// Keeps the pending relaunch visible after the paste toast fades. A relaunch starts a fresh

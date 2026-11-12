@@ -15,17 +15,17 @@ Press Option-Return on a selected clip or choose **Copy to Clipboard** from
 its context menu. Paste it yourself with Command-V wherever you need it.
 
 Press Return on a selected clip to paste it into the app you were using.
-Automatic paste needs permission to send keystrokes. The first time it is
-missing, AppleBox asks macOS for it and shows "Copied. Allow AppleBox in
-Privacy & Security settings, then relaunch it from the menu bar to paste
-automatically." Turn on AppleBox under System Settings, Privacy & Security,
-Device Control & Data Access (macOS 27) or Accessibility (macOS 26). macOS
-applies the grant only when AppleBox starts, so then choose **Relaunch to
-Enable Paste** from the AppleBox menu bar icon. That item shows only while
-paste is unavailable, and clipboard history stays. After a blocked paste, an
-orange dot on the menu bar icon and an orange icon and title on the item point
-to it until the relaunch. Until then the clip is copied and you paste it with
-Command-V.
+Automatic paste needs permission to send keystrokes. When it is missing,
+AppleBox asks macOS for it at launch, puts an orange dot on its menu bar icon,
+and highlights **Relaunch to Enable Paste** in orange. A paste before the grant
+shows "Copied. Allow AppleBox in Privacy & Security settings, then relaunch it
+from the menu bar to paste automatically." Turn on AppleBox under System
+Settings, Privacy & Security, Device Control & Data Access (macOS 27) or
+Accessibility (macOS 26). macOS applies the grant only when AppleBox starts, so
+then choose **Relaunch to Enable Paste** from the AppleBox menu bar icon. That
+item shows only while paste is unavailable, and clipboard history stays. The dot
+and the highlight stay until the relaunch. Until then the clip is copied and you
+paste it with Command-V.
 
 Choose **Pause Capture** in clipboard history to stop saving new copies.
 The pause survives restarting AppleBox. **Resume Capture** starts saving from

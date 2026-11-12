@@ -28,8 +28,6 @@ final class ClipboardReplay {
     private var origin: NSRunningApplication?
     private var pendingPaste: DispatchWorkItem?
     private var feedback: ClipboardPasteFeedback?
-    /// Asking on every paste would nag; once per launch is enough to list the app in the paste permission pane.
-    private var requestedPostAccess = false
 
     init(workspace: WorkspaceProtocol, pasteboard: PasteboardProtocol, eventSource: EventSourceProtocol) {
         self.workspace = workspace
@@ -100,10 +98,7 @@ final class ClipboardReplay {
         }
 
         guard canPost else {
-            if !requestedPostAccess {
-                requestedPostAccess = true
-                eventSource.requestPostAccess()
-            }
+            // No prompt here: the menu bar asks macOS at launch, and a second prompt would nag.
             logger.info("Clipboard history paste unavailable: no permission to post keyboard events")
             showFeedback(permissionPasteMessage, kind: .guidance)
             NotificationCenter.default.post(name: Self.pastePermissionNeeded, object: self)
