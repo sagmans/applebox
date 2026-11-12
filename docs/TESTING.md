@@ -481,17 +481,26 @@ make hooks   # same as ./scripts/setup-hooks
 nothing outside this repo. Each hook runs the generic checks first (sign-off,
 message structure, gitleaks secret scan, signed commits on push), then every
 script in `.githooks/<hook>.d/`. `pre-push` checks signature, sign-off,
-message and secrets on each pushed commit, and runs the build, tests and
-benchmark once on each pushed tip.
+message and secrets on each pushed commit, and runs the scanners, build,
+tests and benchmark once on each pushed tip.
 
 ### What the Hooks Run
 
-| Hook         | Checks                                                     |
-| ------------ | ---------------------------------------------------------- |
-| `pre-commit` | gitleaks (staged), `make format-check`, `make lint`        |
-| `pre-push`   | sign-off, signature, gitleaks, `swift build`, `swift test` |
+| Hook                   | Checks                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `pre-commit`           | gitleaks (staged), `make format-check`, `make lint`                                                                   |
+| `pre-push`, per commit | sign-off, signature, message, gitleaks                                                                                |
+| `pre-push`, per tip    | `make format-check lint audit-swift-dependencies swift-sast duplication`, `swift build`, `make test benchmark-search` |
 
-The Swift checks need macOS; on other systems they print a skip notice and pass.
+`make swift-sast` runs the rules in `.semgrep-swift.yml` on `Sources`,
+`Resources` and the Swift scripts. Inline `nosemgrep` comments are ignored;
+an exception must be a reviewed `paths.exclude` in the rule. Semgrep's Swift
+parser skips some newer syntax; the scan lists each skipped span and fails
+when a span is longer than `MAX_SKIPPED_LINES` in `scripts/swift-sast.sh`.
+`make duplication` fails on any duplicated block in production Swift; tests
+are not scanned.
+
+The Swift checks need macOS; on other systems they fail with a clear reason.
 
 ### Bypassing Hooks
 

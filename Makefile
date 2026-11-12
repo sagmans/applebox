@@ -1,5 +1,5 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
-        audit-swift-dependencies swift-sast benchmark-search \
+        audit-swift-dependencies swift-sast duplication benchmark-search \
         local-signing sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
@@ -61,6 +61,12 @@ SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 	Sources/AppleBox/LogSubsystem.swift \
 	Sources/AppleBox/Protocols/FileSystemProtocol.swift Sources/AppleBox/System/SystemFileManager.swift
 SWIFT_SCAN_TIMEOUT := 120
+# Resources is scanned for entitlements and Info.plist keys that weaken the
+# hardened runtime or App Transport Security; the Swift rules skip it.
+SWIFT_SAST_PATHS := Sources Resources scripts/benchmark-search.swift $(LOCAL_INSTALLER)
+# Production Swift only: tests repeat setup on purpose so each reads alone.
+DUPLICATION_PATHS := Sources scripts/benchmark-search.swift $(LOCAL_INSTALLER)
+DUPLICATION_TIMEOUT := 120
 
 # Colors for output
 RED := \033[0;31m
@@ -148,8 +154,10 @@ audit-swift-dependencies:
 	@bash scripts/audit-swift-dependencies.sh
 
 swift-sast:
-	@timeout $(SWIFT_SCAN_TIMEOUT) semgrep scan --config .semgrep-swift.yml --metrics=off \
-		--disable-version-check --strict --error Sources scripts/benchmark-search.swift
+	@SWIFT_SCAN_TIMEOUT=$(SWIFT_SCAN_TIMEOUT) bash scripts/swift-sast.sh $(SWIFT_SAST_PATHS)
+
+duplication:
+	@DUPLICATION_TIMEOUT=$(DUPLICATION_TIMEOUT) bash scripts/check-duplication.sh $(DUPLICATION_PATHS)
 
 benchmark-search:
 	@mkdir -p "$(dir $(SEARCH_BENCHMARK))"

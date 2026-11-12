@@ -1,3 +1,10 @@
+# Swift and bundle-config rules for `make swift-sast` (pre-push).
+# The shared hook's semgrep rules cover shell, Python, Go, JS and Docker only,
+# and registry rule packs would be fetched unpinned on every push, so the
+# rules AppleBox needs live here. Each rule targets a risk that fits a local
+# app that reads the clipboard, stores its history, and launches other apps:
+# running commands, loading untrusted data, leaking content, or weakening the
+# OS protections that keep that content private. A finding blocks the push.
 rules:
   # Keep future network clients on the system's default trust evaluation.
   - id: swift-disallow-trust-exceptions
@@ -7,3 +14,151 @@ rules:
     pattern-either:
       - pattern: 'URLCredential(trust: $TRUST)'
       - pattern: SecTrustSetExceptions(...)
+
+  # A shell parses its whole argument string, so any clipboard or file name
+  # that reaches it becomes a command (OWASP A03 injection). Start the
+  # program directly with an argument array instead.
+  - id: swift-shell-command
+    languages: [swift]
+    severity: ERROR
+    message: Do not run commands through a shell; start the executable directly with fixed arguments.
+    pattern-either:
+      - pattern: 'Process.launchedProcess(launchPath: $PATH, arguments: $ARGS)'
+      - pattern: system(...)
+      - pattern: popen(...)
+      # "-c", "-lc", "-euc" and the like: a shell flag that reads a command
+      # string. Only letters that shells combine with -c, so a program flag
+      # such as "-sync" is not taken for one.
+      - patterns:
+          - pattern: '$P.arguments = [..., $FLAG, ...]'
+          - metavariable-regex:
+              metavariable: $FLAG
+              regex: ^"-[eilu]*c[eilu]*"$
+      # A shell as the executable, through any of the ways to name it.
+      - patterns:
+          - pattern-either:
+              - pattern: 'URL(fileURLWithPath: $PATH)'
+              - pattern: 'URL(filePath: $PATH)'
+              - pattern: '$P.launchPath = $PATH'
+          - metavariable-regex:
+              metavariable: $PATH
+              regex: ^"(/usr)?/bin/(ba|z|da|k|c|tc|fi)?sh"$
+
+  # AppleScript runs with the app's Apple Events grant and can drive any
+  # other app, so a script built from data is a full injection path.
+  - id: swift-apple-script
+    languages: [swift]
+    severity: ERROR
+    message: AppleScript runs with the app's Apple Events grant; do not compile scripts at run time.
+    pattern-either:
+      - pattern: 'NSAppleScript(source: $SRC)'
+      - pattern: 'OSAScript(source: $SRC, ...)'
+
+  # Non-secure keyed archiving can instantiate any class named in the data,
+  # so a tampered history file could run code (OWASP A08).
+  - id: swift-insecure-unarchive
+    languages: [swift]
+    severity: ERROR
+    message: Use secure coding (NSKeyedUnarchiver.unarchivedObject(ofClass:from:) or Codable); never unarchive arbitrary classes.
+    pattern-either:
+      - pattern: NSKeyedUnarchiver.unarchiveObject(...)
+      - pattern: NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(...)
+      - pattern: 'NSKeyedUnarchiver(forReadingWith: $DATA)'
+      - pattern: $X.requiresSecureCoding = false
+
+  # MD5 and SHA-1 collide on purpose-built input, so they cannot prove that
+  # stored content is unchanged or authentic (OWASP A02).
+  - id: swift-weak-hash
+    languages: [swift]
+    severity: ERROR
+    message: MD5 and SHA-1 are broken; use SHA256 or stronger from CryptoKit.
+    pattern-either:
+      - pattern: Insecure.MD5.$METHOD(...)
+      - pattern: Insecure.SHA1.$METHOD(...)
+      - pattern: Insecure.MD5()
+      - pattern: Insecure.SHA1()
+      - pattern: CC_MD5(...)
+      - pattern: CC_SHA1(...)
+
+  # Cleartext HTTP can be read and changed on the network (OWASP A02).
+  # Loopback stays allowed for local tools.
+  - id: swift-cleartext-http
+    languages: [swift]
+    severity: ERROR
+    message: Use https; cleartext http can be read and changed on the network.
+    patterns:
+      - pattern-either:
+          - pattern: 'URL(string: $URL)'
+          - pattern: 'URLComponents(string: $URL)'
+      - metavariable-regex:
+          metavariable: $URL
+          # Case-insensitive: URL schemes are, so "HTTP://" is cleartext too.
+          regex: (?i)^"http://(?!(localhost|127\.0\.0\.1|\[::1\])([:/"]))
+
+  # UserDefaults is a plain plist that any process of the user can read, so
+  # credentials belong in the Keychain (OWASP A02, A07).
+  - id: swift-secret-in-user-defaults
+    languages: [swift]
+    severity: ERROR
+    message: Store credentials in the Keychain, not in UserDefaults.
+    patterns:
+      - pattern: '$DEFAULTS.set($VALUE, forKey: $KEY)'
+      - metavariable-regex:
+          metavariable: $KEY
+          # metavariable-regex is anchored at the start, so ".*" lets the
+          # secret word sit anywhere in a literal or constant key name.
+          regex: (?i).*(password|passwd|secret|token|api_?key|credential|private_?key)
+
+  # The Keychain "Always" classes keep items readable while the Mac is
+  # locked and are deprecated by Apple.
+  - id: swift-keychain-accessible-always
+    languages: [swift]
+    severity: ERROR
+    message: Use kSecAttrAccessibleWhenUnlocked or AfterFirstUnlock, not the deprecated Always classes.
+    pattern-either:
+      - pattern: kSecAttrAccessibleAlways
+      - pattern: kSecAttrAccessibleAlwaysThisDeviceOnly
+
+  # Console output is readable by other processes and lands in sysdiagnose
+  # reports, and it has no privacy redaction, so clipboard text could leak
+  # (OWASP A09). App code logs through os.Logger with explicit privacy;
+  # command-line scripts may still print.
+  - id: swift-console-output
+    languages: [swift]
+    severity: ERROR
+    message: Log through os.Logger with a privacy level; console output can leak clipboard content.
+    paths:
+      include:
+        - Sources/
+    pattern-either:
+      - pattern: print(...)
+      - pattern: debugPrint(...)
+      - pattern: dump(...)
+      - pattern: Swift.print(...)
+      - pattern: Swift.debugPrint(...)
+      - pattern: Swift.dump(...)
+      - pattern: NSLog(...)
+
+  # These hardened-runtime exceptions let other code or a debugger load into
+  # the process and read its memory, including the clipboard history.
+  - id: entitlements-weaken-hardened-runtime
+    languages: [generic]
+    severity: ERROR
+    message: This entitlement weakens the hardened runtime; the app must not ship with it.
+    paths:
+      include:
+        - "*.entitlements"
+    # Whitespace and XML comments may sit between the key and its value.
+    pattern-regex: <key>\s*com\.apple\.security\.(cs\.(disable-library-validation|allow-dyld-environment-variables|allow-unsigned-executable-memory|disable-executable-page-protection|allow-jit)|get-task-allow)\s*</key>(\s|<!--(?s:.*?)-->)*<true\s*/>
+
+  # These App Transport Security exceptions allow cleartext or weak TLS to
+  # remote hosts (OWASP A02). NSAllowsLocalNetworking is not listed: it only
+  # opens local addresses, which matches the loopback stance above.
+  - id: plist-ats-exception
+    languages: [generic]
+    severity: ERROR
+    message: Do not turn off App Transport Security; use https.
+    paths:
+      include:
+        - "*.plist"
+    pattern-regex: <key>\s*(NSAllowsArbitraryLoads(InWebContent|ForMedia)?|NSExceptionAllowsInsecureHTTPLoads)\s*</key>(\s|<!--(?s:.*?)-->)*<true\s*/>
