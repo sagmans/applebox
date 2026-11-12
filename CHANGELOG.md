@@ -10,6 +10,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- MIT license
+- Contributing guide and security policy with a private reporting path
 - GitHub issue templates (bug report, feature request, docs improvement, chore)
 
 ### Changed
@@ -21,6 +23,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   whatever SwiftFormat release was installed
 - `make lint` (and so the pre-commit hook) requires SwiftLint 0.65.1 exactly,
   for the same reason
+
+### Removed
+
+- README static coverage badge and the old story checklist, which no longer
+  matched the project
 
 ### Fixed
 

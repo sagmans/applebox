@@ -1,6 +1,6 @@
 # AppleBox - Minimal macOS Launcher
 
-![Coverage](https://img.shields.io/badge/coverage-66%25-green)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 AppleBox is a minimal macOS launcher for app search and clipboard history.
 
@@ -141,26 +141,16 @@ and SwiftLint versions.
   `ClipboardReplay.swift` - Search and clipboard services
 - `Protocols/`, `System/` - Interfaces for the system and their production code
 
-## Development Status
+## Contributing
 
-- [x] US-001: Add Test Target to Package.swift
-- [x] US-002: Define Protocols for External Dependencies
-- [x] US-003: Create Production Implementations of Protocols
-- [x] US-004: Refactor ApplicationIndexer for Dependency Injection
-- [x] US-005: Refactor ClipboardManager for Dependency Injection
-- [x] US-006: Refactor the launcher window for Dependency Injection (now
-  `LauncherModel`)
-- [x] US-007: Create Mock Implementations for Testing
-- [x] US-008: Unit Tests for SearchService Fuzzy Matching
-- [x] US-009: Unit Tests for ApplicationIndexer
-- [x] US-010: Unit Tests for ClipboardManager
-- [x] US-011: Integration Tests for Search Flow
-- [x] US-012: Integration Tests for Clipboard Flow
-- [x] US-013: UI Tests for Window Behavior
-- [x] US-014: UI Tests for Search Mode Switching
-- [x] US-015: Snapshot Tests for UI Components
-- [x] US-016: Accessibility Tests
-- [x] US-017: Set Up Pre-Commit Hook for Tests
-- [x] US-018: Set Up GitHub Actions CI Pipeline
-- [x] US-019: Add Test Coverage Reporting
-- [x] US-020: Create Testing Documentation
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you
+open a pull request.
+
+## Security
+
+Do not report security problems in public issues. See
+[SECURITY.md](SECURITY.md) for the private reporting path.
+
+## License
+
+AppleBox is released under the [MIT License](LICENSE).
