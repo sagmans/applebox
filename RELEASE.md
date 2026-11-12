@@ -2,9 +2,10 @@
 
 ## Overview
 
-This document outlines the complete release process for AppleBox, including code signing and notarization for macOS distribution.
+This document outlines the complete release process for AppleBox, including
+code signing and notarization for macOS distribution.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  make ship  (does everything below automatically)              │
 └─────────────────────────────────────────────────────────────────┘
@@ -39,6 +40,7 @@ make ship VERSION=1.2.0 NOTES="Bug fixes and performance improvements"
 ```
 
 This runs the **complete pipeline**:
+
 1. Clean all build artifacts
 2. Run pre-flight checks
 3. Execute test suite
@@ -58,7 +60,7 @@ This runs the **complete pipeline**:
 ### Required Tools
 
 | Tool | Purpose | Install |
-|------|---------|---------|
+| ------ | --------- | --------- |
 | Xcode CLI | Swift compiler, codesign | `xcode-select --install` |
 | gh | GitHub CLI | `brew install gh` |
 | Developer ID cert | Code signing | Apple Developer Portal |
@@ -73,11 +75,13 @@ security find-identity -v -p codesigning | grep "Developer ID"
 ```
 
 Expected output:
-```
+
+```text
 A4B489BB... "Developer ID Application: Your Name (TEAM_ID)"
 ```
 
 If missing:
+
 1. Go to [Apple Developer Portal](https://developer.apple.com/account/resources/certificates)
 2. Create "Developer ID Application" certificate
 3. Download and double-click to install in Keychain
@@ -93,6 +97,7 @@ xcrun notarytool store-credentials "AppleBox-Notarize" \
 ```
 
 You'll be prompted for an **App-Specific Password**:
+
 1. Go to [appleid.apple.com](https://appleid.apple.com)
 2. Sign In → Security → App-Specific Passwords
 3. Generate password for "AppleBox Notarization"
@@ -109,7 +114,7 @@ gh auth login
 
 ### Why Code Signing?
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  Without Signing              │  With Signing + Notarization    │
 ├───────────────────────────────┼─────────────────────────────────┤
@@ -124,7 +129,7 @@ gh auth login
 ### Signing Components
 
 | Component | Purpose |
-|-----------|---------|
+| ----------- | --------- |
 | Developer ID Certificate | Proves you're a registered Apple developer |
 | Hardened Runtime | Security protections required for notarization |
 | Timestamp | Proves when app was signed (valid even after cert expires) |
@@ -132,7 +137,7 @@ gh auth login
 
 ### Ad-Hoc vs Developer ID Signing
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  Ad-Hoc Signature (BAD)        │  Developer ID (GOOD)           │
 ├────────────────────────────────┼────────────────────────────────┤
@@ -147,6 +152,7 @@ gh auth login
 ```
 
 Check your app's signature:
+
 ```bash
 make check-adhoc
 # or manually:
@@ -170,7 +176,7 @@ The `Resources/AppleBox.entitlements` file declares security permissions:
 ```
 
 | Entitlement | Purpose |
-|-------------|---------|
+| --- | --- |
 | `app-sandbox=false` | App runs outside sandbox (required for system-wide hotkeys) |
 | `automation.apple-events` | Send Apple Events for window management |
 
@@ -182,7 +188,7 @@ The `Resources/AppleBox.entitlements` file declares security permissions:
 
 Apple scans your app for malware and issues a "ticket" proving it's safe.
 
-```
+```text
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
 │  Your Mac    │ ───▶ │ Apple Server │ ───▶ │  Your Mac    │
 │  Submit .zip │      │  Scan App    │      │  Get Ticket  │
@@ -193,7 +199,7 @@ Apple scans your app for malware and issues a "ticket" proving it's safe.
 ### Notarization Status
 
 | Status | Meaning |
-|--------|---------|
+| -------- | --------- |
 | `In Progress` | Apple is scanning (wait 5-15 min) |
 | `Accepted` | ✅ App approved, ready to staple |
 | `Invalid` | ❌ Issues found, check log |
@@ -212,7 +218,7 @@ xcrun notarytool log <ID> --keychain-profile "AppleBox-Notarize"
 ### Common Notarization Issues
 
 | Issue | Cause | Fix |
-|-------|-------|-----|
+| ------- | ------- | ----- |
 | Stuck "In Progress" | Ad-hoc signed | Re-sign with Developer ID |
 | Invalid signature | Missing hardened runtime | Add `--options runtime` to codesign |
 | Missing timestamp | No `--timestamp` flag | Add `--timestamp` to codesign |
@@ -308,6 +314,7 @@ make notarize
 ```
 
 If timeout occurs, check status:
+
 ```bash
 make check-notarize ID=<submission-id>
 ```
@@ -407,7 +414,7 @@ git push origin --delete v1.2.0
 ### Makefile Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `VERSION` | from Info.plist | Release version |
 | `DEVELOPER_ID` | hardcoded | Code signing certificate |
 | `TEAM_ID` | `6C96BU4M82` | Apple Team ID |
@@ -432,7 +439,7 @@ make check-notarize ID=abc123-def456
 
 ## Release Checklist
 
-```
+```text
 Pre-Release:
 [ ] Working tree clean (git status)
 [ ] Version bumped in Info.plist
@@ -471,6 +478,6 @@ Post-Release:
 ## Version History
 
 | Version | Date | Notes |
-|---------|------|-------|
+| --- | --- | --- |
 | 1.1.0 | 2026-01-15 | Code signing & notarization support |
 | 1.0.0 | 2026-01-15 | Initial release |
