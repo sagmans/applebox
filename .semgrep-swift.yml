@@ -1,7 +1,7 @@
 # Swift and bundle-config rules for `make swift-sast` (pre-push).
 # The shared hook's semgrep rules cover shell, Python, Go, JS and Docker only,
 # and registry rule packs would be fetched unpinned on every push, so the
-# rules AppleBox needs live here. Each rule targets a risk that fits a local
+# rules Bitekey needs live here. Each rule targets a risk that fits a local
 # app that reads the clipboard, stores its history, and launches other apps:
 # running commands, loading untrusted data, leaking content, or weakening the
 # OS protections that keep that content private. A finding blocks the push.

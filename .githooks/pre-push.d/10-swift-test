@@ -8,7 +8,7 @@ set -eu
 # shellcheck disable=SC1090,SC1091  # path exported by .githooks/lib/run-local.sh
 . "${HOOK_HELPERS:?run from .githooks (scripts/setup-hooks)}"
 
-# AppleBox builds only with the macOS SDK (AppKit, Xcode Swift toolchain).
+# Bitekey builds only with the macOS SDK (AppKit, Xcode Swift toolchain).
 # Build and test are required before code leaves the machine: on another
 # host the push fails with a clear reason instead of a skip.
 # (darwin_only from HOOK_HELPERS would skip with exit 0, so it is not used.)

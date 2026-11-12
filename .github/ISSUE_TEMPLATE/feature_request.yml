@@ -24,7 +24,7 @@ body:
     attributes:
       label: Proposed solution
       description: Describe how you'd like the feature to work
-      placeholder: "I'd like AppleBox to..."
+      placeholder: "I'd like Bitekey to..."
     validations:
       required: true
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate code coverage report for AppleBox
+# Generate code coverage report for Bitekey
 #
 # This script runs tests with coverage enabled and generates a human-readable report.
 #
@@ -49,7 +49,7 @@ swift test --enable-code-coverage > /dev/null 2>&1
 # Get paths using swift test's built-in path detection
 BIN_PATH=$(swift build --show-bin-path)
 PROFDATA_PATH="${BIN_PATH}/codecov/default.profdata"
-XCTEST_PATH="${BIN_PATH}/AppleBoxPackageTests.xctest/Contents/MacOS/AppleBoxPackageTests"
+XCTEST_PATH="${BIN_PATH}/BitekeyPackageTests.xctest/Contents/MacOS/BitekeyPackageTests"
 
 if [ ! -f "$PROFDATA_PATH" ]; then
     echo "Error: Coverage data not found. Run 'swift test --enable-code-coverage' first."

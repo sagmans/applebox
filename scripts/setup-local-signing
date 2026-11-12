@@ -116,4 +116,4 @@ P12_PASS="$passphrase" "$OPENSSL" pkcs12 -export -name "$identity_name" \
 
 [ "$(identity_count)" -eq 1 ] || fail "the identity was imported but codesign cannot find it"
 printf 'Created signing identity "%s" in %s.\n' "$identity_name" "$keychain"
-printf 'Next: make install, then allow AppleBox once in System Settings > Privacy & Security.\n'
+printf 'Next: make install, then allow Bitekey once in System Settings > Privacy & Security.\n'

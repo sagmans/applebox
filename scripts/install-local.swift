@@ -16,13 +16,13 @@ private enum LocalInstall {
             switch self {
             case .invalidArguments: "Expected install or uninstall, source bundle, destination bundle, and bundle identifier."
             case let .unexpectedBundle(url): "Refusing to replace or remove an unexpected item at \(url.path)."
-            case .running: "Quit AppleBox from its menu before installing, updating, or uninstalling."
+            case .running: "Quit Bitekey from its menu before installing, updating, or uninstalling."
             }
         }
     }
 
     private static let fileManager = FileManager.default
-    private static let stagingPrefix = ".applebox-install-"
+    private static let stagingPrefix = ".bitekey-install-"
     private static let privateDirectoryMode = 0o700
     private static let argumentCount = 5
 

@@ -8,8 +8,8 @@
 # Configuration
 # ==============================================================================
 
-APP_NAME := AppleBox
-BUNDLE_ID := com.assagman.applebox
+APP_NAME := Bitekey
+BUNDLE_ID := com.assagman.bitekey
 BUILD_DIR := .build/release
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 INSTALL_DIR := $(HOME)/Applications
@@ -19,7 +19,7 @@ LOCAL_INSTALLER := scripts/install-local.swift
 # privacy grants, such as the paste permission. Without that identity, builds fall back to
 # ad-hoc and warn. Set LOCAL_SIGNING_IDENTITY to override, e.g. `-` to force ad-hoc.
 # The keychain is read only inside `bundle`, so lint, format and test never touch it.
-LOCAL_SIGNING_NAME := AppleBox Local Development
+LOCAL_SIGNING_NAME := Bitekey Local Development
 LOCAL_SIGNING_SETUP := scripts/setup-local-signing
 LOCAL_SIGNING_IDENTITY ?=
 ADHOC_SIGNING_IDENTITY := -
@@ -40,8 +40,8 @@ REPO_URL := https://github.com/sagmans/applebox
 # Code signing configuration
 DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
 TEAM_ID := 6C96BU4M82
-NOTARIZE_PROFILE := AppleBox-Notarize
-ENTITLEMENTS := Resources/AppleBox.entitlements
+NOTARIZE_PROFILE := Bitekey-Notarize
+ENTITLEMENTS := Resources/Bitekey.entitlements
 # Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
 # on Retina screens instead of upscaling the 18 px file.
 MENU_BAR_ICONS := Resources/MenuBarIconTemplate.png Resources/MenuBarIconTemplate@2x.png
@@ -60,12 +60,12 @@ SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/
 SWIFTLINT_VERSION := 0.65.1
 SWIFTLINT_RELEASE_URL := https://github.com/realm/SwiftLint/releases/tag/$(SWIFTLINT_VERSION)
 SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift $(LOCAL_INSTALLER)
-SEARCH_BENCHMARK := .build/applebox-search-benchmark
+SEARCH_BENCHMARK := .build/bitekey-search-benchmark
 SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
-	Sources/AppleBox/SearchService.swift Sources/AppleBox/ApplicationIndexer.swift \
-	Sources/AppleBox/ApplicationFolderMonitor.swift Sources/AppleBox/ApplicationScanRoots.swift \
-	Sources/AppleBox/LogSubsystem.swift \
-	Sources/AppleBox/Protocols/FileSystemProtocol.swift Sources/AppleBox/System/SystemFileManager.swift
+	Sources/Bitekey/SearchService.swift Sources/Bitekey/ApplicationIndexer.swift \
+	Sources/Bitekey/ApplicationFolderMonitor.swift Sources/Bitekey/ApplicationScanRoots.swift \
+	Sources/Bitekey/LogSubsystem.swift \
+	Sources/Bitekey/Protocols/FileSystemProtocol.swift Sources/Bitekey/System/SystemFileManager.swift
 SWIFT_SCAN_TIMEOUT := 120
 # Resources is scanned for entitlements and Info.plist keys that weaken the
 # hardened runtime or App Transport Security; the Swift rules skip it.
@@ -87,7 +87,7 @@ NC := \033[0m  # No Color
 
 help:
 	@echo ""
-	@echo "$(BLUE)AppleBox Makefile$(NC)"
+	@echo "$(BLUE)Bitekey Makefile$(NC)"
 	@echo "=================="
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"

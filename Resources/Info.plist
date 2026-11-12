@@ -5,13 +5,13 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>CFBundleDisplayName</key>
-    <string>AppleBox</string>
+    <string>Bitekey</string>
     <key>CFBundleExecutable</key>
-    <string>AppleBox</string>
+    <string>Bitekey</string>
     <key>CFBundleIdentifier</key>
-    <string>com.assagman.applebox</string>
+    <string>com.assagman.bitekey</string>
     <key>CFBundleName</key>
-    <string>AppleBox</string>
+    <string>Bitekey</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

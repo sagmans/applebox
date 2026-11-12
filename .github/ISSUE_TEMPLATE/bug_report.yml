@@ -21,9 +21,9 @@ body:
       required: true
 
   - type: input
-    id: applebox-version
+    id: bitekey-version
     attributes:
-      label: AppleBox version
+      label: Bitekey version
       description: Release version or git commit SHA
       placeholder: "vX.Y.Z or abc1234"
     validations:
@@ -33,7 +33,7 @@ body:
     id: install-method
     attributes:
       label: Install method
-      description: How did you install AppleBox?
+      description: How did you install Bitekey?
       options:
         - Release (zip/dmg)
         - Homebrew (cask)
@@ -63,7 +63,7 @@ body:
       label: Steps to reproduce
       description: Minimal steps to reproduce the issue
       placeholder: |
-        1. Launch AppleBox
+        1. Launch Bitekey
         2. Press Cmd+Space
         3. ...
     validations:
@@ -85,8 +85,8 @@ body:
     attributes:
       label: Logs / error messages
       description: |
-        Paste relevant logs. To capture AppleBox logs run:
-        `log stream --style syslog --predicate 'subsystem == "com.assagman.applebox"' --info`
+        Paste relevant logs. To capture Bitekey logs run:
+        `log stream --style syslog --predicate 'subsystem == "com.assagman.bitekey"' --info`
         If built from source, include `swift run` output.
       render: text
     validations:
