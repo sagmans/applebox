@@ -92,12 +92,43 @@ private enum PrivateFileError: Error {
     case changedDuringRead
 }
 
-extension SystemFileManager {
+public extension SystemFileManager {
     private static let ownerFileMode: mode_t = 0o600
     private static let ownerDirectoryMode: mode_t = 0o700
     private static let permissionMask: mode_t = 0o7777
 
-    public func readPrivateFile(at url: URL, maximumBytes: Int) throws -> Data? {
+    func itemKind(at url: URL) throws -> FileItemKind {
+        let attributes: [FileAttributeKey: Any]
+        do {
+            // attributesOfItem does not follow links, so a symlink reports .typeSymbolicLink.
+            attributes = try fileManager.attributesOfItem(atPath: url.path)
+        } catch CocoaError.fileNoSuchFile, CocoaError.fileReadNoSuchFile {
+            return .missing
+        }
+        switch attributes[.type] as? FileAttributeType {
+        case .typeDirectory: return .directory
+        case .typeSymbolicLink: return .symbolicLink
+        default: return .other
+        }
+    }
+
+    func copyItem(at source: URL, to destination: URL) throws {
+        try fileManager.copyItem(at: source, to: destination)
+    }
+
+    func moveItem(at source: URL, to destination: URL) throws {
+        try fileManager.moveItem(at: source, to: destination)
+    }
+
+    func removeItem(at url: URL) throws {
+        do {
+            try fileManager.removeItem(at: url)
+        } catch CocoaError.fileNoSuchFile {
+            // Cleanup of a path that is already gone has the wanted result.
+        }
+    }
+
+    func readPrivateFile(at url: URL, maximumBytes: Int) throws -> Data? {
         guard maximumBytes > 0, maximumBytes < Int.max else { throw PrivateFileError.exceedsReadLimit }
         let directory = try openPrivateDirectory(for: url)
         defer { close(directory) }
@@ -120,7 +151,7 @@ extension SystemFileManager {
         return data
     }
 
-    public func writePrivateFile(_ data: Data, to url: URL) throws {
+    func writePrivateFile(_ data: Data, to url: URL) throws {
         let directory = try openPrivateDirectory(for: url)
         defer { close(directory) }
 
@@ -139,7 +170,7 @@ extension SystemFileManager {
     }
 
     /// Deletes an image file of an evicted or cleared clip; a missing file already has the wanted result.
-    public func removePrivateFile(at url: URL) throws {
+    func removePrivateFile(at url: URL) throws {
         // Unlink relative to the verified folder, so a swapped parent path cannot redirect the delete.
         let directory = try openPrivateDirectory(for: url)
         defer { close(directory) }

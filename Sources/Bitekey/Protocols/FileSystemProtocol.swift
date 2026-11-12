@@ -1,5 +1,13 @@
 import Foundation
 
+/// What sits at a path, as seen without following links.
+public nonisolated enum FileItemKind: Equatable, Sendable {
+    case missing
+    case directory
+    case symbolicLink
+    case other
+}
+
 /// Protocol abstracting FileManager operations for testability.
 ///
 /// Nonisolated and Sendable because indexing and clipboard persistence call it
@@ -50,6 +58,20 @@ public nonisolated protocol FileSystemProtocol: Sendable {
 
     /// Delete a clipboard file inside the owner-only folder; a file that is already gone is not an error.
     func removePrivateFile(at url: URL) throws
+
+    /// Classify an item without following links, so a symlink cannot pull data from outside the
+    /// legacy location. Only a missing item maps to `.missing`; any other read error is thrown so
+    /// a transient failure is never mistaken for "nothing to migrate".
+    func itemKind(at url: URL) throws -> FileItemKind
+
+    /// Duplicate the legacy data so the source stays untouched.
+    func copyItem(at source: URL, to destination: URL) throws
+
+    /// Publish a finished copy under its final name in one step.
+    func moveItem(at source: URL, to destination: URL) throws
+
+    /// Discard a partial copy; an item that is already gone is not an error.
+    func removeItem(at url: URL) throws
 }
 
 /// Extension to provide default implementations for overloaded methods

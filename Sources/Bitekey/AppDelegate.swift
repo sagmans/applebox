@@ -14,6 +14,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let fallbackSymbol = "square.grid.2x2"
     }
 
+    private static let migrationLogCategory = "migration"
+
+    /// Names the migration steps in the log so a filter can pick one.
+    private enum MigrationStep: String {
+        case staleTemps, folder, preferences
+    }
+
     private enum MenuTitle {
         static let app = "Bitekey"
         /// Spoken and shown on hover while the badge is up, since the dot alone carries no words.
@@ -55,7 +62,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Logs step results only, never contents or preference values. The free-text cause may hold
+    /// paths, so it stays private; the domain and code are stable and safe to share.
+    private func logMigration(_ report: LegacyDataMigration.Report) {
+        let logger = Logger(subsystem: LogSubsystem.name, category: Self.migrationLogCategory)
+        let steps: [(MigrationStep, LegacyDataMigration.StepResult)] = [
+            (.staleTemps, report.staleTemps), (.folder, report.folder), (.preferences, report.preferences),
+        ]
+        for (step, result) in steps {
+            if case let .failed(failure) = result {
+                logger.error("Legacy migration step failed: step=\(step.rawValue, privacy: .public) domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public) cause=\(failure.detail, privacy: .private)")
+            } else {
+                logger.debug("Legacy migration step finished: step=\(step.rawValue, privacy: .public) result=\(String(describing: result), privacy: .public)")
+            }
+        }
+    }
+
     private func startServices() {
+        // Before any store loads, so none reads the new, still empty location first.
+        logMigration(LegacyDataMigration().run())
+
         // UI first: show/typing must never wait on indexing/persistence.
         // The model owns launcher state; the controller presents it and forwards input.
         let launcherModel = LauncherModel()

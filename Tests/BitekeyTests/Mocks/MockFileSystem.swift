@@ -64,7 +64,56 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_createDirectoryError }
     }
 
+    private var _itemKinds: [String: FileItemKind] = [:]
+    /// Kind reported per path; a path that is absent here reads as `.missing`.
+    var itemKinds: [String: FileItemKind] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _itemKinds }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_itemKinds }
+    }
+
+    private var _itemKindError: Error?
+    var itemKindError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _itemKindError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_itemKindError }
+    }
+
+    private var _copyItemError: Error?
+    var copyItemError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _copyItemError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_copyItemError }
+    }
+
+    private var _moveItemError: Error?
+    var moveItemError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _moveItemError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_moveItemError }
+    }
+
+    private var _removeItemError: Error?
+    var removeItemError: Error? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _removeItemError }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_removeItemError }
+    }
+
     // MARK: - Invocation Tracking
+
+    private var _copyItemCalls: [(source: URL, destination: URL)] = []
+    var copyItemCalls: [(source: URL, destination: URL)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _copyItemCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_copyItemCalls }
+    }
+
+    private var _moveItemCalls: [(source: URL, destination: URL)] = []
+    var moveItemCalls: [(source: URL, destination: URL)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _moveItemCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_moveItemCalls }
+    }
+
+    private var _removeItemCalls: [URL] = []
+    var removeItemCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _removeItemCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_removeItemCalls }
+    }
 
     private var _fileExistsAtPathCalls: [String] = []
     var fileExistsAtPathCalls: [String] {
@@ -201,6 +250,57 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         fileContents[url.path] = nil
         existingFiles[url.path] = nil
         directoryFlags[url.path] = nil
+    }
+
+    func itemKind(at url: URL) throws -> FileItemKind {
+        try withStateLock {
+            if let error = _itemKindError {
+                throw error
+            }
+            return _itemKinds[url.path] ?? .missing
+        }
+    }
+
+    func copyItem(at source: URL, to destination: URL) throws {
+        try withStateLock {
+            _copyItemCalls.append((source: source, destination: destination))
+            if let error = _copyItemError {
+                throw error
+            }
+            placeItem(from: source.path, to: destination.path)
+        }
+    }
+
+    func moveItem(at source: URL, to destination: URL) throws {
+        try withStateLock {
+            _moveItemCalls.append((source: source, destination: destination))
+            if let error = _moveItemError {
+                throw error
+            }
+            placeItem(from: source.path, to: destination.path)
+            _existingFiles[source.path] = nil
+            _directoryFlags[source.path] = nil
+            _itemKinds[source.path] = nil
+        }
+    }
+
+    func removeItem(at url: URL) throws {
+        try withStateLock {
+            _removeItemCalls.append(url)
+            if let error = _removeItemError {
+                throw error
+            }
+            _existingFiles[url.path] = nil
+            _directoryFlags[url.path] = nil
+            _itemKinds[url.path] = nil
+        }
+    }
+
+    /// Mirrors the source flags onto the destination; caller must hold `stateLock`.
+    private func placeItem(from source: String, to destination: String) {
+        _existingFiles[destination] = true
+        _directoryFlags[destination] = _directoryFlags[source] ?? false
+        _itemKinds[destination] = _itemKinds[source]
     }
 
     // MARK: - Helper Methods
