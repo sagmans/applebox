@@ -4,14 +4,19 @@ import SwiftUI
 
 /// Keep ownership of the clipboard and the intended app tied to a single replay.
 final class ClipboardReplay {
+    /// Posted when Return-paste is blocked by the missing permission, so the menu bar can keep
+    /// pointing at the relaunch after the short toast is gone.
+    static let pastePermissionNeeded = Notification.Name("applebox.clipboardReplay.pastePermissionNeeded")
+
     private let workspace: WorkspaceProtocol
     private let pasteboard: PasteboardProtocol
     private let eventSource: EventSourceProtocol
     private let pasteDelay = DispatchTimeInterval.milliseconds(100)
     private let manualPasteMessage = "Copied. Press ⌘V to paste."
     /// Names the parent pane only: the permission sits under "Accessibility" on macOS 26 and under
-    /// "Device Control & Data Access" on macOS 27, and the app supports both.
-    private let permissionPasteMessage = "Copied. Allow AppleBox in Privacy & Security settings to paste automatically."
+    /// "Device Control & Data Access" on macOS 27, and the app supports both. macOS applies a grant only
+    /// at launch, so the text points to the menu bar relaunch item.
+    private let permissionPasteMessage = "Copied. Allow AppleBox in Privacy & Security settings, then relaunch it from the menu bar to paste automatically."
     private let copiedMessage = "Copied to Clipboard."
     private let changedClipboardMessage = "Clipboard changed before paste."
     private let copyFailureMessage = "Couldn't copy the clip. Try again."
@@ -101,6 +106,7 @@ final class ClipboardReplay {
             }
             logger.info("Clipboard history paste unavailable: no permission to post keyboard events")
             showFeedback(permissionPasteMessage, kind: .guidance)
+            NotificationCenter.default.post(name: Self.pastePermissionNeeded, object: self)
             return
         }
 

@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private enum MenuTitle {
         static let app = "AppleBox"
+        /// Spoken and shown on hover while the badge is up, since the dot alone carries no words.
+        static let appNeedsRelaunch = "AppleBox – relaunch to enable paste"
         static let search = "Search Applications"
         static let clipboard = "Clipboard History"
         static let shortcuts = "Global Shortcuts"
@@ -33,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardManager: ClipboardManager?
     private var statusItem: NSStatusItem?
     private let loginItemMenu = LoginItemMenu()
+    private let pasteRelaunch = PasteRelaunchMenu()
+    private let statusBadge = StatusBadgeView()
 
     private let logger = Logger(
         subsystem: LogSubsystem.name,
@@ -41,7 +45,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         logger.info("AppleBox launched")
+        // A relaunch starts this copy before the old one quits; setup waits so only one instance owns
+        // the shortcuts and history files.
+        Task {
+            switch await RelaunchHandoff.waitForPreviousInstance(arguments: CommandLine.arguments) {
+            case .ready: startServices()
+            case .previousStillRunning: NSApp.terminate(nil)
+            }
+        }
+    }
 
+    private func startServices() {
         // UI first: show/typing must never wait on indexing/persistence.
         // The model owns launcher state; the controller presents it and forwards input.
         let launcherModel = LauncherModel()
@@ -99,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu(title: MenuTitle.app)
         addStatusAction(to: menu, title: MenuTitle.search, action: #selector(openAppSearchFromMenu))
         addStatusAction(to: menu, title: MenuTitle.clipboard, action: #selector(openClipboardFromMenu))
+        menu.addItem(pasteRelaunch.item)
+        // The relaunch item depends on a permission the user changes outside the app.
+        menu.delegate = pasteRelaunch
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: MenuTitle.shortcuts, action: nil, keyEquivalent: ""))
         addStatusAction(to: menu, title: MenuTitle.retry, action: #selector(retryShortcutsFromMenu))
@@ -107,6 +124,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addStatusAction(to: menu, title: MenuTitle.quit, action: #selector(quitFromMenu))
         item.menu = menu
         statusItem = item
+        pasteRelaunch.onAttentionChange = { [weak self] needed in self?.showStatusBadge(needed) }
+    }
+
+    /// Keeps the pending relaunch visible after the paste toast fades. A relaunch starts a fresh
+    /// process, so the badge clears by itself once paste works.
+    private func showStatusBadge(_ visible: Bool) {
+        guard let button = statusItem?.button else { return }
+        if visible, statusBadge.superview == nil {
+            statusBadge.attach(to: button)
+        } else if !visible {
+            statusBadge.removeFromSuperview()
+        }
+        button.setAccessibilityLabel(visible ? MenuTitle.appNeedsRelaunch : MenuTitle.app)
+        button.toolTip = visible ? MenuTitle.appNeedsRelaunch : MenuTitle.app
     }
 
     /// Prefers the bundled logo artwork and falls back to an SF Symbol, so the menu
