@@ -33,6 +33,9 @@ DIST_DIR := $(BUILD_DIR)/dist
 VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.plist 2>/dev/null || echo "0.0.0")
 ZIP_NAME := $(APP_NAME)-v$(VERSION)-macOS.zip
 DMG_NAME := $(APP_NAME)-v$(VERSION)-macOS.dmg
+# Public home of the project; release messages link here so a maintainer can
+# open the new release in one click. Change it if the repository moves.
+REPO_URL := https://github.com/sagmans/applebox
 
 # Code signing configuration
 DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
@@ -734,7 +737,7 @@ release: dist tag-push
 		exit 1; \
 	fi
 	@echo ""
-	@echo "$(GREEN)Released: https://github.com/assagman/applebox/releases/tag/v$(VERSION)$(NC)"
+	@echo "$(GREEN)Released: $(REPO_URL)/releases/tag/v$(VERSION)$(NC)"
 
 # ==============================================================================
 # SHIP - Complete Release Pipeline
@@ -768,7 +771,7 @@ ship: clean preflight test notarize dist tag-push _ship-release
 	@echo "$(GREEN)  SHIP COMPLETE: $(APP_NAME) v$(VERSION)$(NC)"
 	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
-	@echo "  Release URL: https://github.com/assagman/applebox/releases/tag/v$(VERSION)"
+	@echo "  Release URL: $(REPO_URL)/releases/tag/v$(VERSION)"
 	@echo ""
 	@echo "  Artifacts:"
 	@ls -lh "$(DIST_DIR)/"*.zip "$(DIST_DIR)/"*.dmg 2>/dev/null | awk '{print "    " $$9 " (" $$5 ")"}'
