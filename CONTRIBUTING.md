@@ -1,42 +1,42 @@
 # Contributing to AppleBox
 
-Thank you for your help. This guide tells you how to set up the project, which
-checks your change must pass, and how to send it.
+Thank you for your interest. This guide tells you how to report a problem,
+how to build AppleBox, and the rules for project collaborators.
 
-## Before you start
+## How to contribute
 
-- For a bug, open a bug report issue first. Give the macOS version, the
-  AppleBox version, and the steps that cause the bug.
-- For a new feature or a large change, open a feature request first. The
-  maintainer and you agree on the scope before you write code.
+AppleBox accepts issues from everyone. Only project collaborators can push
+and open pull requests. The repository blocks pull requests from other
+accounts.
+
+- For a bug, open a bug report issue. Give the macOS version, the AppleBox
+  version, and the steps that cause the bug.
+- For a new feature, open a feature request. Tell what you want to do and
+  why.
 - For a security problem, do not open an issue. Follow
   [SECURITY.md](SECURITY.md).
 
-## Set up
+You can fork AppleBox and change it under the [MIT License](LICENSE).
+
+## Build
 
 You need macOS 26 or later and Swift 6.2 or later.
 
-1. Fork the repository and clone your fork.
-2. Install the hooks once in each clone:
-
-   ```bash
-   make hooks
-   ```
-
-3. Build and run the tests:
-
-   ```bash
-   make build
-   make test
-   ```
+```bash
+make build
+make test
+```
 
 To run AppleBox from a local build, see **Local Install** in
 [README.md](README.md).
 
-## Checks
+## Rules for collaborators
+
+### Hooks
 
 This project has no hosted CI. The Git hooks in `.githooks/` are the only
-gate. `make hooks` installs them. Do not bypass them with `--no-verify`.
+gate. Install them once in each clone with `make hooks`. Do not bypass them
+with `--no-verify`.
 
 The hooks check secrets, format, lint, commit messages, sign-off, and
 signatures. Before a push, they also run the dependency audit, static
@@ -44,7 +44,7 @@ analysis, duplication and complexity checks, build, tests, and search
 benchmark. A missing tool stops the hook.
 [AGENTS.md](AGENTS.md) lists each check and the tools that it needs.
 
-## Commits
+### Commits
 
 Commit messages follow the rules in
 [.githooks/GIT_CONVENTION.md](.githooks/GIT_CONVENTION.md). In short:
@@ -64,17 +64,4 @@ Commit messages follow the rules in
   hook verifies each signature and fails without it.
 
 Make each commit one change. Each commit must build and pass the tests.
-
-## Pull requests
-
-1. Rebase your branch on the latest `main`.
-2. Make sure the hooks pass on push.
-3. In the pull request, tell what changed, why, and how you tested it. For a
-   visible change, add a screenshot.
-
-The maintainer runs the same checks locally before a merge.
-
-## License
-
-By contributing, you agree that your contributions are licensed under the
-[MIT License](LICENSE).
+Rebase on the latest `main` before you push.

@@ -143,8 +143,8 @@ and SwiftLint versions.
 
 ## Contributing
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you
-open a pull request.
+Issues are welcome. Only project collaborators can open pull requests. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
