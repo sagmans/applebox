@@ -16,6 +16,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Renamed AppleBox to Bitekey. The first launch copies clip history, recent
+  apps, and shortcut choices from AppleBox. AppleBox data is not changed.
 - CI installs exact, checksum-verified SwiftFormat 0.63.1 and SwiftLint 0.65.1
   instead of the latest Homebrew release, so style checks no longer drift
 - `make format` and `make format-check` (and so the pre-commit hook) require

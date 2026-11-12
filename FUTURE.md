@@ -3,10 +3,10 @@
 ## Distribution
 
 - [ ] **Homebrew Distribution**
-  - [ ] Create Homebrew tap repository (`homebrew-applebox`)
+  - [ ] Create Homebrew tap repository (`homebrew-bitekey`)
   - [ ] Write Formula with cask for GUI app
   - [ ] Submit to homebrew-cask for wider distribution
-  - [ ] Add `brew install --cask applebox` to README
+  - [ ] Add `brew install --cask bitekey` to README
 
 ## Features
 

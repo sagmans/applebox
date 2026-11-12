@@ -1,6 +1,6 @@
 # AGENTS.md
 
-AppleBox: a macOS launcher (app search and clipboard history) in Swift. See
+Bitekey: a macOS launcher (app search and clipboard history) in Swift. See
 `README.md` and `docs/TESTING.md`.
 
 ## Git hooks

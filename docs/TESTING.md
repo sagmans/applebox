@@ -1,7 +1,7 @@
-# AppleBox Testing Guide
+# Bitekey Testing Guide
 
 This document provides a comprehensive guide to the testing architecture,
-patterns, and practices used in the AppleBox project.
+patterns, and practices used in the Bitekey project.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ patterns, and practices used in the AppleBox project.
 
 ## Overview
 
-AppleBox uses a comprehensive testing strategy that includes:
+Bitekey uses a comprehensive testing strategy that includes:
 
 - **Unit Tests** - Testing individual components in isolation
 - **Integration Tests** - Testing component interactions end-to-end
@@ -36,8 +36,8 @@ thorough testing without requiring actual system interactions.
 ## Directory Structure
 
 ```text
-AppleBox/
-├── Sources/AppleBox/
+Bitekey/
+├── Sources/Bitekey/
 │   ├── Protocols/           # Dependency abstraction protocols
 │   │   ├── FileSystemProtocol.swift
 │   │   ├── PasteboardProtocol.swift
@@ -53,7 +53,7 @@ AppleBox/
 │   ├── UI/                  # SwiftUI views, design tokens, and caches
 │   └── ...                  # Core application files
 │
-├── Tests/AppleBoxTests/
+├── Tests/BitekeyTests/
 │   ├── Mocks/               # Mock implementations for testing
 │   │   ├── MockFileSystem.swift
 │   │   ├── MockPasteboard.swift
@@ -181,16 +181,16 @@ Automatic paste needs the paste permission, which tests cannot give.
 without the grant. At launch, macOS must show its permission prompt, the menu
 bar icon must carry an orange dot, and **Relaunch to Enable Paste** must show an
 orange icon and title. Open clipboard history and press Return on a clip: no
-second prompt may appear, and the footer toast must say to allow AppleBox in
-Privacy & Security settings and then relaunch it, and AppleBox must appear under
+second prompt may appear, and the footer toast must say to allow Bitekey in
+Privacy & Security settings and then relaunch it, and Bitekey must appear under
 System Settings, Privacy & Security, Device Control & Data Access (macOS 27) or
 Accessibility (macOS 26). After you turn the permission on, choose that item:
-AppleBox restarts with its history, the item and the dot are gone, and Return
+Bitekey restarts with its history, the item and the dot are gone, and Return
 pastes into the previous app.
 
 To check that the grant survives a rebuild, sign with the local identity
 (`make local-signing` once), grant the permission, run `make install` again,
-and press Return on a clip. It must paste with no new grant. If AppleBox was
+and press Return on a clip. It must paste with no new grant. If Bitekey was
 granted while it had another signature, remove it with **−** and add it again
 with **+** first; turning the switch off and on keeps the old signature.
 
@@ -198,22 +198,22 @@ with **+** first; turning the switch off and on keeps the old signature.
 
 ## Dependency Injection
 
-AppleBox uses protocol-based dependency injection to enable testing without
+Bitekey uses protocol-based dependency injection to enable testing without
 system interactions.
 
 ### Protocol Pattern
 
 Each external dependency has:
 
-1. **A Protocol** defining the interface (in `Sources/AppleBox/Protocols/`)
+1. **A Protocol** defining the interface (in `Sources/Bitekey/Protocols/`)
 2. **A System Implementation** using real system APIs (in
-   `Sources/AppleBox/System/`)
-3. **A Mock Implementation** for testing (in `Tests/AppleBoxTests/Mocks/`)
+   `Sources/Bitekey/System/`)
+3. **A Mock Implementation** for testing (in `Tests/BitekeyTests/Mocks/`)
 
 ### Example: FileSystemProtocol
 
 ```swift
-// Protocol (Sources/AppleBox/Protocols/FileSystemProtocol.swift)
+// Protocol (Sources/Bitekey/Protocols/FileSystemProtocol.swift)
 protocol FileSystemProtocol {
     var homeDirectoryForCurrentUser: URL { get }
     func fileExists(atPath path: String) -> Bool
@@ -221,7 +221,7 @@ protocol FileSystemProtocol {
     // ... other methods
 }
 
-// System Implementation (Sources/AppleBox/System/SystemFileManager.swift)
+// System Implementation (Sources/Bitekey/System/SystemFileManager.swift)
 final class SystemFileManager: FileSystemProtocol {
     private let fileManager: FileManager
     
@@ -235,7 +235,7 @@ final class SystemFileManager: FileSystemProtocol {
     // ... implementation using FileManager
 }
 
-// Mock Implementation (Tests/AppleBoxTests/Mocks/MockFileSystem.swift)
+// Mock Implementation (Tests/BitekeyTests/Mocks/MockFileSystem.swift)
 final class MockFileSystem: FileSystemProtocol {
     var mockHomeDirectory: URL = URL(fileURLWithPath: "/Users/testuser")
     var existingFiles: [String: Bool] = [:]
@@ -274,12 +274,12 @@ let indexer = ApplicationIndexer(fileSystem: mockFileSystem)
 
 ### 1. Create the Test File
 
-Create a new file in `Tests/AppleBoxTests/` following the naming convention
+Create a new file in `Tests/BitekeyTests/` following the naming convention
 `{Component}Tests.swift`:
 
 ```swift
 import XCTest
-@testable import AppleBox
+@testable import Bitekey
 
 final class MyComponentTests: XCTestCase {
     // Test setup
@@ -355,11 +355,11 @@ Always include tests for:
 
 ### 1. Create the Mock File
 
-Create a new file in `Tests/AppleBoxTests/Mocks/` named `Mock{Component}.swift`:
+Create a new file in `Tests/BitekeyTests/Mocks/` named `Mock{Component}.swift`:
 
 ```swift
 import Foundation
-@testable import AppleBox
+@testable import Bitekey
 
 final class MockNewService: NewServiceProtocol {
     // Implementation
@@ -421,7 +421,7 @@ func simulateChange(data: Data) {
 
 ## Snapshot Testing
 
-AppleBox uses
+Bitekey uses
 [swift-snapshot-testing](https://github.com/pointfreeco/swift-snapshot-testing)
 for visual regression testing.
 
@@ -446,7 +446,7 @@ content colors. They do not check the glass material.
 Reference images are stored in:
 
 ```text
-Tests/AppleBoxTests/__Snapshots__/SnapshotTests/{testMethodName}.{light|dark}.png
+Tests/BitekeyTests/__Snapshots__/SnapshotTests/{testMethodName}.{light|dark}.png
 ```
 
 ### Updating Snapshots
@@ -470,7 +470,7 @@ that the filter selects.
 
 ## Local Checks (Git Hooks)
 
-AppleBox has no push or pull-request CI. Every check runs on the developer's Mac
+Bitekey has no push or pull-request CI. Every check runs on the developer's Mac
 through tracked git hooks, which saves macOS Actions minutes (billed at 10x).
 
 ### Setting Up Hooks
@@ -549,7 +549,7 @@ swift test --show-codecov-path
 # Generate text report
 BIN_PATH=$(swift build --show-bin-path)
 xcrun llvm-cov report \
-  "${BIN_PATH}/AppleBoxPackageTests.xctest/Contents/MacOS/AppleBoxPackageTests" \
+  "${BIN_PATH}/BitekeyPackageTests.xctest/Contents/MacOS/BitekeyPackageTests" \
   -instr-profile="${BIN_PATH}/codecov/default.profdata" \
   -ignore-filename-regex='.build|Tests'
 ```
@@ -610,7 +610,7 @@ Consider adding direct access methods for faster unit testing when appropriate.
 
 ## Troubleshooting
 
-### Tests Fail with "No such module 'AppleBox'"
+### Tests Fail with "No such module 'Bitekey'"
 
 Run `swift build` first to compile the main module:
 

@@ -1,8 +1,8 @@
-# AppleBox Release Guide
+# Bitekey Release Guide
 
 ## Overview
 
-This document outlines the complete release process for AppleBox, including
+This document outlines the complete release process for Bitekey, including
 code signing and notarization for macOS distribution.
 
 ```text
@@ -88,10 +88,11 @@ If missing:
 
 #### 2. Notarization Credentials
 
-Store credentials in Keychain (one-time):
+Releases need the notary keychain profile `Bitekey-Notarize`. Store it once
+with `xcrun notarytool store-credentials Bitekey-Notarize`:
 
 ```bash
-xcrun notarytool store-credentials "AppleBox-Notarize" \
+xcrun notarytool store-credentials "Bitekey-Notarize" \
     --apple-id "your-apple-id@example.com" \
     --team-id "YOUR_TEAM_ID"
 ```
@@ -100,7 +101,7 @@ You'll be prompted for an **App-Specific Password**:
 
 1. Go to [appleid.apple.com](https://appleid.apple.com)
 2. Sign In → Security → App-Specific Passwords
-3. Generate password for "AppleBox Notarization"
+3. Generate password for "Bitekey Notarization"
 
 #### 3. GitHub CLI Authentication
 
@@ -156,12 +157,12 @@ Check your app's signature:
 ```bash
 make check-adhoc
 # or manually:
-codesign -dv --verbose=2 .build/release/AppleBox.app 2>&1 | grep -E "Signature|Authority|Team"
+codesign -dv --verbose=2 .build/release/Bitekey.app 2>&1 | grep -E "Signature|Authority|Team"
 ```
 
 ### Entitlements
 
-The `Resources/AppleBox.entitlements` file declares security permissions:
+The `Resources/Bitekey.entitlements` file declares security permissions:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -212,7 +213,7 @@ Apple scans your app for malware and issues a "ticket" proving it's safe.
 make check-notarize ID=b9976e01-0b7d-4f0a-9a61-79d65ef0731a
 
 # Get detailed log
-xcrun notarytool log <ID> --keychain-profile "AppleBox-Notarize"
+xcrun notarytool log <ID> --keychain-profile "Bitekey-Notarize"
 ```
 
 ### Common Notarization Issues
@@ -348,7 +349,7 @@ make release NOTES="Your release notes"
 
 ```bash
 # Check if notarized
-spctl -a -t exec -vv .build/release/AppleBox.app
+spctl -a -t exec -vv .build/release/Bitekey.app
 
 # If not, re-notarize
 make notarize
@@ -381,7 +382,7 @@ security find-identity -v -p codesigning
 
 ```bash
 # Verify app passes Gatekeeper
-spctl -a -t exec -vv .build/release/AppleBox.app
+spctl -a -t exec -vv .build/release/Bitekey.app
 
 # Should show: "accepted" and "Notarized Developer ID"
 ```
@@ -418,7 +419,7 @@ git push origin --delete v1.2.0
 | `VERSION` | from Info.plist | Release version |
 | `DEVELOPER_ID` | hardcoded | Code signing certificate |
 | `TEAM_ID` | `6C96BU4M82` | Apple Team ID |
-| `NOTARIZE_PROFILE` | `AppleBox-Notarize` | Keychain profile name |
+| `NOTARIZE_PROFILE` | `Bitekey-Notarize` | Keychain profile name |
 | `NOTES` | (required) | Release notes inline |
 | `NOTES_FILE` | (optional) | Path to release notes file |
 

@@ -1,22 +1,22 @@
-# Contributing to AppleBox
+# Contributing to Bitekey
 
 Thank you for your interest. This guide tells you how to report a problem,
-how to build AppleBox, and the rules for project collaborators.
+how to build Bitekey, and the rules for project collaborators.
 
 ## How to contribute
 
-AppleBox accepts issues from everyone. Only project collaborators can push
+Bitekey accepts issues from everyone. Only project collaborators can push
 and open pull requests. The repository blocks pull requests from other
 accounts.
 
-- For a bug, open a bug report issue. Give the macOS version, the AppleBox
+- For a bug, open a bug report issue. Give the macOS version, the Bitekey
   version, and the steps that cause the bug.
 - For a new feature, open a feature request. Tell what you want to do and
   why.
 - For a security problem, do not open an issue. Follow
   [SECURITY.md](SECURITY.md).
 
-You can fork AppleBox and change it under the [MIT License](LICENSE).
+You can fork Bitekey and change it under the [MIT License](LICENSE).
 
 ## Build
 
@@ -27,7 +27,7 @@ make build
 make test
 ```
 
-To run AppleBox from a local build, see **Local Install** in
+To run Bitekey from a local build, see **Local Install** in
 [README.md](README.md).
 
 ## Rules for collaborators

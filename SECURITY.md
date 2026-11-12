@@ -13,7 +13,7 @@ Report it privately through
 [GitHub private vulnerability reporting](https://github.com/sagmans/applebox/security/advisories/new).
 Include:
 
-- The AppleBox version and the macOS version
+- The Bitekey version and the macOS version
 - The steps that cause the problem
 - What an attacker can do with it, for example read clipboard history
 
@@ -24,5 +24,5 @@ Include:
 3. We release the fix, then publish an advisory. If you agree, the advisory
    gives you credit.
 
-AppleBox stores clipboard history on your Mac, so problems that expose that
+Bitekey stores clipboard history on your Mac, so problems that expose that
 history to other apps or users have high priority.

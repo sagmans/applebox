@@ -1,12 +1,12 @@
-# AppleBox - Minimal macOS Launcher
+# Bitekey - Minimal macOS Launcher
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-AppleBox is a minimal macOS launcher for app search and clipboard history.
+Bitekey is a minimal macOS launcher for app search and clipboard history.
 
 ## Building
 
-AppleBox requires macOS 26 or later and Swift 6.2 or later.
+Bitekey requires macOS 26 or later and Swift 6.2 or later.
 
 ```bash
 swift build
@@ -21,11 +21,11 @@ swift run
 ## Local Install
 
 `make install` puts a signed development copy at
-`~/Applications/AppleBox.app`. Open it from Finder or run
-`open ~/Applications/AppleBox.app`.
+`~/Applications/Bitekey.app`. Open it from Finder or run
+`open ~/Applications/Bitekey.app`.
 
 Run `make local-signing` once first. It creates a self-signed code-signing
-identity, "AppleBox Local Development", in your login keychain. Local builds
+identity, "Bitekey Local Development", in your login keychain. Local builds
 sign with it, so macOS keeps the paste permission across rebuilds; you grant
 it once. Without it, builds are ad-hoc signed and macOS forgets the permission
 after each build. The identity is for local builds only: releases are signed
@@ -33,8 +33,8 @@ with the Developer ID and notarized (`make ship`).
 
 If you granted the permission to an earlier build with a different signature,
 turning the switch off and on is not enough: macOS keeps the old signature. In
-System Settings → Privacy & Security, select AppleBox in the paste permission
-pane, remove it with **−**, then add `~/Applications/AppleBox.app` with **+**.
+System Settings → Privacy & Security, select Bitekey in the paste permission
+pane, remove it with **−**, then add `~/Applications/Bitekey.app` with **+**.
 
 Dev and release builds share the bundle ID, saved data, and hotkeys, so run
 one at a time. Because their signatures differ, macOS asks for the paste
@@ -44,11 +44,26 @@ To update, run `make install` again. It stops any running copy first. The
 installer replaces the bundle and keeps saved clips, recent apps, and
 preferences. `make uninstall` moves the bundle to Trash and keeps that data.
 
-To opt in to startup, select **Launch at Login → Start AppleBox Automatically**
+To opt in to startup, select **Launch at Login → Start Bitekey Automatically**
 in the menu bar. Select it again to disable it. If macOS asks for approval,
 choose **Open Login Items Settings** from the same submenu. You can also add or
 remove the installed app under **System Settings → General → Login Items &
 Extensions → Open at Login**. Disable automatic startup before uninstalling.
+
+## Moving from AppleBox
+
+Bitekey was named AppleBox before. Follow these steps to move.
+
+1. Quit AppleBox. Turn off its login item.
+2. Run `make local-signing`. It makes the new identity,
+   "Bitekey Local Development".
+3. Run `make install`. It refuses to run while AppleBox runs.
+4. Open Bitekey. The first launch copies clip history, recent apps, and
+   shortcut choices. AppleBox data stays unchanged.
+5. Grant the paste permission to Bitekey once.
+6. Check that your old clips show in the Bitekey clipboard history. Then move
+   `~/Library/Application Support/AppleBox` and `~/Applications/AppleBox.app`
+   to the Trash.
 
 ## Testing
 
@@ -92,7 +107,7 @@ swift test --show-codecov-path
 # Generate a text report using llvm-cov
 BIN_PATH=$(swift build --show-bin-path)
 xcrun llvm-cov report \
-  "${BIN_PATH}/AppleBoxPackageTests.xctest/Contents/MacOS/AppleBoxPackageTests" \
+  "${BIN_PATH}/BitekeyPackageTests.xctest/Contents/MacOS/BitekeyPackageTests" \
   -instr-profile="${BIN_PATH}/codecov/default.profdata" \
   -ignore-filename-regex='.build|Tests'
 ```
@@ -114,10 +129,10 @@ and SwiftLint versions.
 
 - **Global shortcuts** open app search with `Cmd+Space` and clipboard history
   with `Opt+Space` by default. Choose a preset for each mode under
-  **Global Shortcuts** in the AppleBox menu. The check mark shows the active
-  shortcut. If macOS rejects a choice, AppleBox keeps the current shortcut.
-- **Menu bar**: Open either mode, retry global shortcuts, or quit AppleBox
-- **Clipboard history** keeps plain text and PNG or TIFF images. AppleBox
+  **Global Shortcuts** in the Bitekey menu. The check mark shows the active
+  shortcut. If macOS rejects a choice, Bitekey keeps the current shortcut.
+- **Menu bar**: Open either mode, retry global shortcuts, or quit Bitekey
+- **Clipboard history** keeps plain text and PNG or TIFF images. Bitekey
   checks for copies about every 200 ms while capture is enabled. If several
   copies replace each other before a check, only the latest can be captured.
 - **Liquid Glass panel**: The launcher is a glass panel that opens on the screen
@@ -153,4 +168,4 @@ Do not report security problems in public issues. See
 
 ## License
 
-AppleBox is released under the [MIT License](LICENSE).
+Bitekey is released under the [MIT License](LICENSE).

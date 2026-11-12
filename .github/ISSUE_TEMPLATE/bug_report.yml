@@ -87,6 +87,8 @@ body:
       description: |
         Paste relevant logs. To capture Bitekey logs run:
         `log stream --style syslog --predicate 'subsystem == "com.assagman.bitekey"' --info`
+
+        Builds before the rename log under `com.assagman.applebox`.
         If built from source, include `swift run` output.
       render: text
     validations:
