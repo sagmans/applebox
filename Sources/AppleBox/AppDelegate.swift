@@ -2,9 +2,20 @@ import AppKit
 import OSLog
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Menu bar artwork drawn from the AppleBox logo, so the status item reads as
+    /// this app instead of a generic placeholder glyph.
+    private enum StatusIcon {
+        /// Base name of the bundled PNGs; AppKit picks the @2x file on Retina screens.
+        static let resourceName = "MenuBarIconTemplate"
+        /// Apple's menu bar extra guideline height. Pinned so replacement artwork drawn
+        /// at another pixel size still fills the same slot as the system icons.
+        static let pointSize = NSSize(width: 18, height: 18)
+        /// SF Symbol used when the logo is not bundled, such as in `swift run` builds.
+        static let fallbackSymbol = "square.grid.2x2"
+    }
+
     private enum MenuTitle {
         static let app = "AppleBox"
-        static let icon = "square.grid.2x2"
         static let search = "Search Applications"
         static let clipboard = "Clipboard History"
         static let shortcuts = "Global Shortcuts"
@@ -76,8 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            if let icon = NSImage(systemSymbolName: MenuTitle.icon, accessibilityDescription: MenuTitle.app) {
-                icon.isTemplate = true
+            if let icon = statusIconImage() {
                 button.image = icon
             } else {
                 button.title = MenuTitle.app
@@ -97,6 +107,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addStatusAction(to: menu, title: MenuTitle.quit, action: #selector(quitFromMenu))
         item.menu = menu
         statusItem = item
+    }
+
+    /// Prefers the bundled logo artwork and falls back to an SF Symbol, so the menu
+    /// stays reachable even when the bundle lacks the image.
+    private func statusIconImage() -> NSImage? {
+        guard let logo = Bundle.main.image(forResource: StatusIcon.resourceName) else {
+            // Notice, not error: unbundled dev builds reach this path on purpose.
+            logger.notice("Status icon not bundled, using fallback: \(StatusIcon.resourceName, privacy: .public)")
+            let symbol = NSImage(systemSymbolName: StatusIcon.fallbackSymbol, accessibilityDescription: MenuTitle.app)
+            symbol?.isTemplate = true
+            return symbol
+        }
+        logo.size = StatusIcon.pointSize
+        // Template mode lets AppKit tint the artwork for light, dark and highlighted states.
+        logo.isTemplate = true
+        logo.accessibilityDescription = MenuTitle.app
+        return logo
     }
 
     private func addStatusAction(to menu: NSMenu, title: String, action: Selector) {

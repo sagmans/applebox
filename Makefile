@@ -39,6 +39,9 @@ DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
 TEAM_ID := 6C96BU4M82
 NOTARIZE_PROFILE := AppleBox-Notarize
 ENTITLEMENTS := Resources/AppleBox.entitlements
+# Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
+# on Retina screens instead of upscaling the 18 px file.
+MENU_BAR_ICONS := Resources/MenuBarIconTemplate.png Resources/MenuBarIconTemplate@2x.png
 
 # Exact SwiftFormat release the tree is formatted with. Each release can add or
 # change rules, so another local version rewrites files or fails format-check
@@ -220,6 +223,7 @@ bundle: build
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP_BUNDLE)/Contents/MacOS/"
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/"
 	@cp Resources/AppIcon.icns "$(APP_BUNDLE)/Contents/Resources/"
+	@cp $(MENU_BAR_ICONS) "$(APP_BUNDLE)/Contents/Resources/"
 	@# Touch app bundle to refresh icon cache
 	@touch "$(APP_BUNDLE)"
 	@# Copy entitlements if exists (for reference, not embedded in bundle)
