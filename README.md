@@ -44,6 +44,12 @@ To update, run `make install` again. It stops any running copy first. The
 installer replaces the bundle and keeps saved clips, recent apps, and
 preferences. `make uninstall` moves the bundle to Trash and keeps that data.
 
+`make bundle` and `make install` need full Xcode, not only the Command Line
+Tools: they compile the app icon with Xcode's asset compiler. If you change
+the logo, edit the constants in `scripts/icons/` and run `make icons`. It
+regenerates the icon sources, the menu-bar images, `Resources/Logo.png` and
+`Resources/AppIcon.icns`. Commit those files with the change.
+
 To opt in to startup, select **Launch at Login → Start Bitekey Automatically**
 in the menu bar. Select it again to disable it. If macOS asks for approval,
 choose **Open Login Items Settings** from the same submenu. You can also add or
