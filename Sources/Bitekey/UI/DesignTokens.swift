@@ -66,18 +66,28 @@ enum DesignTokens {
     /// Colors for tint, highlight and clip kinds (spec section 4, "Palette"). Semantic names let a theme
     /// change happen here without touching views.
     enum Palette {
-        /// Accent of apps mode: amber/honey. Warm on purpose so the launcher reads as one family instead of
-        /// borrowing the user's system accent. Each mode keeps a light and a dark value for contrast.
-        static let appTint = dynamicColor(light: (0.70, 0.44, 0.12), dark: (0.82, 0.56, 0.22))
-        /// Accent of clipboard mode: copper/terracotta, close enough to amber to belong to the family yet
-        /// distinct enough that the two modes are told apart at a glance.
-        static let clipTint = dynamicColor(light: (0.62, 0.30, 0.16), dark: (0.76, 0.40, 0.24))
-        /// Ivory (light) or espresso (dark) wash over the body glass; gives the panel a calm warm base.
-        static let surfaceTint = dynamicColor(light: (0.96, 0.91, 0.84), dark: (0.14, 0.10, 0.08))
+        /// Accent fill of apps mode: the deep violet of the keycap icon's tinted-dark rendition, so the
+        /// launcher reads as part of the icon instead of borrowing the user's system accent. Used only for
+        /// fills (selection capsule, hairline); in dark mode it is too dark for marks, see `appInk`. The
+        /// light value is a lighter violet, because black row text must keep 4.5:1 on the capsule even at
+        /// the Increase Contrast strength.
+        static let appTint = dynamicColor(light: (0.42, 0.36, 0.62), dark: (0.243, 0.204, 0.353))
+        /// Accent fill of clipboard mode: a plum partner of the violet, close enough to belong to the
+        /// family yet distinct enough that the two modes are told apart at a glance.
+        static let clipTint = dynamicColor(light: (0.54, 0.36, 0.56), dark: (0.333, 0.204, 0.345))
+        /// Foreground marks of apps mode (caret, mode symbol, toast check). The deep fill reaches only
+        /// 1.5:1 on the dark surface, so dark mode uses a lavender of the same hue that clears 3:1; light
+        /// mode keeps the deep violet, which reads as a mark there.
+        static let appInk = dynamicColor(light: (0.30, 0.25, 0.47), dark: (0.78, 0.72, 0.98))
+        /// Foreground marks of clipboard mode, for the same reason as `appInk`.
+        static let clipInk = dynamicColor(light: (0.42, 0.25, 0.44), dark: (0.90, 0.70, 0.92))
+        /// Lavender-white (light) or ink-violet (dark) wash over the body glass; a calm base that matches
+        /// the violet accents.
+        static let surfaceTint = dynamicColor(light: (0.94, 0.92, 0.97), dark: (0.10, 0.09, 0.13))
         /// Match characters on rows that are not selected; dark enough (light) or bright enough (dark) to
-        /// reach 4.5:1 against the warm surface where the plain accent would not.
-        static let matchText = dynamicColor(light: (0.55, 0.30, 0.06), dark: (1.00, 0.80, 0.45))
-        /// Strength of the warm wash over the glass; low enough that the material still shows through.
+        /// reach 4.5:1 against the violet surface where the plain accent would not.
+        static let matchText = dynamicColor(light: (0.36, 0.25, 0.58), dark: (0.80, 0.74, 1.00))
+        /// Strength of the violet wash over the glass; low enough that the material still shows through.
         static let surfaceTintOpacity: Double = 0.45
         /// Strength of the mode accent on the panel's hairline border; subtle so it signals the mode
         /// without competing with the content.

@@ -85,13 +85,13 @@ extension DesignTokens.Palette {
     /// Strength of the fill behind the link host in the preview header; its own value so retuning match
     /// underlays does not change the link badge.
     static let linkHostOpacity: Double = 0.18
-    /// Opaque stand-in for glass in snapshot mode. Fixed sRGB warm tones keep the references independent of the
-    /// display profile and of whatever sits behind the panel (ASG-1279); the light and dark values differ
-    /// so text keeps the contrast it has over real glass in each appearance.
-    static let snapshotSurface = dynamicColor(light: (0.94, 0.90, 0.84), dark: (0.15, 0.12, 0.10))
-    /// Stand-in for the selection capsule in snapshot mode; set apart from the surface so the highlighted
-    /// row is visible in the references.
-    static let snapshotSelection = dynamicColor(light: (0.86, 0.70, 0.48), dark: (0.45, 0.30, 0.16))
+    /// Opaque stand-in for glass in snapshot mode. Fixed sRGB violet-tinted tones keep the references independent
+    /// of the display profile and of whatever sits behind the panel (ASG-1279); the light and dark values
+    /// differ so text keeps the contrast it has over real glass in each appearance.
+    static let snapshotSurface = dynamicColor(light: (0.93, 0.91, 0.96), dark: (0.11, 0.10, 0.14))
+    /// Opaque stand-in for the violet selection capsule over the surface in snapshot mode; not `appTint`
+    /// itself, but set apart from the surface so the highlighted row is visible in the references.
+    static let snapshotSelection = dynamicColor(light: (0.65, 0.61, 0.77), dark: (0.24, 0.20, 0.35))
 
     /// Strength of the glow behind an app icon, tinted with the icon's own average color. Low so it
     /// reads as depth rather than a second highlight competing with the selection capsule.

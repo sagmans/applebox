@@ -10,8 +10,10 @@ struct SearchBar: View {
     @FocusState private var isFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var tint: Color {
-        model.mode == .clipboard ? DesignTokens.Palette.clipTint : DesignTokens.Palette.appTint
+    /// Marks, not fills: the caret and mode symbol need the readable ink, since the deep accent fill
+    /// nearly vanishes on the dark surface.
+    private var ink: Color {
+        model.mode == .clipboard ? DesignTokens.Palette.clipInk : DesignTokens.Palette.appInk
     }
 
     private var modeSymbol: String {
@@ -28,7 +30,7 @@ struct SearchBar: View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             Image(systemName: modeSymbol)
                 .font(DesignTokens.Typography.search)
-                .foregroundStyle(tint)
+                .foregroundStyle(ink)
                 .frame(width: DesignTokens.Metrics.modeSymbolWidth)
                 // The replace effect shows the mode change as a swap; Reduce Motion gets a plain cut.
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
@@ -37,8 +39,8 @@ struct SearchBar: View {
                 .textFieldStyle(.plain)
                 .font(DesignTokens.Typography.search)
                 .focused($isFocused)
-                // The caret follows the mode accent; the system accent would clash with the warm palette.
-                .tint(tint)
+                // The caret follows the mode accent; the system accent would clash with the violet palette.
+                .tint(ink)
                 .accessibilityIdentifier(DesignTokens.Identifier.searchField)
                 .accessibilityLabel(DesignTokens.Copy.searchFieldLabel)
                 .accessibilityHint(model.searchShortcutHelp)

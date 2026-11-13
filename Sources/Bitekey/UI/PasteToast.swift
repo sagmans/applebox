@@ -24,11 +24,11 @@ enum PasteToastKind {
         }
     }
 
-    /// Success follows the launcher accent so it reads as part of the app; the others use the palette's
-    /// attention colors so they stand out from a routine confirmation.
+    /// Success follows the launcher accent ink (the readable mark variant) so it reads as part of the app;
+    /// the others use the palette's attention colors so they stand out from a routine confirmation.
     var color: Color {
         switch self {
-        case .confirmation: DesignTokens.Palette.appTint
+        case .confirmation: DesignTokens.Palette.appInk
         case .guidance: DesignTokens.Palette.warning
         case .failure: DesignTokens.Palette.error
         }
@@ -61,7 +61,7 @@ final class PasteToastState {
     var bounces = 0
 }
 
-/// The notice itself: a glass capsule in the launcher's warm family. It sits in a panel that never takes
+/// The notice itself: a glass capsule in the launcher's violet family. It sits in a panel that never takes
 /// focus, so it has no interactive parts.
 struct PasteToastView: View {
     let state: PasteToastState
@@ -94,7 +94,7 @@ struct PasteToastView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Reduce Transparency swaps the glass for the solid warm surface, since glass would still show what
+    /// Reduce Transparency swaps the glass for the solid violet surface, since glass would still show what
     /// is behind it.
     @ViewBuilder private var surface: some View {
         if reduceTransparency {
