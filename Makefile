@@ -20,7 +20,13 @@ INSTALL_DIR := $(HOME)/Applications
 LOCAL_INSTALLER := scripts/install-local.swift
 # Owns every icon geometry and color constant, so all icon files come from one
 # reviewed script instead of hand edits in a design tool.
-ICON_GENERATOR := scripts/render-icons.swift
+ICON_GENERATOR := scripts/icons
+# The generator spans several files, which `swift <file>` cannot run, so it is
+# compiled into the ignored `.build` folder. Absolute source paths matter: the
+# generator finds the repository root from its compile-time source path.
+ICON_SOURCES := $(abspath $(wildcard $(ICON_GENERATOR)/*.swift))
+ICON_BUILD_DIR := .build/icons
+ICON_BINARY := $(ICON_BUILD_DIR)/render-icons
 # Local builds sign with a stable self-signed identity (made once by `make local-signing`),
 # because an ad-hoc signature changes on every build and macOS then forgets the app's
 # privacy grants, such as the paste permission. Without that identity, builds fall back to
@@ -80,9 +86,16 @@ SWIFT_SAST_PATHS := Sources Resources scripts/benchmark-search.swift $(LOCAL_INS
 # Production Swift only: tests repeat setup on purpose so each reads alone.
 DUPLICATION_PATHS := Sources scripts/benchmark-search.swift $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 DUPLICATION_TIMEOUT := 120
-# Bounds `make icons`, which compiles the generator before it runs, so a hung
-# AppKit load or compile fails the target instead of blocking the shell.
+# Bounds each `make icons` step (compile, sources, bitmaps), so a hung
+# compile, AppKit load or Xcode tool fails the target instead of blocking the
+# shell. The bitmaps step takes about 7 s (one xcode-select, seven ictool
+# renders, one actool compile, two iconutil runs). Each tool also has its own
+# timeout inside the generator, but their worst-case sum is several minutes,
+# so this outer bound governs: a run of slow-but-alive tools stops at 120 s.
 ICON_TIMEOUT := 120
+# After ICON_TIMEOUT sends SIGTERM, a child that ignores it is killed this
+# many seconds later, so `make icons` always returns.
+ICON_KILL_AFTER := 10
 
 # Colors for output
 RED := \033[0;31m
@@ -235,8 +248,13 @@ lint: swiftlint-version
 # after changing the mark, then commit the outputs: the build reads the
 # committed files, so `swift run` and `make bundle` never need to redraw.
 icons:
+	@echo "$(BLUE)Compiling the icon generator...$(NC)"
+	@mkdir -p "$(ICON_BUILD_DIR)"
+	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) swiftc -O $(ICON_SOURCES) -o "$(ICON_BINARY)"
 	@echo "$(BLUE)Generating icon sources...$(NC)"
-	@timeout $(ICON_TIMEOUT) swift "$(ICON_GENERATOR)" sources
+	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" sources
+	@echo "$(BLUE)Rendering icon bitmaps (needs Xcode)...$(NC)"
+	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" bitmaps
 
 bundle: build
 	@echo "$(BLUE)Creating app bundle...$(NC)"
