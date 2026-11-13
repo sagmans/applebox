@@ -36,7 +36,7 @@ enum Tool {
     /// Bounds the wait for `ictool`'s helper to finish a write after a timeout.
     static let orphanedWriteGrace: TimeInterval = 5
     static let orphanedWritePoll: TimeInterval = 0.05
-    /// Keeps a chatty tool's stderr readable inside one error message.
+    /// Keeps a chatty tool's output readable inside one error message.
     static let stderrLimit = 2000
 }
 
@@ -59,10 +59,10 @@ enum ToolArguments {
     static let appIcon = "--app-icon"
     static let outputPartialInfoPlist = "--output-partial-info-plist"
     static let actoolPlatform = "macosx"
-    /// Matches `LSMinimumSystemVersion` in Info.plist and `.macOS(.v26)` in Package.swift.
-    static let deploymentTarget = "26.0"
     static let appIconName = "AppIcon"
     static let compiledIcon = "AppIcon.icns"
+    /// The compiled catalog the app bundle ships so macOS 26 draws the glass icon.
+    static let compiledCatalog = "Assets.car"
     static let partialPlist = "partial-info.plist"
     /// `iconutil` flags: convert to a type, and the output path.
     static let convert = "-c"
@@ -168,9 +168,10 @@ struct ToolRun {
             throw RenderFailure.toolTimedOut(tool: name, arguments: arguments, elapsed: Date().timeIntervalSince(start))
         }
         guard process.terminationReason == .exit, process.terminationStatus == EXIT_SUCCESS else {
-            let stderr = logText(stderrURL)
             throw RenderFailure.toolFailed(tool: name, arguments: arguments, status: process.terminationStatus,
-                                           elapsed: Date().timeIntervalSince(start), stderr: String(stderr.prefix(Tool.stderrLimit)))
+                                           elapsed: Date().timeIntervalSince(start),
+                                           stdout: String(logText(stdoutURL).prefix(Tool.stderrLimit)),
+                                           stderr: String(logText(stderrURL).prefix(Tool.stderrLimit)))
         }
         return logText(stdoutURL)
     }
@@ -224,7 +225,7 @@ struct XcodeTools {
         let reported: String
         do {
             reported = try lookup.run(in: workspace).trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch let RenderFailure.toolFailed(_, _, status, _, stderr) {
+        } catch let RenderFailure.toolFailed(_, _, status, _, _, stderr) {
             // Keeps the lookup's exit status and stderr, so the missing-Xcode
             // error still shows why `xcode-select` refused.
             throw RenderFailure.toolMissing(tool: Tool.xcodeName, path: "\(Tool.xcodeSelect) \(ToolArguments.printPath) reports no developer directory (status \(status): \(stderr))")

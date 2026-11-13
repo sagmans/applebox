@@ -4,8 +4,8 @@
 // uses only system frameworks, because third-party renderers carry
 // supply-chain and SVG-parser risk. `make icons` compiles this folder and runs
 // `sources`, then `bitmaps`: `bitmaps` renders the vector files that `sources`
-// writes.
-// Usage: render-icons sources | bitmaps
+// writes. `make bundle` runs `catalog` to compile the glass icon for the app.
+// Usage: render-icons sources | bitmaps | catalog <output-dir>
 
 import Foundation
 
@@ -14,12 +14,30 @@ import Foundation
 enum Command: String, CaseIterable {
     case sources
     case bitmaps
+    case catalog
+
+    /// Shown in the usage message, so the operand a command needs is visible.
+    var usage: String {
+        switch self {
+        case .sources, .bitmaps: rawValue
+        case .catalog: "\(rawValue) <output-dir>"
+        }
+    }
+
+    /// Operands after the command word; a mismatch is rejected before any work.
+    var operandCount: Int {
+        switch self {
+        case .sources, .bitmaps: 0
+        case .catalog: 1
+        }
+    }
 
     /// One exhaustive switch, so a new command fails to compile until it runs.
-    func run() throws {
+    func run(operands: [String]) throws {
         switch self {
         case .sources: try writeSources()
         case .bitmaps: try writeBitmaps()
+        case .catalog: try writeCatalog(outputDirectory: operands[0])
         }
     }
 
@@ -42,10 +60,10 @@ enum Command: String, CaseIterable {
 func main() -> Int32 {
     let arguments = Array(CommandLine.arguments.dropFirst())
     do {
-        guard arguments.count == 1, let command = Command(rawValue: arguments[0]) else {
+        guard let word = arguments.first, let command = Command(rawValue: word), arguments.count == command.operandCount + 1 else {
             throw RenderFailure.invalidArguments(arguments)
         }
-        try command.run()
+        try command.run(operands: Array(arguments.dropFirst()))
         return EXIT_SUCCESS
     } catch {
         fputs("render-icons: \(error.localizedDescription)\n", stderr)

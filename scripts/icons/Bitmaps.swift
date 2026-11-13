@@ -286,11 +286,8 @@ struct AppIconRenderer {
 /// margin reference comes from the toolchain that builds the app.
 func actoolReference(document: URL, actool: String, in workspace: Workspace) throws -> NSBitmapImageRep {
     let compiled = try workspace.directory(Scratch.actoolDirectory)
-    try ToolRun(name: Tool.actoolName, executable: actool, arguments: [
-        document.path, ToolArguments.compile, compiled.path, ToolArguments.platform, ToolArguments.actoolPlatform,
-        ToolArguments.minimumDeploymentTarget, ToolArguments.deploymentTarget, ToolArguments.appIcon, ToolArguments.appIconName,
-        ToolArguments.outputPartialInfoPlist, compiled.appendingPathComponent(ToolArguments.partialPlist).path,
-    ], timeout: Tool.actoolTimeout).run(in: workspace)
+    try compileIcon(document: document, into: compiled, partialPlist: compiled.appendingPathComponent(ToolArguments.partialPlist),
+                    actool: actool, in: workspace)
     let iconset = workspace.file("\(Scratch.referenceIconsetName).\(ToolArguments.iconsetExtension)")
     try ToolRun(name: Tool.iconutilName, executable: Tool.iconutil, arguments: [
         ToolArguments.convert, ToolArguments.iconsetType, compiled.appendingPathComponent(ToolArguments.compiledIcon).path,

@@ -4,6 +4,8 @@
   <dict>
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleDisplayName</key>
     <string>Bitekey</string>
     <key>CFBundleExecutable</key>

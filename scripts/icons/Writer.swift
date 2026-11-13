@@ -37,6 +37,12 @@ enum Writer {
     /// Fails closed when the sources were copied, moved or compiled with
     /// relative paths, so it never writes icon files into an unrelated tree.
     static func url(for path: String) throws -> URL {
+        try repositoryRoot().appendingPathComponent(path)
+    }
+
+    /// The confirmed repository root, also used to bound what the catalog
+    /// command may clear.
+    static func repositoryRoot() throws -> URL {
         guard let root = derivedRoot else {
             throw RenderFailure.repositoryRootNotFound(checked: sourceFile)
         }
@@ -44,7 +50,7 @@ enum Writer {
         guard fileManager.fileExists(atPath: marker.path) else {
             throw RenderFailure.repositoryRootNotFound(checked: marker.path)
         }
-        return root.appendingPathComponent(path)
+        return root
     }
 
     /// Atomic, so an interrupted run never leaves a half-written committed file.

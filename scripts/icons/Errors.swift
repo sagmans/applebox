@@ -6,6 +6,10 @@ import Foundation
 /// Each case carries the path, tool or arguments needed to diagnose it in one pass.
 enum RenderFailure: LocalizedError {
     case invalidArguments([String])
+    /// The catalog command clears its output folder first, so a folder outside
+    /// the ignored build area is refused rather than wiped.
+    case unsafeOutputDirectory(path: String, allowedRoot: String)
+    case deploymentTargetUnreadable(path: String, reason: String)
     case writeFailed(path: String, cause: Error)
     case invalidOutput(path: String, reason: String)
     case repositoryRootNotFound(checked: String)
@@ -16,14 +20,18 @@ enum RenderFailure: LocalizedError {
     case badTemplate(path: String, pixel: String)
     case toolMissing(tool: String, path: String)
     case toolLaunchFailed(tool: String, cause: Error)
-    case toolFailed(tool: String, arguments: [String], status: Int32, elapsed: TimeInterval, stderr: String)
+    case toolFailed(tool: String, arguments: [String], status: Int32, elapsed: TimeInterval, stdout: String, stderr: String)
     case toolTimedOut(tool: String, arguments: [String], elapsed: TimeInterval)
 
     /// One sentence per case naming what failed and how to fix it, because `main` prints only this.
     var errorDescription: String? {
         switch self {
         case let .invalidArguments(arguments):
-            "Expected one command (\(Command.allCases.map(\.rawValue).joined(separator: " | "))), got: \(arguments)."
+            "Expected a command (\(Command.allCases.map(\.usage).joined(separator: " | "))), got: \(arguments)."
+        case let .unsafeOutputDirectory(path, allowedRoot):
+            "Refusing to clear \(path): the catalog output folder must be inside \(allowedRoot)."
+        case let .deploymentTargetUnreadable(path, reason):
+            "Could not read the minimum macOS version from \(path): \(reason)."
         case let .writeFailed(path, cause):
             "Could not write \(path): \(cause.localizedDescription)"
         case let .invalidOutput(path, reason):
@@ -40,8 +48,9 @@ enum RenderFailure: LocalizedError {
             "\(tool) was not found (\(path)). Install Xcode 26 or later in /Applications and select it with `xcode-select`; the Command Line Tools alone do not include Icon Composer or actool."
         case let .toolLaunchFailed(tool, cause):
             "Could not start \(tool): \(cause.localizedDescription)"
-        case let .toolFailed(tool, arguments, status, elapsed, stderr):
-            "\(tool) \(arguments) exited with status \(status) after \(String(format: "%.1f", elapsed))s. stderr: \(stderr.isEmpty ? "(empty)" : stderr)"
+        case let .toolFailed(tool, arguments, status, elapsed, stdout, stderr):
+            // actool reports its errors as a plist on stdout, so both streams are needed to diagnose a failure.
+            "\(tool) \(arguments) exited with status \(status) after \(String(format: "%.1f", elapsed))s. stdout: \(stdout.isEmpty ? "(empty)" : stdout) stderr: \(stderr.isEmpty ? "(empty)" : stderr)"
         case let .toolTimedOut(tool, arguments, elapsed):
             "\(tool) \(arguments) did not finish within \(String(format: "%.1f", elapsed))s and was stopped."
         }

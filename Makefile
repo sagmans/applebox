@@ -86,16 +86,31 @@ SWIFT_SAST_PATHS := Sources Resources scripts/benchmark-search.swift $(LOCAL_INS
 # Production Swift only: tests repeat setup on purpose so each reads alone.
 DUPLICATION_PATHS := Sources scripts/benchmark-search.swift $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 DUPLICATION_TIMEOUT := 120
-# Bounds each `make icons` step (compile, sources, bitmaps), so a hung
-# compile, AppKit load or Xcode tool fails the target instead of blocking the
-# shell. The bitmaps step takes about 7 s (one xcode-select, seven ictool
+# Bounds each `make icons` step (compile, sources, bitmaps) and the `make
+# bundle` catalog step (about 3 s: one xcode-select, one actool compile), so a
+# hung compile, AppKit load or Xcode tool fails the target instead of blocking
+# the shell. The bitmaps step takes about 7 s (one xcode-select, seven ictool
 # renders, one actool compile, two iconutil runs). Each tool also has its own
 # timeout inside the generator, but their worst-case sum is several minutes,
 # so this outer bound governs: a run of slow-but-alive tools stops at 120 s.
 ICON_TIMEOUT := 120
 # After ICON_TIMEOUT sends SIGTERM, a child that ignores it is killed this
-# many seconds later, so `make icons` always returns.
+# many seconds later, so `make icons` and the `make bundle` catalog step
+# always return.
 ICON_KILL_AFTER := 10
+# The glass icon only renders from a compiled asset catalog, so `make bundle`
+# has the generator compile the Icon Composer source. The output stays in the
+# ignored `.build` folder because Assets.car is a build product, never
+# committed. The generator also reads the minimum macOS version from
+# Info.plist, so nothing is repeated here.
+# $(CURDIR) makes the path absolute: actool's shared daemon resolves relative
+# paths against its own working directory, possibly in another checkout.
+ICON_CATALOG_DIR := $(CURDIR)/.build/app-icon
+ICON_CATALOG := $(ICON_CATALOG_DIR)/Assets.car
+# `rm -rf` of a bundle path is allowed only for a relative `.build/...*.app`
+# path. A guard (not `override`) is used so a deliberate BUILD_DIR still works
+# while an empty or absolute value, or `..`, is refused with a reason.
+BUNDLE_PATH_PATTERN := .build/*?.app
 
 # Colors for output
 RED := \033[0;31m
@@ -244,23 +259,46 @@ lint: swiftlint-version
 	swiftlint lint --config .swiftlint.yml --force-exclude --reporter $$REPORTER
 	@echo "$(GREEN)Lint OK$(NC)"
 
+# One compile rule for `icons` and `bundle`, so both always run the same
+# generator build. Absolute source paths matter: see ICON_SOURCES.
+$(ICON_BINARY): $(ICON_SOURCES)
+	@echo "$(BLUE)Compiling the icon generator...$(NC)"
+	@mkdir -p "$(ICON_BUILD_DIR)"
+	@# Links to a temp name, then renames: a compile killed by the timeout
+	@# must not leave a partial binary that make later treats as up to date.
+	@rm -f "$(ICON_BINARY).tmp"
+	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) swiftc -O $(ICON_SOURCES) -o "$(ICON_BINARY).tmp"
+	@mv -f "$(ICON_BINARY).tmp" "$(ICON_BINARY)"
+
 # Regenerates the committed icon files from the generator's constants. Run it
 # after changing the mark, then commit the outputs: the build reads the
 # committed files, so `swift run` and `make bundle` never need to redraw.
-icons:
-	@echo "$(BLUE)Compiling the icon generator...$(NC)"
-	@mkdir -p "$(ICON_BUILD_DIR)"
-	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) swiftc -O $(ICON_SOURCES) -o "$(ICON_BINARY)"
+icons: $(ICON_BINARY)
 	@echo "$(BLUE)Generating icon sources...$(NC)"
 	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" sources
 	@echo "$(BLUE)Rendering icon bitmaps (needs Xcode)...$(NC)"
 	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" bitmaps
 
-bundle: build
+bundle: build $(ICON_BINARY)
+	@# Refuse an unsafe bundle path before anything is removed.
+	@case "$(APP_BUNDLE)" in \
+		*..*) echo "error: APP_BUNDLE \"$(APP_BUNDLE)\" contains '..'; refusing to remove it" >&2; exit 1 ;; \
+		$(BUNDLE_PATH_PATTERN)) ;; \
+		*) echo "error: APP_BUNDLE \"$(APP_BUNDLE)\" is not a relative .build/*.app path; refusing to remove it" >&2; exit 1 ;; \
+	esac
+	@echo "$(BLUE)Compiling the app icon (needs Xcode)...$(NC)"
+	@# Compile before the bundle exists, and drop any older bundle on failure: a
+	@# bundle without the glass icon must never look finished.
+	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" catalog "$(ICON_CATALOG_DIR)" \
+		|| { rm -rf "$(APP_BUNDLE)"; exit 1; }
 	@echo "$(BLUE)Creating app bundle...$(NC)"
+	@rm -rf "$(APP_BUNDLE)"
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP_BUNDLE)/Contents/MacOS/"
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/"
+	@# Both icons ship: Assets.car gives macOS 26 the glass icon, and the committed
+	@# .icns stays for the Finder fallback and for the dmg, which reads it directly.
+	@cp "$(ICON_CATALOG)" "$(APP_BUNDLE)/Contents/Resources/"
 	@cp Resources/AppIcon.icns "$(APP_BUNDLE)/Contents/Resources/"
 	@cp $(MENU_BAR_ICONS) "$(APP_BUNDLE)/Contents/Resources/"
 	@# Touch app bundle to refresh icon cache

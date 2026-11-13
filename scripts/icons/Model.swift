@@ -65,6 +65,10 @@ enum OutputPath {
     static let assetsDirectory = "Resources/AppIcon.icon/Assets"
     static let menuSource = "Resources/Icon/MenuBarIcon.svg"
     static let iconDocument = "Resources/AppIcon.icon"
+    /// Source of truth for the minimum macOS version, so actool targets what the app claims.
+    static let infoPlist = "Resources/Info.plist"
+    /// The only area the catalog command may clear; it is ignored by version control.
+    static let buildDirectory = ".build"
     /// AppKit picks the @2x file on Retina screens; the names are what the app loads.
     static let menuTemplate = "Resources/MenuBarIconTemplate.png"
     static let menuTemplateRetina = "Resources/MenuBarIconTemplate@2x.png"
