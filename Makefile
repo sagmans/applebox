@@ -68,7 +68,7 @@ SEARCH_BENCHMARK := .build/bitekey-search-benchmark
 SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 	Sources/Bitekey/SearchService.swift Sources/Bitekey/ApplicationIndexer.swift \
 	Sources/Bitekey/ApplicationFolderMonitor.swift Sources/Bitekey/ApplicationScanRoots.swift \
-	Sources/Bitekey/LogSubsystem.swift \
+	Sources/Bitekey/LogSubsystem.swift Sources/Bitekey/AppDataLocation.swift \
 	Sources/Bitekey/Protocols/FileSystemProtocol.swift Sources/Bitekey/System/SystemFileManager.swift
 SWIFT_SCAN_TIMEOUT := 120
 # Resources is scanned for entitlements and Info.plist keys that weaken the
