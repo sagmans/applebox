@@ -10,7 +10,7 @@ Do not report a security problem in a public issue, pull request, or
 discussion.
 
 Report it privately through
-[GitHub private vulnerability reporting](https://github.com/sagmans/applebox/security/advisories/new).
+[GitHub private vulnerability reporting](https://github.com/sagmans/bitekey/security/advisories/new).
 Include:
 
 - The Bitekey version and the macOS version

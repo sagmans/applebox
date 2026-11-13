@@ -39,7 +39,7 @@ ZIP_NAME := $(APP_NAME)-v$(VERSION)-macOS.zip
 DMG_NAME := $(APP_NAME)-v$(VERSION)-macOS.dmg
 # Public home of the project; release messages link here so a maintainer can
 # open the new release in one click. Change it if the repository moves.
-REPO_URL := https://github.com/sagmans/applebox
+REPO_URL := https://github.com/sagmans/bitekey
 
 # Code signing configuration
 DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
