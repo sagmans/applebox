@@ -57,11 +57,18 @@ struct ClipRow: View, Equatable {
             } else {
                 Image(systemName: DesignTokens.Symbol.badge(for: data.kind))
                     .font(DesignTokens.Typography.badge)
-                    .foregroundStyle(DesignTokens.Palette.badge(for: data.kind))
+                    .foregroundStyle(badgeStyle)
             }
         }
         .frame(width: DesignTokens.Metrics.thumbnailSize, height: DesignTokens.Metrics.thumbnailSize)
         .accessibilityHidden(true)
+    }
+
+    /// Kind colors read on the plain list, but on the plum selection capsule most fall near 1:1 in light
+    /// mode, below the 3:1 a symbol needs. A selected row uses the label color, as its text does; the
+    /// symbol's shape still names the kind there.
+    private var badgeStyle: Color {
+        isSelected ? Color.primary : DesignTokens.Palette.badge(for: data.kind)
     }
 
     static func == (lhs: ClipRow, rhs: ClipRow) -> Bool {
