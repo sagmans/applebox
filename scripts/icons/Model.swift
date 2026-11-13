@@ -72,7 +72,7 @@ enum OutputPath {
     /// AppKit picks the @2x file on Retina screens; the names are what the app loads.
     static let menuTemplate = "Resources/MenuBarIconTemplate.png"
     static let menuTemplateRetina = "Resources/MenuBarIconTemplate@2x.png"
-    /// The README and the dmg show the same art the Dock does.
+    /// Repository brand image (social preview); it shows the same glass art the Dock does.
     static let logo = "Resources/Logo.png"
     /// Shipped instead of `actool`'s `.icns`, which stops at 256 px and is too small for the dmg.
     static let appIcon = "Resources/AppIcon.icns"

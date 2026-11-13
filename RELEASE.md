@@ -61,7 +61,7 @@ This runs the **complete pipeline**:
 
 | Tool | Purpose | Install |
 | ------ | --------- | --------- |
-| Xcode CLI | Swift compiler, codesign | `xcode-select --install` |
+| Xcode 26 or later (full app) | Swift compiler, codesign, app icon compiler (`actool`, Icon Composer) | Mac App Store, then `xcode-select -s /Applications/Xcode.app` |
 | gh | GitHub CLI | `brew install gh` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 

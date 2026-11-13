@@ -18,6 +18,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Renamed AppleBox to Bitekey. The first launch copies clip history, recent
   apps, and shortcut choices from AppleBox. AppleBox data is not changed.
+- Replaced the apple-shaped logo with a grayscale keycap icon. The app ships
+  a native glass icon, so `make bundle` and `make install` need full Xcode,
+  not only the Command Line Tools
 - CI installs exact, checksum-verified SwiftFormat 0.63.1 and SwiftLint 0.65.1
   instead of the latest Homebrew release, so style checks no longer drift
 - `make format` and `make format-check` (and so the pre-commit hook) require
