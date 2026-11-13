@@ -65,6 +65,11 @@ Bitekey was named AppleBox before. Follow these steps to move.
    `~/Library/Application Support/AppleBox` and `~/Applications/AppleBox.app`
    to the Trash.
 
+If your old clips do not show in step 6, the copy failed. Keep the AppleBox
+data. Quit Bitekey, move `~/Library/Application Support/Bitekey` to the Trash,
+and open Bitekey again. The next launch tries the copy again. Clips that
+Bitekey saved before this step are lost.
+
 ## Testing
 
 For a comprehensive testing guide, see **[docs/TESTING.md](docs/TESTING.md)**.
