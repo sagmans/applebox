@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<g transform="translate(145.067,34.133) scale(7.339)">
+<g fill="#f2f2f0">
+<circle cx="18" cy="18" r="4.5" opacity="0.29"/>
+<circle cx="34" cy="18" r="4.5" opacity="0.46"/>
+<circle cx="50" cy="18" r="4.5" opacity="0.63"/>
+<circle cx="66" cy="18" r="4.5" opacity="0.8"/>
+<circle cx="82" cy="18" r="4.5" opacity="0.63"/>
+<circle cx="18" cy="34" r="4.5" opacity="0.46"/>
+<circle cx="34" cy="34" r="4.5" opacity="0.63"/>
+<circle cx="50" cy="34" r="4.5" opacity="0.8"/>
+<rect x="57.5" y="25.5" width="17" height="17" rx="4.25"/>
+<circle cx="82" cy="34" r="4.5" opacity="0.8"/>
+<circle cx="18" cy="50" r="4.5" opacity="0.29"/>
+<circle cx="34" cy="50" r="4.5" opacity="0.46"/>
+<circle cx="50" cy="50" r="4.5" opacity="0.63"/>
+<circle cx="66" cy="50" r="4.5" opacity="0.8"/>
+<circle cx="82" cy="50" r="4.5" opacity="0.63"/>
+<circle cx="18" cy="66" r="4.5" opacity="0.15"/>
+<circle cx="34" cy="66" r="4.5" opacity="0.29"/>
+<circle cx="50" cy="66" r="4.5" opacity="0.46"/>
+<circle cx="66" cy="66" r="4.5" opacity="0.63"/>
+<circle cx="82" cy="66" r="4.5" opacity="0.46"/>
+<circle cx="18" cy="82" r="4.5" opacity="0.15"/>
+<circle cx="34" cy="82" r="4.5" opacity="0.15"/>
+<circle cx="50" cy="82" r="4.5" opacity="0.29"/>
+<circle cx="66" cy="82" r="4.5" opacity="0.46"/>
+<circle cx="82" cy="82" r="4.5" opacity="0.29"/>
+</g>
+</g>
+</svg>

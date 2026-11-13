@@ -1,4 +1,4 @@
-.PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean \
+.PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint hooks bundle run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark-search \
         local-signing sign verify-sign check-adhoc notarize check-notarize staple \
         notary-check zip dmg dist tag tag-push release ship \
@@ -18,6 +18,9 @@ BUILD_DIR := .build/release
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 INSTALL_DIR := $(HOME)/Applications
 LOCAL_INSTALLER := scripts/install-local.swift
+# Owns every icon geometry and color constant, so all icon files come from one
+# reviewed script instead of hand edits in a design tool.
+ICON_GENERATOR := scripts/render-icons.swift
 # Local builds sign with a stable self-signed identity (made once by `make local-signing`),
 # because an ad-hoc signature changes on every build and macOS then forgets the app's
 # privacy grants, such as the paste permission. Without that identity, builds fall back to
@@ -63,7 +66,7 @@ SWIFTFORMAT_RELEASE_URL := https://github.com/nicklockwood/SwiftFormat/releases/
 # fixes in one commit.
 SWIFTLINT_VERSION := 0.65.1
 SWIFTLINT_RELEASE_URL := https://github.com/realm/SwiftLint/releases/tag/$(SWIFTLINT_VERSION)
-SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift $(LOCAL_INSTALLER)
+SWIFT_STYLE_PATHS := Sources Tests scripts/benchmark-search.swift $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 SEARCH_BENCHMARK := .build/bitekey-search-benchmark
 SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 	Sources/Bitekey/SearchService.swift Sources/Bitekey/ApplicationIndexer.swift \
@@ -73,10 +76,13 @@ SEARCH_BENCHMARK_SOURCES := scripts/benchmark-search.swift \
 SWIFT_SCAN_TIMEOUT := 120
 # Resources is scanned for entitlements and Info.plist keys that weaken the
 # hardened runtime or App Transport Security; the Swift rules skip it.
-SWIFT_SAST_PATHS := Sources Resources scripts/benchmark-search.swift $(LOCAL_INSTALLER)
+SWIFT_SAST_PATHS := Sources Resources scripts/benchmark-search.swift $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 # Production Swift only: tests repeat setup on purpose so each reads alone.
-DUPLICATION_PATHS := Sources scripts/benchmark-search.swift $(LOCAL_INSTALLER)
+DUPLICATION_PATHS := Sources scripts/benchmark-search.swift $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 DUPLICATION_TIMEOUT := 120
+# Bounds `make icons`, which compiles the generator before it runs, so a hung
+# AppKit load or compile fails the target instead of blocking the shell.
+ICON_TIMEOUT := 120
 
 # Colors for output
 RED := \033[0;31m
@@ -101,6 +107,7 @@ help:
 	@echo "  make format-check - Fail if formatting is needed (SwiftFormat --lint)"
 	@echo "  make lint         - Run SwiftLint"
 	@echo "  make hooks        - Enable tracked git hooks (run once per clone)"
+	@echo "  make icons        - Regenerate the committed icon files"
 	@echo "  make bundle       - Create .app bundle"
 	@echo "  make run          - Build, bundle, and run app"
 	@echo "  make stop         - Stop running app"
@@ -223,6 +230,13 @@ lint: swiftlint-version
 	if [ "$$GITHUB_ACTIONS" = "true" ]; then REPORTER=github-actions-logging; fi; \
 	swiftlint lint --config .swiftlint.yml --force-exclude --reporter $$REPORTER
 	@echo "$(GREEN)Lint OK$(NC)"
+
+# Regenerates the committed icon files from the generator's constants. Run it
+# after changing the mark, then commit the outputs: the build reads the
+# committed files, so `swift run` and `make bundle` never need to redraw.
+icons:
+	@echo "$(BLUE)Generating icon sources...$(NC)"
+	@timeout $(ICON_TIMEOUT) swift "$(ICON_GENERATOR)" sources
 
 bundle: build
 	@echo "$(BLUE)Creating app bundle...$(NC)"

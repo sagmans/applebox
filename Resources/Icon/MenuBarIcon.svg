@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140" viewBox="0 0 140 140">
+<rect x="14" y="14" width="112" height="112" rx="24" fill="none" stroke="#000000" stroke-width="11"/>
+<g transform="translate(22,22) scale(0.96)">
+<g fill="#000000">
+<circle cx="22" cy="22" r="6.5" opacity="0.36"/>
+<circle cx="40.667" cy="22" r="6.5" opacity="0.58"/>
+<circle cx="59.333" cy="22" r="6.5" opacity="0.8"/>
+<circle cx="78" cy="22" r="6.5" opacity="0.58"/>
+<circle cx="22" cy="40.667" r="6.5" opacity="0.58"/>
+<circle cx="40.667" cy="40.667" r="6.5" opacity="0.8"/>
+<rect x="48.333" y="29.667" width="22" height="22" rx="5.5"/>
+<circle cx="78" cy="40.667" r="6.5" opacity="0.8"/>
+<circle cx="22" cy="59.333" r="6.5" opacity="0.36"/>
+<circle cx="40.667" cy="59.333" r="6.5" opacity="0.58"/>
+<circle cx="59.333" cy="59.333" r="6.5" opacity="0.8"/>
+<circle cx="78" cy="59.333" r="6.5" opacity="0.58"/>
+<circle cx="22" cy="78" r="6.5" opacity="0.15"/>
+<circle cx="40.667" cy="78" r="6.5" opacity="0.36"/>
+<circle cx="59.333" cy="78" r="6.5" opacity="0.58"/>
+<circle cx="78" cy="78" r="6.5" opacity="0.36"/>
+</g>
+</g>
+</svg>

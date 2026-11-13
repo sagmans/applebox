@@ -9,6 +9,7 @@ included:
   - Tests
   - scripts/benchmark-search.swift
   - scripts/install-local.swift
+  - scripts/render-icons.swift
 
 excluded:
   - .build

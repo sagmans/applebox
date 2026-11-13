@@ -1,0 +1,24 @@
+{
+  "fill" : {
+    "solid" : "srgb:0.16471,0.16471,0.16471,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "Legend.svg",
+          "name" : "Legend"
+        },
+        {
+          "image-name" : "Face.svg",
+          "name" : "Face"
+        }
+      ]
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}
